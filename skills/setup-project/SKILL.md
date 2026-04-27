@@ -31,6 +31,12 @@ Steps:
    - `studio site status` — confirm the site is running.
    - `studio wp theme activate <theme_slug>` — activate the project theme.
    - `studio wp plugin install create-block-theme --activate` — install and activate Create Block Theme (useful later for exporting edits from the block editor).
+   - Create the Home and Blog pages, and configure WordPress to use them:
+     - `studio wp post create --post_type=page --post_title=Home --post_status=publish --porcelain` — capture the returned page ID as `<home_id>`.
+     - `studio wp post create --post_type=page --post_title=Blog --post_status=publish --porcelain` — capture the returned page ID as `<blog_id>`.
+     - `studio wp option update show_on_front page`
+     - `studio wp option update page_on_front <home_id>`
+     - `studio wp option update page_for_posts <blog_id>`
 
 5. Tell the user setup is complete, and that the next skills in the flow are `dev-notes`, then `theme-json`, then `map-design-templates`. Do not auto-invoke the next skill — the user runs each one manually.
 
