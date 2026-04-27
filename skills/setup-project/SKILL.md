@@ -1,6 +1,6 @@
 ---
 name: setup-project
-description: Scaffold a new Team 51 WordPress project — download WordPress, clone the theme repo into wp-content, create a Studio site, and write neptune-config.json. Use after `hello` has confirmed the environment, and after the user has created the Pressable site and GitHub repo via the Team51 CLI.
+description: Scaffold a new Team 51 WordPress project — download WordPress, clone the theme repo into wp-content, create a Studio site, and write neptune-config.json. Use after `neptune` has confirmed the environment, and after the user has created the Pressable site and GitHub repo via the Team51 CLI.
 ---
 
 Prerequisites the user must complete before this skill runs:
@@ -33,3 +33,8 @@ Steps:
    - `studio wp plugin install create-block-theme --activate` — install and activate Create Block Theme (useful later for exporting edits from the block editor).
 
 5. Tell the user setup is complete, and that the next skills in the flow are `dev-notes`, then `theme-json`, then `map-design-templates`. Do not auto-invoke the next skill — the user runs each one manually.
+
+6. Tell the user that an empty `screenshots/` directory has been created at the project root, and that **before running `map-design-templates`** they need to manually export every design template from Figma into that folder:
+   - Open the Figma file's `🛠️ Dev Handoff` page → `🗒️ Templates` layer.
+   - For each layout frame under a `Title Card`, export it as **1x PNG** and save it into `screenshots/` at the project root.
+   - File naming is flexible — `map-design-templates` will slugify each filename and match it against the Figma template names. Naming the file after the title card (e.g. `Blog.png`, `Blog Post.png`) is the safest choice.

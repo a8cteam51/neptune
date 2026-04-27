@@ -5,10 +5,10 @@ description: Collate `💬 Dev Note` components from the linked Figma file into 
 
 This skill is safe to re-run; it overwrites the stored notes with the current state of the Figma file.
 
-Goal: find every `💬 Dev Note` component in the Figma file, capture its text and placement context, and save each under a `devNotes` object in `neptune-config.json`. Later skills reference these notes when styling and building templates.
+Goal: find every `💬 Dev Note` component in the Figma file from the `🛠️  Dev Handoff` page, capture its text and placement context, and save each under a `devNotes` object in `neptune-config.json`. Later skills reference these notes when styling and building templates.
 
 1. Read `neptune-config.json` for the Figma file ID. Load the `figma:figma-use` skill before making any Figma MCP calls that require JS execution in the file context.
-2. Use the Figma MCP to find every instance of the `💬 Dev Note` component in the file.
+2. Use the Figma MCP to find every instance of the `💬 Dev Note` component in the `🛠️  Dev Handoff` page. The name may also include a date, if multiple dev handoff pages exist, use the one with the closest to today's date.
 3. For each instance, capture:
    - The text content of the note.
    - The placement context — the parent component or layout the note sits inside (e.g. `Header`, `Blog Post`), plus any elements the note overlaps or points at (e.g. "overlapping the hero CTA button").

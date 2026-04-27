@@ -83,6 +83,8 @@ mv "$temp_dir/style.css" "$style_file"
 mkdir -p "$theme_dir/templates"
 : > "$theme_dir/templates/index.html"
 
+mkdir -p "screenshots"
+
 cat > "$config_file" <<EOF
 {
 	"projectName": "$project_name",
@@ -102,3 +104,4 @@ echo "Ran npm install in $wordpress_dir/wp-content"
 echo "Created placeholder $theme_dir/theme.json"
 echo "Stripped Theme URI header from $style_file"
 echo "Created empty $theme_dir/templates/index.html"
+echo "Created empty screenshots/ directory at the project root"

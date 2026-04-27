@@ -1,10 +1,10 @@
 ---
-name: hello
+name: neptune
 description: Start-of-project environment check for the neptune plugin. Use at the start of a Team 51 site build, before any other plugin skill runs — verifies WordPress Studio CLI, Figma MCP, GitHub CLI, and Team51 CLI are installed and authenticated, then points the user at the next skill in the flow.
 ---
 
 1. Greet the user briefly and list the manual skill flow for this plugin. Each skill is invoked by the user, in order:
-   - `hello` — environment check (this skill).
+   - `neptune` — environment check (this skill).
    - `setup-project` — scaffold the project directory, clone the theme repo, stand up a Studio WordPress site.
    - `dev-notes` — pull `💬 Dev Note` components from Figma into `neptune-config.json`.
    - `theme-json` — generate `theme.json` from the Figma `🎨 Style Guide` and variable tables.

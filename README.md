@@ -28,11 +28,11 @@ Each step below is invoked manually — the plugin never auto-chains.
 
 | Step | Invocation                             | Purpose                                                          |
 | ---- | ---                                    | ---                                                              |
-| 1    | `hello` skill                          | Environment check.                                               |
+| 1    | `neptune` skill                        | Environment check.                                               |
 | 2    | `setup-project` skill                  | Scaffold project + WordPress + theme clone.                      |
 | 3    | `dev-notes` skill                      | Pull `💬 Dev Note` components from Figma into config.            |
 | 4    | `theme-json` skill                     | Generate `theme.json` from Figma styles and variables.           |
-| 5    | `map-design-templates` skill           | Map Figma templates → WP files; scaffold empty files; capture desktop + mobile screenshots to `screenshots/`. |
+| 5    | `map-design-templates` skill           | Map Figma templates → WP files; scaffold empty files; link user-exported screenshots in `screenshots/` to each mapping. |
 | 6    | `/build-template <name>`               | Populate one template/part with block markup. Run per template.  |
 | 7    | `/refine-template <name> <site-url>`   | Visual-diff rendered output against Figma and refine.            |
 
