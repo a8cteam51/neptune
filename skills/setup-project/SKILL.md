@@ -38,6 +38,6 @@ Steps:
      - `studio wp option update page_on_front <home_id>`
      - `studio wp option update page_for_posts <blog_id>`
 
-5. Tell the user setup is complete, and that the next skills in the flow are `dev-notes`, then `theme-json`, then `map-design-templates`. Do not auto-invoke the next skill — the user runs each one manually.
+5. Tell the user setup is complete, and that the next skills in the flow are `dev-notes`, then `map-design-templates`, then `theme-json`. Do not auto-invoke the next skill — the user runs each one manually.
 
 6. Remind the user that the Figma file is the source of truth for the rest of the workflow. All subsequent skills and commands read designs directly from Figma via the Figma MCP — no manual exports are required. Confirm the Figma MCP is reachable before moving on; if it is not, point the user at https://developers.figma.com/docs/figma-mcp-server/remote-server-installation/#claude-code.

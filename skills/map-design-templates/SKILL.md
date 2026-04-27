@@ -1,6 +1,6 @@
 ---
 name: map-design-templates
-description: Map Figma `🗒️ Templates` title cards to WordPress block-theme files, confirm each mapping with the user, scaffold the empty template files, register parts in theme.json, capture the Figma node IDs for each desktop/mobile layout, and capture the page URL where each template renders so later build/refine/content commands and header/footer nav wiring can reuse them without re-asking. Use after theme-json.
+description: Map Figma `🗒️ Templates` title cards to WordPress block-theme files, confirm each mapping with the user, scaffold the empty template files, capture the Figma node IDs for each desktop/mobile layout, and capture the page URL where each template renders so later build/refine/content commands and header/footer nav wiring can reuse them without re-asking. Use after dev-notes; the next skill, `theme-json`, registers the resulting parts and custom templates in `theme.json`.
 ---
 
 In the Figma file, the `🗒️ Templates` layer contains a `Title Card` sublayer per design template; the title card text identifies the page the layout represents (e.g. `Title Card - Home` → the homepage). Beneath each title card there are usually two layout frames: a wider one (desktop) and a narrower one (mobile).
@@ -10,7 +10,6 @@ Figma is the source of truth for the design. Pull every layout directly through 
 Reference context:
 - `wordpress/.agents/skills/wp-block-themes/SKILL.md` — block theme file structure and page-layout file roles.
 - `wordpress/.agents/skills/wp-block-themes/references/templates-and-parts.md` — the WordPress template hierarchy.
-- `wordpress/.agents/skills/wp-block-themes/references/theme-json.md` — how to register template parts and custom templates in theme.json.
 
 Typical mappings:
 
@@ -52,5 +51,7 @@ Steps:
    }
    ```
    Use the layout frame's aspect ratio or width to decide which frame is `desktop` vs `mobile`. If the title card has only one layout frame, record it under `desktop` and omit `mobile`. If there are additional named breakpoints, add further keys (e.g. `tablet`) using the same convention. When confirming each mapping with the user, also confirm the desktop/mobile assignment for any case that is ambiguous. If the user opted to skip URL capture for a mapping (or for the whole run in step 2), omit `pageUrl` for that entry — downstream commands will treat its absence as "ask the user at run time."
-6. Create each mapped template file empty, in the correct directory under the theme (use `themeSlug` from `neptune-config.json`). Register template parts and custom templates in `theme.json` as you create their files, so they are available in the block editor. Do not populate the files with block markup yet — that happens in `/build-template`.
+6. Create each mapped template file empty, in the correct directory under the theme (use `themeSlug` from `neptune-config.json`). Do not populate the files with block markup yet — that happens in `/build-template`. Do not write to `theme.json` from this skill; the next skill, `theme-json`, reads `templateMappings` from `neptune-config.json` and registers the resulting template parts and custom templates there.
 7. Before finishing, list any title cards in `🗒️ Templates` whose layout frames could not be resolved into clean `desktop` / `mobile` assignments, any mappings that ended up without a `figmaNodes` entry, and any mappings without a `pageUrl`. Ask the user how to handle these — do not auto-resolve. Mention that captured `pageUrl` values double as the URL pool for header/footer nav wiring during `/build-template`, so leaving them empty means nav items will need to be wired manually later. Also list groups of entries that share the same `wordpressFile` (e.g. all entries pointing to `page.html`) so the user knows `/build-template` will run once for that file while `/build-content` will run per entry.
+
+8. Tell the user mappings have been recorded and the next skill in the flow is `theme-json`, which will generate `theme.json` and register the template parts and custom templates from `templateMappings`.

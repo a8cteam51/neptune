@@ -31,8 +31,8 @@ Each step below is invoked manually — the plugin never auto-chains.
 | 1    | `neptune` skill                        | Environment check.                                               |
 | 2    | `setup-project` skill                  | Scaffold project + WordPress + theme clone.                      |
 | 3    | `dev-notes` skill                      | Pull `💬 Dev Note` components from Figma into config.            |
-| 4    | `theme-json` skill                     | Generate `theme.json` from Figma styles and variables.           |
-| 5    | `map-design-templates` skill           | Map Figma templates → WP files; scaffold empty files; capture Figma node IDs for each desktop/mobile layout. |
+| 4    | `map-design-templates` skill           | Map Figma templates → WP files; scaffold empty files; capture Figma node IDs for each desktop/mobile layout. |
+| 5    | `theme-json` skill                     | Generate `theme.json` from Figma styles and variables, and register template parts / custom templates from the mappings. |
 | 6    | `/build-template <name>`               | Populate one template/part with block markup, pulling the design directly from Figma via the Figma MCP. Run per template. |
 | 7    | `/refine-template <name> <site-url>`   | Visual-diff rendered output against the live Figma design and refine. |
 
