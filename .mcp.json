@@ -1,0 +1,12 @@
+{
+	"mcpServers": {
+		"wordpress-studio": {
+			"command": "studio",
+			"args": ["mcp"]
+		},
+		"wp-blockmarkup": {
+			"command": "npx",
+			"args": ["wp-blockmarkup-mcp"]
+		}
+	}
+}
