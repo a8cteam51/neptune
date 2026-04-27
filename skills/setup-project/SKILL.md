@@ -34,7 +34,4 @@ Steps:
 
 5. Tell the user setup is complete, and that the next skills in the flow are `dev-notes`, then `theme-json`, then `map-design-templates`. Do not auto-invoke the next skill — the user runs each one manually.
 
-6. Tell the user that an empty `screenshots/` directory has been created at the project root, and that **before running `map-design-templates`** they need to manually export every design template from Figma into that folder:
-   - Open the Figma file's `🛠️ Dev Handoff` page → `🗒️ Templates` layer.
-   - For each layout frame under a `Title Card`, export it as **1x PNG** and save it into `screenshots/` at the project root.
-   - File naming is flexible — `map-design-templates` will slugify each filename and match it against the Figma template names. Naming the file after the title card (e.g. `Blog.png`, `Blog Post.png`) is the safest choice.
+6. Remind the user that the Figma file is the source of truth for the rest of the workflow. All subsequent skills and commands read designs directly from Figma via the Figma MCP — no manual exports are required. Confirm the Figma MCP is reachable before moving on; if it is not, point the user at https://developers.figma.com/docs/figma-mcp-server/remote-server-installation/#claude-code.
