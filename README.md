@@ -24,25 +24,46 @@ Before running `setup-project`, you must also have run `team51 pressable:create-
 
 ## Workflow
 
-Each step below is invoked manually — the plugin never auto-chains.
+The user invokes the entry-point skill (`check-environment`) explicitly. From there, each setup skill (`setup-project`, `dev-notes`, `map-design-templates`, `theme-json`) offers to chain to the next one **only if that next phase hasn't yet been recorded as completed in `neptune-config.json`**. Re-runs are idempotent: completed phases are not redone without explicit confirmation. The build/refine slash commands (steps 6+) are always run manually, one per invocation.
 
-| Step | Invocation                             | Purpose                                                          |
-| ---- | ---                                    | ---                                                              |
-| 1    | `neptune` skill                        | Environment check.                                               |
-| 2    | `setup-project` skill                  | Scaffold project + WordPress + theme clone.                      |
-| 3    | `dev-notes` skill                      | Pull `💬 Dev Note` components from Figma into config.            |
-| 4    | `map-design-templates` skill           | Map Figma templates → WP files; scaffold empty files; capture Figma node IDs for each desktop/mobile layout. |
-| 5    | `theme-json` skill                     | Generate `theme.json` from Figma styles and variables, and register template parts / custom templates from the mappings. |
-| 6    | `/build-template <name>`               | Populate one template/part with block markup, pulling the design directly from Figma via the Figma MCP. Run per template. |
-| 7    | `/refine-template <name> <site-url>`   | Visual-diff rendered output against the live Figma design and refine. |
+| Step | Invocation                                    | Purpose                                                          |
+| ---- | ---                                           | ---                                                              |
+| 1    | `check-environment` skill                     | Environment check.                                               |
+| 2    | `setup-project` skill                         | Scaffold project + WordPress + theme clone.                      |
+| 3    | `dev-notes` skill                             | Pull `💬 Dev Note` components from Figma into config.            |
+| 4    | `map-design-templates` skill                  | Map Figma templates → WP files; scaffold empty files; capture Figma node IDs for each desktop/mobile layout and a preview `pageUrl` per entry. |
+| 5    | `theme-json` skill                            | Generate `theme.json` from Figma styles and variables, and register template parts / custom templates from the mappings. |
+| 6    | `/build-template <name>`                      | Populate one template/part wrapper with block markup, pulling the design from Figma. Run per unique `wordpressFile`. |
+| 7    | `/build-content <name>`                       | Fill the body of one WP_Post / WP_Page from its Figma design. Run per `templateMappings` entry that shares a wrapper. |
+| 8    | `/refine-template <name> <site-url>`          | Visual-diff a rendered template against Figma and refine the wrapper. |
+| 9    | `/refine-content <name> <page-url>`           | Visual-diff a rendered page body against Figma and refine the post content. |
+| —    | `/build-all-templates`, `/build-all-content`  | Batch wrappers around steps 6–7. Pause every 2 items for `/compact`. Build-only — never refine. |
+| —    | `/refine-all-templates`, `/refine-all-content`| Batch wrappers around steps 8–9. Same pause cadence. |
 
 ## Project config file
 
 All skills share state through `neptune-config.json` at the project root:
 
 - `projectName`, `figmaFileId`, `repositoryUrl`, `themeSlug` — written by `init-project.sh` during `setup-project`.
-- `devNotes` — written by `dev-notes`.
-- `templateMappings` — written by `map-design-templates`.
+- `setupProjectCompleted` (boolean) — set by `setup-project` once Studio site creation finishes.
+- `devNotes` — the captured note objects, written by `dev-notes`.
+- `devNotesCompleted` (boolean) — set by `dev-notes` once notes are written.
+- `templateMappings` — per-Figma-template-card mapping object, written by `map-design-templates`. Keyed by Figma title-card name. Each entry has shape:
+  ```json
+  {
+    "wordpressFile": "<path relative to the theme root>",
+    "figmaNodes": {
+      "desktop": "<figma-node-id>",
+      "mobile":  "<figma-node-id>"
+    },
+    "pageUrl": "<full URL where this template renders>"
+  }
+  ```
+  `figmaNodes` may include further breakpoint keys (e.g. `tablet`) when the design supplies them, and may omit `mobile` if the Figma title card has only one layout frame. `pageUrl` is consumed by `/build-content`, `/refine-*`, and header/footer nav wiring; entries that share a `wordpressFile` (e.g. multiple page designs all using `page.html`) all keep their own `figmaNodes` and `pageUrl`.
+- `templateMappingsCompleted` (boolean) — set by `map-design-templates` once mappings are recorded and empty files scaffolded.
+- `themeJsonCompleted` (boolean) — set by `theme-json` once `theme.json` is generated.
+
+The `*Completed` booleans drive the conditional chain between setup skills (see Workflow). They do not gate the build/refine slash commands.
 
 ## Styling guardrails
 

@@ -22,6 +22,30 @@ cleanup() {
 
 trap cleanup EXIT
 
+# Validate theme slug shape — must match a typical WordPress theme directory
+# name: lowercase letters, digits, hyphens; non-empty; no leading/trailing hyphen.
+if [[ ! "$theme_slug" =~ ^[a-z0-9]+(-[a-z0-9]+)*$ ]]; then
+	echo "Error: theme_slug \"$theme_slug\" is not a valid WordPress theme slug."
+	echo "  Expected lowercase letters, digits, and hyphens only."
+	echo "  Derived from: $repository_url"
+	echo "  Strip any '.git' suffix and 'tree/branch' fragments before deriving."
+	exit 1
+fi
+
+# Idempotency guard: refuse to clobber an existing project.
+if [ -e "$config_file" ]; then
+	echo "Error: $config_file already exists in $(pwd)."
+	echo "  This script is destructive on re-run. Move or delete the file first,"
+	echo "  or run from a clean project directory."
+	exit 1
+fi
+if [ -e "$wordpress_dir" ]; then
+	echo "Error: $wordpress_dir/ already exists in $(pwd)."
+	echo "  This script is destructive on re-run. Move or delete the directory"
+	echo "  first, or run from a clean project directory."
+	exit 1
+fi
+
 mkdir -p "$wordpress_dir"
 
 curl -fsSL "$wordpress_url" -o "$temp_dir/latest.zip"
@@ -50,15 +74,28 @@ style_file="$theme_dir/style.css"
 
 if [ ! -d "$theme_dir" ]; then
 	echo "Error: theme directory not found at $theme_dir"
+	echo "  The cloned repository's themes/ folder does not contain a directory"
+	echo "  matching the derived theme slug \"$theme_slug\"."
+	echo "  Check that the repository URL points at the right repo, and that"
+	echo "  the theme directory inside wp-content/themes/ matches the slug"
+	echo "  derived from the repo URL."
 	exit 1
 fi
 
-cat > "$theme_dir/theme.json" <<EOF
+# Only write the placeholder theme.json if one does not already exist —
+# otherwise we'd silently clobber theme-managed config from the cloned repo.
+if [ ! -f "$theme_dir/theme.json" ]; then
+	cat > "$theme_dir/theme.json" <<EOF
 {
 	"\$schema": "https://schemas.wp.org/trunk/theme.json",
 	"version": 3
 }
 EOF
+	wrote_theme_json=1
+else
+	echo "Skipping theme.json — already present at $theme_dir/theme.json"
+	wrote_theme_json=0
+fi
 
 if [ ! -f "$style_file" ]; then
 	echo "Error: style file not found at $style_file"
@@ -66,22 +103,28 @@ if [ ! -f "$style_file" ]; then
 fi
 
 # Strip the "Theme URI" header from the team51 scaffold's style.css — the
-# theme has no URI for a freshly-cloned project. Guard against scaffold drift:
-# fail loudly if line 3 is not a header line rather than silently corrupting
-# the file.
-line3="$(sed -n '3p' "$style_file")"
-if [[ ! "$line3" =~ ^[A-Z][A-Za-z\ ]*:.* ]]; then
-	echo "Error: $style_file line 3 does not look like a theme header line."
-	echo "  Expected a 'Header Name: value' line."
-	echo "  Got: $line3"
-	echo "The team51 scaffold may have changed. Update init-project.sh."
-	exit 1
+# theme has no URI for a freshly-cloned project. Match the header explicitly
+# rather than trusting line position, so scaffold drift does not silently
+# delete the wrong header.
+stripped_style=0
+if grep -qE '^[[:space:]]*Theme URI[[:space:]]*:' "$style_file"; then
+	awk '!/^[[:space:]]*Theme URI[[:space:]]*:/' "$style_file" > "$temp_dir/style.css"
+	mv "$temp_dir/style.css" "$style_file"
+	stripped_style=1
+else
+	echo "Skipping Theme URI strip — no Theme URI header found in $style_file"
 fi
-awk 'NR != 3' "$style_file" > "$temp_dir/style.css"
-mv "$temp_dir/style.css" "$style_file"
 
 mkdir -p "$theme_dir/templates"
-: > "$theme_dir/templates/index.html"
+# Only create an empty index.html if there isn't already one (cloned repos
+# may ship a starter template that we should not silently truncate).
+if [ ! -f "$theme_dir/templates/index.html" ]; then
+	: > "$theme_dir/templates/index.html"
+	wrote_index=1
+else
+	echo "Skipping index.html — already present at $theme_dir/templates/index.html"
+	wrote_index=0
+fi
 
 cat > "$config_file" <<EOF
 {
@@ -99,6 +142,12 @@ echo "Prepared an empty $wordpress_dir/wp-content directory"
 echo "Cloned $repository_url into $wordpress_dir/wp-content"
 echo "Ensured $wordpress_dir/wp-content/plugins and $wordpress_dir/wp-content/uploads exist"
 echo "Ran npm install in $wordpress_dir/wp-content"
-echo "Created placeholder $theme_dir/theme.json"
-echo "Stripped Theme URI header from $style_file"
-echo "Created empty $theme_dir/templates/index.html"
+if [ "$wrote_theme_json" = "1" ]; then
+	echo "Created placeholder $theme_dir/theme.json"
+fi
+if [ "$stripped_style" = "1" ]; then
+	echo "Stripped Theme URI header from $style_file"
+fi
+if [ "$wrote_index" = "1" ]; then
+	echo "Created empty $theme_dir/templates/index.html"
+fi

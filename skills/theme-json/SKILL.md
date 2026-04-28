@@ -1,6 +1,6 @@
 ---
 name: theme-json
-description: Generate theme.json from the linked Figma file's `🎨 Style Guide` layer and variable tables, and register the template parts / custom templates captured by `map-design-templates`. Use after `map-design-templates` — writes a populated theme.json into the project theme directory.
+description: Generates theme.json from the Figma file's `🎨 Style Guide` layer and variable tables (palette, typography, spacing) and registers the template parts and custom templates captured by `map-design-templates`. Used after map-design-templates — writes a populated theme.json into the project theme directory. Triggers on phrases like "generate theme.json", "pull the style guide", "set up the design tokens", "register the template parts", or "wire up the color palette".
 ---
 
 1. Confirm the user has installed the WordPress Block Themes agent skill inside Studio (see https://developer.wordpress.com/docs/developer-tools/studio/agent-skills-wordpress-studio/) and that the Figma local MCP server is enabled in Claude Code. Load the `figma:figma-use` skill before pulling variable tables from Figma.
@@ -23,6 +23,8 @@ description: Generate theme.json from the linked Figma file's `🎨 Style Guide`
 
 6. Always ensure that `parts/header.html` and `parts/footer.html` are registered as template parts in theme.json, even if they weren't captured by `map-design-templates`.
 
-7. If you have any follow-ups for the user, which are direct human actionable tasks. Open an issue for each on GitHub in the project repo, and link to the relevant section of the Figma file or the specific dev note that inspired the task. You'll use `gh issue create` for this, and you can find the repository URL and theme slug in `neptune-config.json` to construct the command. Note in the body text that the issue was create by Neptune.
+7. For any human-actionable follow-up surfaced during this skill, open a GitHub issue per the procedure in `${CLAUDE_PLUGIN_ROOT}/references/github-followups.md`.
 
-8. Update `neptune-config.json` with a `themeJsonGenerated` field set to `true` so future runs of this skill know not to auto-run again without user confirmation.
+8. Set `themeJsonCompleted: true` in `neptune-config.json` so future runs know `theme.json` has been generated.
+
+9. Tell the user `theme.json` has been written and the next step is `/build-template <name>` (per unique `wordpressFile` in `templateMappings`) — or `/build-all-templates` to batch all unbuilt wrappers in one run.

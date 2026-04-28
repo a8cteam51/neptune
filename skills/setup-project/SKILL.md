@@ -1,6 +1,6 @@
 ---
 name: setup-project
-description: Scaffold a new Team 51 WordPress project — download WordPress, clone the theme repo into wp-content, create a Studio site, and write neptune-config.json. Use after `neptune` has confirmed the environment, and after the user has created the Pressable site and GitHub repo via the Team51 CLI.
+description: Scaffolds a new Team 51 WordPress block-theme project — downloads WordPress core, clones the theme repo into wp-content, creates a Studio site, and writes neptune-config.json. Used after `check-environment` has confirmed the environment, and after the user has created the Pressable site and GitHub repo via the Team51 CLI. Triggers on phrases like "set up the project", "scaffold a new theme", "create the Studio site", or "clone the theme repo".
 ---
 
 Prerequisites the user must complete before this skill runs:
@@ -11,7 +11,7 @@ If the user has not done this, stop and ask them to complete it before proceedin
 
 Steps:
 
-1. Confirm the user's current working directory is the project root — the directory where `wordpress/` and `neptune-config.json` should live after setup. If they are not in the intended project directory, ask them to `cd` into it before continuing. Note: `neptune-config.json` does not exist yet; it will be created in step 3.
+1. Run `pwd` and show the absolute path to the user. Ask them to confirm this is the intended project root — the directory where `wordpress/` and `neptune-config.json` should live after setup. If they say no, ask them to `cd` into the right directory and then re-invoke the skill (you cannot change the agent's working directory between turns reliably, so a fresh invocation is the cleanest reset). Note: `neptune-config.json` does not exist yet; it will be created in step 3.
 
 2. Gather from the user:
    - Project name
@@ -31,11 +31,17 @@ Steps:
    - `studio site status` — confirm the site is running.
    - `studio wp theme activate <theme_slug>` — activate the project theme.
    - `studio wp plugin install create-block-theme --activate` — install and activate Create Block Theme (useful later for exporting edits from the block editor).
-   - Create the Home and Blog pages, and configure WordPress to use them:
+
+5. Ask the user which of the following site IA shapes the design uses, then run only the matching commands. Do not assume — the design may have neither, one, or both. If unclear, ask the user to point at the relevant Figma title cards before continuing.
+   - **Static homepage** (the design has a dedicated homepage that is not a chronological post listing):
      - `studio wp post create --post_type=page --post_title=Home --post_status=publish --porcelain` — capture the returned page ID as `<home_id>`.
-     - `studio wp post create --post_type=page --post_title=Blog --post_status=publish --porcelain` — capture the returned page ID as `<blog_id>`.
      - `studio wp option update show_on_front page`
      - `studio wp option update page_on_front <home_id>`
+   - **Blog landing page** (the design has a dedicated `/blog` page that lists posts, distinct from the homepage):
+     - `studio wp post create --post_type=page --post_title=Blog --post_status=publish --porcelain` — capture the returned page ID as `<blog_id>`.
      - `studio wp option update page_for_posts <blog_id>`
+   If the user picks neither, leave WordPress on its default `show_on_front=posts` setting and move on.
 
-5. Tell the user setup is complete, and then run the `dev-notes` skill if the `neptune-config.json` file does not already contain a `devNotes` field. If it does, ask the user whether to run `dev-notes` now or skip it (they can always run it later if they skip).
+6. Update `neptune-config.json` with `setupProjectCompleted: true` so future runs know the scaffold has been completed.
+
+7. Tell the user setup is complete, then continue to the `dev-notes` skill if `neptune-config.json` does not already have `devNotesCompleted: true`. If it does, ask the user whether to re-run `dev-notes` now (overwrites stored notes from Figma) or skip it.

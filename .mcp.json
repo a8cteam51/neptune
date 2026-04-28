@@ -6,7 +6,7 @@
 		},
 		"wp-blockmarkup": {
 			"command": "npx",
-			"args": ["wp-blockmarkup-mcp"]
+			"args": ["wp-blockmarkup-mcp@^1.0.2"]
 		}
 	}
 }

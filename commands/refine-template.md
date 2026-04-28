@@ -1,6 +1,7 @@
 ---
 description: Visual-diff a rendered template/part against its Figma design and apply refinements so the rendered output matches Figma.
 argument-hint: [template-or-part-name] [site-url]
+allowed-tools: Read, Edit, Write, Glob, Grep, Bash(gh issue create:*), Bash(gh repo view:*), Bash(npm run build:styles:block-styles), Skill, mcp__figma__*, mcp__wp-blockmarkup__*, mcp__wordpress-studio__take_screenshot
 ---
 
 Refine the template or template part named in `$ARGUMENTS`, using the site URL the user also supplies in `$ARGUMENTS` for visual testing. Resolve the site URL in this priority order: (a) the URL passed in `$ARGUMENTS`; (b) the `pageUrl` field on this template's entry in `templateMappings` from `neptune-config.json`, if present; (c) ask the user. If `$ARGUMENTS` is empty, ask the user for:
@@ -14,7 +15,7 @@ Context to load before starting:
 - The `wp-blockmarkup` MCP — for block markup changes.
 - The Figma MCP — Figma is the source of truth. Load the `figma:figma-use` skill before any Figma MCP calls that need JS execution in the file context.
 - `wordpress/.agents/skills/wp-block-themes/SKILL.md` — block theme structure and theme.json reference.
-- Read the styling and building guardrails outlined in `${CLAUDE_PLUGIN_ROOT}/commands/build-template.md`
+- Read the styling and building guardrails outlined in `${CLAUDE_PLUGIN_ROOT}/commands/build-template.md`. For any human-actionable follow-up surfaced during this command, open a GitHub issue per the procedure in `${CLAUDE_PLUGIN_ROOT}/references/github-followups.md`.
 
 Steps:
 

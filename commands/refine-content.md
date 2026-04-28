@@ -1,6 +1,7 @@
 ---
 description: Visual-diff a single rendered WP_Post / WP_Page body against its Figma body design and apply refinements so the rendered content matches Figma.
 argument-hint: [template-name] [page-url]
+allowed-tools: Read, Edit, Write, Glob, Grep, Bash(gh issue create:*), Bash(gh repo view:*), Bash(studio wp:*), Bash(rm:*), Bash(cat:*), Skill, mcp__figma__*, mcp__wp-blockmarkup__*, mcp__wordpress-studio__take_screenshot
 ---
 
 Refine the body content of one entry in `templateMappings` — the per-page content previously filled by `/build-content`. This command is invoked once **per `templateMappings` entry**: sibling entries that share a `wordpressFile` each have their own WP_Post body, so each one needs its own `/refine-content` run.
@@ -16,7 +17,7 @@ Context to load before starting:
 - The `wp-blockmarkup` MCP — for block markup changes.
 - The Figma MCP — Figma is the source of truth. Load the `figma:figma-use` skill before any Figma MCP calls that need JS execution in the file context.
 - `wordpress/.agents/skills/wp-block-themes/SKILL.md` — block theme structure and theme.json reference.
-- Read the styling and building guardrails outlined in `${CLAUDE_PLUGIN_ROOT}/commands/build-template.md` — every guardrail there (no `wp:html` fallback, block markup only, `register_block_style` workflow, GitHub issues for human-actionable follow-ups, internal links wired from `templateMappings.<entry>.pageUrl` when labels match) applies here too.
+- Read the styling and building guardrails outlined in `${CLAUDE_PLUGIN_ROOT}/commands/build-template.md` — every guardrail there (no `wp:html` fallback, block markup only, `register_block_style` workflow, GitHub issues for human-actionable follow-ups, internal links wired from `templateMappings.<entry>.pageUrl` when labels match) applies here too. For any human-actionable follow-up surfaced during this command, open a GitHub issue per the procedure in `${CLAUDE_PLUGIN_ROOT}/references/github-followups.md`.
 
 Steps:
 

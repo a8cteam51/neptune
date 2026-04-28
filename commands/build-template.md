@@ -1,6 +1,7 @@
 ---
 description: Build a single template or template part in the WordPress theme from its mapped Figma design using block markup.
 argument-hint: [template-or-part-name] [page-url]
+allowed-tools: Read, Edit, Write, Glob, Grep, Bash(gh issue create:*), Bash(gh repo view:*), Bash(npm run build:styles:block-styles), Skill, mcp__figma__*, mcp__wp-blockmarkup__*, mcp__wordpress-studio__take_screenshot
 ---
 
 Build the template or template part named in `$ARGUMENTS` for the current Team 51 project. If `$ARGUMENTS` is empty, ask the user which template or part to build from the `templateMappings` in `neptune-config.json`. This command is invoked once per template or part.
@@ -22,8 +23,8 @@ Styling guardrails:
    - Add an SCSS file in `assets/block-styles/src/`, named after the block being styled (e.g. `core-group.scss` for `core/group`). Run `npm run build:styles:block-styles` to compile. The theme handles enqueueing.
 
 Building guardrails:
-	- If you have any follow-ups for the user, which are direct human actionable tasks. Open an issue for each on GitHub in the project repo, and link to the relevant section of the Figma file or the specific dev note that inspired the task. You'll use `gh issue create` for this, and you can find the repository URL and theme slug in `neptune-config.json` to construct the command. Note in the body text that the issue was create by Neptune.
-	- If you're about to use the `wp:html` block to acheive a goal, stop. Add a placeholder comment via a paragraph block instead and then create a GitHub issue outlining to the Human what needs to be done.
+	- For any human-actionable follow-up surfaced during this command, open a GitHub issue per the procedure in `${CLAUDE_PLUGIN_ROOT}/references/github-followups.md`.
+	- If you're about to use the `wp:html` block to achieve a goal, stop. Add a placeholder paragraph block instead and open an issue per `${CLAUDE_PLUGIN_ROOT}/references/github-followups.md` describing what the human needs to wire up.
 	- When building `header.html` or `footer.html`, wire each navigation item's `href` to a URL from `templateMappings.<entry>.pageUrl` in `neptune-config.json` whenever the nav label matches a mapped template (e.g. a "Blog" nav item → `pageUrl` of the entry that maps to `index.html` or the Blog page template). For nav labels that don't match any mapped entry, leave a placeholder `#` href and open a GitHub issue listing the unwired labels so the user can supply URLs for the missing pages.
 
 Steps:
