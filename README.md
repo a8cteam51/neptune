@@ -32,10 +32,9 @@ Each step below is invoked manually — the plugin never auto-chains.
 | 2    | `setup-project` skill                  | Scaffold project + WordPress + theme clone.                      |
 | 3    | `dev-notes` skill                      | Pull `💬 Dev Note` components from Figma into config.            |
 | 4    | `map-design-templates` skill           | Map Figma templates → WP files; scaffold empty files; capture Figma node IDs for each desktop/mobile layout. |
-| 5    | `download-assets` skill                | Export every image from the desktop Figma layouts to `/assets/`, import into WP media library, and record the Figma-image-to-WP-attachment map in `neptune-config.json`. |
-| 6    | `theme-json` skill                     | Generate `theme.json` from Figma styles and variables, and register template parts / custom templates from the mappings. |
-| 7    | `/build-template <name>`               | Populate one template/part with block markup, pulling the design directly from Figma via the Figma MCP. Run per template. |
-| 8    | `/refine-template <name> <site-url>`   | Visual-diff rendered output against the live Figma design and refine. |
+| 5    | `theme-json` skill                     | Generate `theme.json` from Figma styles and variables, and register template parts / custom templates from the mappings. |
+| 6    | `/build-template <name>`               | Populate one template/part with block markup, pulling the design directly from Figma via the Figma MCP. Run per template. |
+| 7    | `/refine-template <name> <site-url>`   | Visual-diff rendered output against the live Figma design and refine. |
 
 ## Project config file
 
@@ -44,7 +43,6 @@ All skills share state through `neptune-config.json` at the project root:
 - `projectName`, `figmaFileId`, `repositoryUrl`, `themeSlug` — written by `init-project.sh` during `setup-project`.
 - `devNotes` — written by `dev-notes`.
 - `templateMappings` — written by `map-design-templates`.
-- `figmaAssets` — written by `download-assets`. Map keyed by Figma image hash; each value carries the local path under `/assets/`, the WP attachment ID and URL, and the list of Figma node IDs that share the image. `/build-template`, `/build-content`, `/refine-template`, and `/refine-content` look images up here when generating or correcting `<!-- wp:image -->` markup.
 
 ## Styling guardrails
 

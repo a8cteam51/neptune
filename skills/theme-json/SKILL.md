@@ -1,6 +1,6 @@
 ---
 name: theme-json
-description: Generate theme.json from the linked Figma file's `🎨 Style Guide` layer and variable tables, and register the template parts / custom templates captured by `map-design-templates`. Use after `download-assets` — writes a populated theme.json into the project theme directory.
+description: Generate theme.json from the linked Figma file's `🎨 Style Guide` layer and variable tables, and register the template parts / custom templates captured by `map-design-templates`. Use after `map-design-templates` — writes a populated theme.json into the project theme directory.
 ---
 
 1. Confirm the user has installed the WordPress Block Themes agent skill inside Studio (see https://developer.wordpress.com/docs/developer-tools/studio/agent-skills-wordpress-studio/) and that the Figma local MCP server is enabled in Claude Code. Load the `figma:figma-use` skill before pulling variable tables from Figma.
@@ -21,6 +21,8 @@ description: Generate theme.json from the linked Figma file's `🎨 Style Guide`
 
    If the Block Themes reference files do not exist, tell the user they need to install the Block Themes Studio agent skill before this skill can proceed.
 
-6. If you have any follow-ups for the user, which are direct human actionable tasks. Open an issue for each on GitHub in the project repo, and link to the relevant section of the Figma file or the specific dev note that inspired the task. You'll use `gh issue create` for this, and you can find the repository URL and theme slug in `neptune-config.json` to construct the command. Note in the body text that the issue was create by Neptune.
+6. Always ensure that `parts/header.html` and `parts/footer.html` are registered as template parts in theme.json, even if they weren't captured by `map-design-templates`.
 
-7. Update `neptune-config.json` with a `themeJsonGenerated` field set to `true` so future runs of this skill know not to auto-run again without user confirmation.
+7. If you have any follow-ups for the user, which are direct human actionable tasks. Open an issue for each on GitHub in the project repo, and link to the relevant section of the Figma file or the specific dev note that inspired the task. You'll use `gh issue create` for this, and you can find the repository URL and theme slug in `neptune-config.json` to construct the command. Note in the body text that the issue was create by Neptune.
+
+8. Update `neptune-config.json` with a `themeJsonGenerated` field set to `true` so future runs of this skill know not to auto-run again without user confirmation.
