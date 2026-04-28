@@ -13,3 +13,4 @@ Goal: find every `💬 Dev Note` component in the Figma file from the `🛠️  
    - The text content of the note.
    - The placement context — the parent component or layout the note sits inside (e.g. `Header`, `Blog Post`), plus any elements the note overlaps or points at (e.g. "overlapping the hero CTA button").
 4. Write the notes to `neptune-config.json` under a `devNotes` object. Each key is a stable, context-derived identifier (e.g. `header-logo-spacing`, `blog-post-byline`). Each value is `{ "text": "...", "context": "..." }`.
+5. Once completed, tell the user how many dev notes were captured, then move onto the `map-design-templates` skill if `neptune-config.json` does not already contain a `templateMappings` field. If it does, ask the user whether to run `map-design-templates` now or skip it (they can always run it later if they skip).

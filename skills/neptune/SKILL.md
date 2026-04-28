@@ -8,6 +8,7 @@ description: Start-of-project environment check for the neptune plugin. Use at t
    - `setup-project` — scaffold the project directory, clone the theme repo, stand up a Studio WordPress site.
    - `dev-notes` — pull `💬 Dev Note` components from Figma into `neptune-config.json`.
    - `map-design-templates` — map Figma `🗒️ Templates` title cards to WordPress theme files and create empty files.
+   - `download-assets` — export every image asset from the desktop layouts, save to `/assets/`, import into the WP media library, and record the Figma-image-to-WP-attachment map in `neptune-config.json`.
    - `theme-json` — generate `theme.json` from the Figma `🎨 Style Guide` and variable tables, and register custom templates / template parts from the mappings recorded above.
    - `/build-template <name>` — slash command; populate one template or part with block markup.
    - `/refine-template <name> <site-url>` — slash command; visual-diff rendered output against Figma and refine.
