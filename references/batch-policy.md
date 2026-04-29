@@ -31,7 +31,7 @@ The orchestrator must **not** re-derive or re-fetch what the subagent already pr
 
 Each subagent receives a self-contained prompt that:
 
-- States the project root, `themeSlug`, `figmaFileId`.
+- States the project root, `themeSlug`, `figmaFileId`, and **`repositoryUrl`** (the full GitHub URL from `neptune-config.json`, e.g. `https://github.com/owner/repo`) — the subagent uses this to construct `gh issue create --repo <owner/repo>` calls without reading the config itself.
 - States the entry key, `wordpressFile`, `figmaNodes`, `pageUrl`.
 - Includes only the `devNotes` whose `context` field plausibly applies to this item (orchestrator filters before spawning — never hand the subagent the full notes blob).
 - Instructs the subagent to read `${CLAUDE_PLUGIN_ROOT}/commands/<per-item-command>.md` and follow its steps for the entry above, with two divergences spelled out explicitly: (a) skip the "ask the user which entry" step — the entry is already chosen; (b) for build batches, skip the auto-suggestion of `/refine-*` at the end.

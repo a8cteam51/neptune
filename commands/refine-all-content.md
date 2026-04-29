@@ -40,7 +40,7 @@ Context to load:
 5. **Confirm with user.** Show the plan: the list of entries you intend to refine (entry key → `wordpressFile` → `pageUrl` → resolved post ID), plus any skipped entries grouped by reason. Wait for the user to confirm before continuing.
 
 6. **Per-item subagent loop.** For each eligible entry, in `templateMappings` key order, spawn a subagent via the `Agent` tool with a self-contained prompt that:
-   - States the project root, `themeSlug`, `figmaFileId`.
+   - States the project root, `themeSlug`, `figmaFileId`, and `repositoryUrl` (the full GitHub URL from `neptune-config.json`) — the subagent uses this directly for `gh issue create --repo <owner/repo>` without re-reading the config.
    - States the entry key, `wordpressFile`, `figmaNodes`, `pageUrl`, and the resolved post ID.
    - Includes only the `devNotes` whose `context` plausibly applies to this entry's body — filter at the orchestrator before spawning.
    - Instructs: "Read `${CLAUDE_PLUGIN_ROOT}/commands/refine-content.md` and follow it end-to-end for the entry above, with one divergence: do **not** pause to share the discrepancy table with the user — produce the table inline as part of your work and proceed to apply refinements (the user gated this batch). Refine against both `desktop` and `mobile` nodes where both are present. Tag each discrepancy row as `body` (in scope, fixed via `studio wp post update`) or `wrapper` (out of scope — deferred to `/refine-template`); only act on `body` rows, but include both in the report. Apply the measure-first / vision-fallback diff strategy strictly. Validate any block-markup change via `mcp__wordpress-studio__validate_blocks` before writing it."

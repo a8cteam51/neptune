@@ -4,7 +4,7 @@ Whenever a Neptune skill or command surfaces a follow-up that requires a human a
 
 ## Procedure
 
-1. Read `repositoryUrl` and `themeSlug` from `neptune-config.json` to construct the `gh issue create` command.
+1. Obtain `repositoryUrl` from `neptune-config.json` (or from the `repositoryUrl` value already provided in your prompt if you are a subagent). Extract `<owner/repo>` by stripping the protocol and host: e.g. `https://github.com/acme/my-theme` → `acme/my-theme`. For SSH URLs (`git@github.com:acme/my-theme.git`) strip the host prefix and `.git` suffix.
 2. Use `gh issue create --repo <owner/repo> --title "<short title>" --body "<body>"` (or `--body-file` for multi-line bodies).
 3. The issue body must:
    - Describe what the human needs to do, in one or two short paragraphs.

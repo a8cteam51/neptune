@@ -34,7 +34,7 @@ Context to load:
 4. **Confirm with user.** Show the plan: the list of entries you intend to fill (entry key → `pageUrl` → resolved post ID), plus any skipped entries grouped by reason. Wait for the user to confirm before continuing.
 
 5. **Per-item subagent loop.** For each entry to fill, in `templateMappings` key order, spawn a subagent via the `Agent` tool with a self-contained prompt that:
-   - States the project root, `themeSlug`, `figmaFileId`.
+   - States the project root, `themeSlug`, `figmaFileId`, and `repositoryUrl` (the full GitHub URL from `neptune-config.json`) — the subagent uses this directly for `gh issue create --repo <owner/repo>` without re-reading the config.
    - States the entry key, the `wordpressFile`, the `figmaNodes`, the `pageUrl`, and the resolved post ID.
    - Includes only the `devNotes` whose `context` plausibly applies to this entry's body — filter at the orchestrator before spawning.
    - Lists the registered `patterns` slugs (if any) that the subagent may reference.

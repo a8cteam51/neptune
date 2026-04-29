@@ -27,7 +27,7 @@ Context to load:
 3. **Confirm with user.** Show the list of unbuilt `wordpressFile`s you intend to build, with the source entry chosen for each (and the other entries that share the file, noted as "content via `/build-content` later"), plus any explicitly skipped via `--skip`. Process template parts (e.g. `header.html`, `footer.html`) before full templates that include them, so any subsequent refinement run sees finished parts. Wait for the user to confirm before continuing — and resolve any "no obviously generic entry" cases here.
 
 4. **Per-item subagent loop.** For each unbuilt `wordpressFile`, in the order from step 3, spawn a subagent via the `Agent` tool with a self-contained prompt that:
-   - States the project root, `themeSlug`, `figmaFileId`.
+   - States the project root, `themeSlug`, `figmaFileId`, and `repositoryUrl` (the full GitHub URL from `neptune-config.json`) — the subagent uses this directly for `gh issue create --repo <owner/repo>` without re-reading the config.
    - States the chosen source entry's key, the `wordpressFile`, the `figmaNodes`, and the `pageUrl`.
    - Includes only the `devNotes` whose `context` plausibly applies to this template — filter at the orchestrator before spawning. Do not hand the subagent the full notes blob.
    - Lists the registered `patterns` slugs (if any) that the subagent may reference by slug rather than re-emit.
