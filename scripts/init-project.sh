@@ -16,8 +16,30 @@ wordpress_dir="wordpress"
 wordpress_url="https://wordpress.org/latest.zip"
 temp_dir="$(mktemp -d)"
 
+# Track which artifacts this run created so we can roll them back on
+# error. Without this, a partial failure (e.g. mid-clone, mid-extract)
+# leaves the directory in a state the idempotency guards at the top of
+# the next run will reject — with no recovery path short of manual rm.
+created_wordpress_dir=0
+created_config_file=0
+
 cleanup() {
+	rc=$?
 	rm -rf "$temp_dir"
+	if [ "$rc" -ne 0 ]; then
+		# Roll back only artifacts this run created. Never touch a
+		# pre-existing wordpress/ or neptune-config.json — the
+		# idempotency guards below ensure we only ever flip these
+		# flags on after creating the artifact ourselves.
+		if [ "$created_wordpress_dir" = "1" ] && [ -d "$wordpress_dir" ]; then
+			rm -rf "$wordpress_dir"
+			echo "Rolled back partial $wordpress_dir/ on failure." >&2
+		fi
+		if [ "$created_config_file" = "1" ] && [ -f "$config_file" ]; then
+			rm -f "$config_file"
+			echo "Rolled back partial $config_file on failure." >&2
+		fi
+	fi
 }
 
 trap cleanup EXIT
@@ -47,6 +69,7 @@ if [ -e "$wordpress_dir" ]; then
 fi
 
 mkdir -p "$wordpress_dir"
+created_wordpress_dir=1
 
 curl -fsSL "$wordpress_url" -o "$temp_dir/latest.zip"
 unzip -q "$temp_dir/latest.zip" -d "$temp_dir"
@@ -134,6 +157,7 @@ cat > "$config_file" <<EOF
 	"themeSlug": "$theme_slug"
 }
 EOF
+created_config_file=1
 
 echo "Created $config_file in $(pwd)"
 echo "Created $wordpress_dir directory in $(pwd)"

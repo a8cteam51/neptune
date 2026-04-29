@@ -32,6 +32,7 @@ Steps:
    - `studio site status` — confirm the site is running.
    - `studio wp theme activate <theme_slug>` — activate the project theme.
    - `studio wp plugin install create-block-theme --activate` — install and activate Create Block Theme (useful later for exporting edits from the block editor).
+   - `studio wp plugin install safe-svg --activate` — install and activate Safe SVG (enables SVG uploads in the media library).
 
 5. Ask the user which of the following site IA shapes the design uses, then run only the matching commands. Do not assume — the design may have neither, one, or both. If unclear, ask the user to point at the relevant Figma title cards before continuing.
    - **Static homepage** (the design has a dedicated homepage that is not a chronological post listing):
@@ -45,4 +46,4 @@ Steps:
 
 6. Update `neptune-config.json` with `setupProjectCompleted: true` so future runs know the scaffold has been completed.
 
-7. Tell the user setup is complete, then continue to the `dev-notes` skill if `neptune-config.json` does not already have `devNotesCompleted: true`. If it does, ask the user whether to re-run `dev-notes` now (overwrites stored notes from Figma) or skip it.
+7. Tell the user setup is complete and **offer** to continue with `dev-notes` next. Do not auto-invoke. Phrasing: "Setup complete. Run the `dev-notes` skill next when you're ready." If `devNotesCompleted: true` is already present in `neptune-config.json`, mention that it has already been run and ask whether to re-run (overwrites stored notes) or skip — but still wait for the user to invoke the skill.

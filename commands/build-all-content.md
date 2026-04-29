@@ -1,41 +1,48 @@
 ---
-description: Fill the body content of every `templateMappings` entry whose target post is still empty, running each through `/build-content`.
+description: Fill the body content of every `templateMappings` entry whose target post is still empty by spawning one subagent per entry.
 model: sonnet
 argument-hint: [--skip=name1,name2]
-allowed-tools: Read, Edit, Write, Glob, Grep, Bash(gh issue create:*), Bash(gh repo view:*), Bash(studio wp:*), Bash(rm:*), Bash(cat:*), Skill, mcp__figma__*, mcp__wp-blockmarkup__*
+allowed-tools: Agent, Read, Edit, Write, Glob, Grep, Bash(studio wp:*), Bash(${CLAUDE_PLUGIN_ROOT}/scripts/check-state.sh:*), Bash(gh issue create:*), Bash(gh repo view:*)
 ---
 
-Fill the body content for every `templateMappings` entry in `neptune-config.json` whose target WP post is still empty (or carries only the WP default stub). `$ARGUMENTS` may contain an optional `--skip=<comma-separated-names>` flag to exclude specific mappings from this run (matched against `templateMappings` keys, e.g. `--skip=Blog,404 Page`). Treat `--skip` as optional — if it's absent, do not prompt for it. There is no base-site-URL argument here: each entry's `pageUrl` is the source of truth for which post to fill, and `pageUrl` was captured during `/map-design-templates`. This command is **build-only** — it never invokes `/refine-content` or `/refine-template`.
+Orchestrate body-content fills for every `templateMappings` entry in `neptune-config.json` whose target WP post is still empty (or carries only the WP default stub). This command **runs as an orchestrator** — the actual per-entry work happens inside subagents spawned via the `Agent` tool, one per eligible entry. Read `${CLAUDE_PLUGIN_ROOT}/references/batch-policy.md` for the orchestrator/subagent contract.
 
-This command is a batch wrapper around `${CLAUDE_PLUGIN_ROOT}/commands/build-content.md`. Read that file once before the loop — every guardrail there (no `wp:html` fallback, block markup only, `register_block_style` workflow, GitHub issues for human follow-ups, internal-link wiring from `templateMappings`) applies to each entry filled in this run. Read `${CLAUDE_PLUGIN_ROOT}/references/batch-policy.md` for the shared execution model (inline-only, pause every 2 items for `/compact`, never auto-refine, never auto-create posts, never overwrite filled posts).
+`$ARGUMENTS` may contain an optional `--skip=<comma-separated-names>` flag to exclude specific mappings (matched against `templateMappings` keys, e.g. `--skip=Blog,404 Page`). See "Argument parsing" in `batch-policy.md`. There is no base-site-URL argument here: each entry's `pageUrl` is the source of truth for which post to fill, captured during `/map-design-templates`. This command is **build-only** — it never invokes `/refine-content` or `/refine-template`.
 
-Context to load before starting:
-- `neptune-config.json` at the project root — `themeSlug`, `templateMappings`, `devNotes`, `figmaFileId`.
-- `${CLAUDE_PLUGIN_ROOT}/commands/build-content.md` — full per-entry procedure.
-- `${CLAUDE_PLUGIN_ROOT}/commands/build-template.md` — styling and building guardrails referenced from `/build-content`.
-- The same MCPs and skills `/build-content` requires (`wp-blockmarkup`, Figma MCP + `figma:figma-use`, `wp-block-themes` skill, and `studio wp` access).
+Preflight (run before planning):
 
-Steps:
+- `${CLAUDE_PLUGIN_ROOT}/scripts/check-state.sh templateMappingsCompleted templateMappings themeSlug figmaFileId` — fail fast if prior phases are incomplete.
 
-1. Read `templateMappings` from `neptune-config.json`. Stop and report if `templateMappings` is empty or missing — the user needs to run `/map-design-templates` first. For each entry, treat it as **eligible** (in scope for this run) if all of the following hold: (a) `figmaNodes` is present and non-empty; (b) a `pageUrl` is present, or can be resolved from the entry's key during step 3. Skip with reason any entry that has no `figmaNodes` (note: re-run `/map-design-templates`) or no resolvable URL. Note: unlike `/build-all-templates`, this command does not group by `wordpressFile` — every entry has its own body content to fill regardless of which wrapper it shares.
+Context to load:
+- `neptune-config.json` — `themeSlug`, `templateMappings`, `devNotes`, `figmaFileId`, optional `patterns`.
+- `${CLAUDE_PLUGIN_ROOT}/commands/build-content.md` — the per-entry procedure each subagent will follow.
+- `${CLAUDE_PLUGIN_ROOT}/commands/build-template.md` — referenced by `build-content.md` for shared guardrails.
+- `${CLAUDE_PLUGIN_ROOT}/references/batch-policy.md` — orchestrator/subagent contract, `--skip` parsing, return-shape.
 
-2. If `$ARGUMENTS` contains a `--skip=<names>` flag, parse it into a list (comma-separated, trimmed) and drop any matching entry from the eligible set. If a skip entry does not match any key in `templateMappings`, warn the user that the name was unrecognized but continue.
+## Steps
 
-3. For each remaining eligible entry, resolve the WP post ID by URL using the same lookup chain as `/build-content` step 3:
-   - `studio wp eval "echo url_to_postid( '<page-url>' );"`
-   - Fall back to `studio wp post list --post_type=any --name=<slug-from-url> --field=ID --format=ids` if `url_to_postid` returns `0`.
-   If neither resolves a post ID, mark the entry as **skipped (post not found)** and continue — do not auto-create the post.
+1. **Plan.** Read `templateMappings`. Stop and report if it is empty — the user needs to run `/map-design-templates` first. For each entry, treat it as **eligible** if all of the following hold: (a) `figmaNodes` is present and non-empty; (b) a `pageUrl` is present, or can be resolved from the entry's key during step 3. Skip with reason any entry that has no `figmaNodes` (note: re-run `/map-design-templates`) or no resolvable URL. Note: unlike `/build-all-templates`, this command does not group by `wordpressFile` — every entry has its own body content to fill regardless of which wrapper it shares.
 
-4. For each entry with a resolved post ID, check whether the post body is already filled. The cheapest signal is whether the post content contains any block delimiter:
+2. **Apply `--skip`.** Parse per `batch-policy.md` "Argument parsing". Per-entry batches: matched entries are removed from the eligible set directly.
+
+3. **Resolve post IDs and filled state.** For each remaining eligible entry, resolve the WP post ID by URL using the same lookup chain as `/build-content` step 3 (`studio wp eval "echo url_to_postid( '<page-url>' );"`, falling back to `studio wp post list --post_type=any --name=<slug-from-url> --field=ID --format=ids`). If neither resolves a post ID, mark the entry as `skipped:post-not-found` and continue — do not auto-create the post. For each entry with a resolved post ID, check whether the post body is already filled with the cheap signal:
    ```bash
    studio wp post get <id> --field=post_content | grep -q '<!-- wp:' && echo filled || echo empty
    ```
-   Treat the entry as **already filled** (skip) if the body contains any `<!-- wp:` delimiter; otherwise treat it as **to fill**. If the user wants to overwrite already-filled posts, they should run `/build-content <name>` per entry — `/build-all-content` only fills empties to avoid clobbering work.
+   Treat the entry as `skipped:already-filled` if the body contains any `<!-- wp:` delimiter; otherwise treat it as **to fill**. Users overwrite individual entries with `/build-content <name>`.
 
-5. Show the user the plan: the list of entries you intend to fill (entry key → `pageUrl` → resolved post ID), plus any skipped entries grouped by reason (`--skip`, missing `figmaNodes`, no `pageUrl`, post not found, already filled). Wait for the user to confirm before continuing.
+4. **Confirm with user.** Show the plan: the list of entries you intend to fill (entry key → `pageUrl` → resolved post ID), plus any skipped entries grouped by reason. Wait for the user to confirm before continuing.
 
-6. For each entry to fill, in `templateMappings` key order, follow the procedure in `${CLAUDE_PLUGIN_ROOT}/commands/build-content.md` from step 4 onward (steps 1–3 there are covered by this run's steps 1, 3, and 4): pull the Figma design context for the entry's `figmaNodes`, apply `devNotes`, generate body block markup via `wp-blockmarkup`, write to a temp file, and update the post with `studio wp post update <id> --post_content="$(cat <tmpfile>)"`. Verify and clean up the temp file as in `/build-content` step 8. Do **not** invoke `/refine-content` or `/refine-template` after each fill — refinement is out of scope here. Filter `devNotes` per entry before reasoning over them; do not let unrelated notes pollute the build. Treat each entry as an independent fill: do not carry block markup or assumptions from one entry into another beyond what's already shared via `theme.json` and registered block styles (which are read fresh from disk).
+5. **Per-item subagent loop.** For each entry to fill, in `templateMappings` key order, spawn a subagent via the `Agent` tool with a self-contained prompt that:
+   - States the project root, `themeSlug`, `figmaFileId`.
+   - States the entry key, the `wordpressFile`, the `figmaNodes`, the `pageUrl`, and the resolved post ID.
+   - Includes only the `devNotes` whose `context` plausibly applies to this entry's body — filter at the orchestrator before spawning.
+   - Lists the registered `patterns` slugs (if any) that the subagent may reference.
+   - Instructs: "Read `${CLAUDE_PLUGIN_ROOT}/commands/build-content.md` and follow steps 1–13 for the entry above. Skip step 1's user-confirm and step 3's post-ID resolution — both are already done. Skip step 11's auto-suggestion of `/refine-content` — refinement is out of scope for this batch. Validate every chunk of generated block markup via `mcp__wordpress-studio__validate_blocks` before writing it back. Apply every accessibility/performance/SEO guardrail from `build-template.md`."
+   - Demands the structured return shape from `batch-policy.md` "Subagent return contract".
+   - Tool budget: `Read, Edit, Write, Glob, Grep, Bash(studio wp:*), Bash(rm:*), Bash(cat:*), Skill, mcp__figma__*, mcp__wordpress-studio__*`.
+   - Use the `subagent_type: "general-purpose"` agent. Pass `model: "sonnet"`.
 
-7. **Pause after every 2 entries** per `${CLAUDE_PLUGIN_ROOT}/references/batch-policy.md`. The pause message should name the two entries just filled and list the remaining entries.
+6. **Between items.** Append the subagent's structured report to the running summary. Move to the next entry. No `/compact` pause.
 
-8. After all entries are processed, output the final summary per `${CLAUDE_PLUGIN_ROOT}/references/batch-policy.md`. Remind the user that `/refine-content <name> <page-url>` is the next step for body refinement on any newly filled page (and `/refine-template` for the wrapper) — `/build-all-content` does not auto-refine because refinement requires a rendered screenshot and the user may want to batch refinement separately via `/refine-all-content` or `/refine-all-templates`.
+7. **Final summary.** After the loop, render the standard summary per `batch-policy.md` "Final summary". Remind the user that `/refine-content <name> <page-url>` is the next step for body refinement on any newly filled page (and `/refine-template` for the wrapper) — `/build-all-content` does not auto-refine because refinement requires a rendered screenshot and the user may want to batch refinement separately via `/refine-all-content` or `/refine-all-templates`.

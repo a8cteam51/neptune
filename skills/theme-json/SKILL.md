@@ -4,6 +4,8 @@ description: Generates theme.json from the Figma file's `🎨 Style Guide` layer
 model: sonnet
 ---
 
+0. Run `${CLAUDE_PLUGIN_ROOT}/scripts/check-state.sh templateMappingsCompleted templateMappings themeSlug figmaFileId`. If it fails, surface the message and stop.
+
 1. Confirm the user has installed the WordPress Block Themes agent skill inside Studio (see https://developer.wordpress.com/docs/developer-tools/studio/agent-skills-wordpress-studio/) and that the Figma local MCP server is enabled in Claude Code. Load the `figma:figma-use` skill before pulling variable tables from Figma.
 
 2. Read the Figma file ID from `neptune-config.json`. Use the Figma MCP to pull the variable tables from the file.
@@ -29,4 +31,4 @@ model: sonnet
 
 8. Set `themeJsonCompleted: true` in `neptune-config.json` so future runs know `theme.json` has been generated.
 
-9. Tell the user `theme.json` has been written and the next step is `/build-template <name>` (per unique `wordpressFile` in `templateMappings`) — or `/build-all-templates` to batch all unbuilt wrappers in one run.
+9. Tell the user `theme.json` has been written and **offer** the `extract-patterns` skill as the next step (it lifts repeated Figma components into WP block patterns so subsequent build runs reference them by slug instead of re-emitting markup). Do not auto-invoke. If `patternsCompleted: true` is already present in `neptune-config.json`, mention that fact and ask whether to re-run or skip ahead to `/build-template`. After `extract-patterns` completes — or if the user opts to skip it — the next concrete step is `/build-template <name>` per unique `wordpressFile` in `templateMappings`, or `/build-all-templates` to batch all unbuilt wrappers in one run.
