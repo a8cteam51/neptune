@@ -1,5 +1,6 @@
 ---
 description: Build a single template or template part in the WordPress theme from its mapped Figma design using block markup.
+model: sonnet
 argument-hint: [template-or-part-name] [page-url]
 allowed-tools: Read, Edit, Write, Glob, Grep, Bash(gh issue create:*), Bash(gh repo view:*), Bash(npm run build:styles:block-styles), Skill, mcp__figma__*, mcp__wp-blockmarkup__*, mcp__wordpress-studio__take_screenshot
 ---

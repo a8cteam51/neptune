@@ -73,3 +73,7 @@ When building templates:
 - Use block stylesheets in `assets/block-styles/src/*.scss` only for styling that `theme.json` cannot express. Name the file after the block it targets (e.g. `core-group.scss`).
 - Never put custom CSS directly in `theme.json` or `style.css`.
 - Use WordPress block markup only; never fall back to plain HTML inside templates.
+
+## Notes
+
+If WP-Blockmarkup MCP isn't loading, check your local node version and test directly on the commandline.

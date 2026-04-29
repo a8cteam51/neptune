@@ -1,5 +1,6 @@
 ---
 description: Build every unbuilt template and template part listed in `templateMappings` by running each through `/build-template`. Refinement is never triggered by this command — run `/refine-all-templates` or `/refine-template <name> <site-url>` separately.
+model: sonnet
 argument-hint: [--skip=name1,name2]
 allowed-tools: Read, Edit, Write, Glob, Grep, Bash(gh issue create:*), Bash(gh repo view:*), Bash(npm run build:styles:block-styles), Skill, mcp__figma__*, mcp__wp-blockmarkup__*
 ---

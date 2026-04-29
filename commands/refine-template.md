@@ -1,5 +1,6 @@
 ---
 description: Visual-diff a rendered template/part against its Figma design and apply refinements so the rendered output matches Figma.
+model: opus
 argument-hint: [template-or-part-name] [site-url]
 allowed-tools: Read, Edit, Write, Glob, Grep, Bash(gh issue create:*), Bash(gh repo view:*), Bash(npm run build:styles:block-styles), Skill, mcp__figma__*, mcp__wp-blockmarkup__*, mcp__wordpress-studio__take_screenshot
 ---

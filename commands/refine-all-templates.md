@@ -1,5 +1,6 @@
 ---
 description: Visual-diff every built template and template part listed in `templateMappings` against its Figma design, running each through `/refine-template`.
+model: opus
 argument-hint: <site-url> [--skip=name1,name2]
 allowed-tools: Read, Edit, Write, Glob, Grep, Bash(gh issue create:*), Bash(gh repo view:*), Bash(npm run build:styles:block-styles), Skill, mcp__figma__*, mcp__wp-blockmarkup__*, mcp__wordpress-studio__take_screenshot
 ---

@@ -1,5 +1,6 @@
 ---
 description: Visual-diff the body of every filled `templateMappings` entry against its Figma design, running each through `/refine-content`.
+model: opus
 argument-hint: [site-url] [--skip=name1,name2]
 allowed-tools: Read, Edit, Write, Glob, Grep, Bash(gh issue create:*), Bash(gh repo view:*), Bash(studio wp:*), Bash(rm:*), Bash(cat:*), Skill, mcp__figma__*, mcp__wp-blockmarkup__*, mcp__wordpress-studio__take_screenshot
 ---

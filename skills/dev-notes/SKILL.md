@@ -1,6 +1,7 @@
 ---
 name: dev-notes
 description: Collates every `💬 Dev Note` component from the linked Figma file's Dev Handoff page into neptune-config.json under `devNotes`. Safe to re-run; overwrites stored notes. Used after setup-project, or any time the Figma file's dev notes have changed. Triggers on phrases like "pull dev notes from Figma", "refresh the dev notes", "sync Figma annotations", or "capture designer notes".
+model: sonnet
 ---
 
 This skill is safe to re-run; it overwrites the stored notes with the current state of the Figma file.

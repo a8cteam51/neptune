@@ -1,5 +1,6 @@
 ---
 description: Fill the body content of a single WP_Post / WP_Page from its Figma design and write it back via WP CLI.
+model: sonnet
 argument-hint: [template-name] [page-url]
 allowed-tools: Read, Edit, Write, Glob, Grep, Bash(gh issue create:*), Bash(gh repo view:*), Bash(studio wp:*), Bash(rm:*), Bash(cat:*), Skill, mcp__figma__*, mcp__wp-blockmarkup__*, mcp__wordpress-studio__take_screenshot
 ---

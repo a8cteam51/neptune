@@ -1,5 +1,6 @@
 ---
 description: Fill the body content of every `templateMappings` entry whose target post is still empty, running each through `/build-content`.
+model: sonnet
 argument-hint: [--skip=name1,name2]
 allowed-tools: Read, Edit, Write, Glob, Grep, Bash(gh issue create:*), Bash(gh repo view:*), Bash(studio wp:*), Bash(rm:*), Bash(cat:*), Skill, mcp__figma__*, mcp__wp-blockmarkup__*
 ---

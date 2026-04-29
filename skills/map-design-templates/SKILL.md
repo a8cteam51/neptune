@@ -1,6 +1,7 @@
 ---
 name: map-design-templates
 description: Maps Figma `🗒️ Templates` title cards to WordPress block-theme files (`index.html`, `single.html`, `parts/header.html`, etc.), confirms each mapping with the user, scaffolds the empty files, and records desktop/mobile node IDs plus a preview `pageUrl` per mapping in neptune-config.json. Used after dev-notes. Triggers on phrases like "map Figma templates to WordPress", "scaffold the template files", "wire up the theme files", or "figure out which Figma frames go where".
+model: sonnet
 ---
 
 In the Figma file, the `🗒️ Templates` layer contains a `Title Card` sublayer per design template; the title card text identifies the page the layout represents (e.g. `Title Card - Home` → the homepage). Beneath each title card there are usually two layout frames: a wider one (desktop) and a narrower one (mobile).
@@ -29,7 +30,7 @@ Steps:
 
 1. Load the `figma:figma-use` skill first. Use the Figma MCP to walk the `🗒️ Templates` layer of the `🛠️  Dev Handoff` page and gather every `Title Card` with its child layout frames. For each title card, capture the title text plus the node ID of every layout frame beneath it (typically a desktop frame and a mobile frame; sometimes more).
 2. Ask the user once for the base site URL where this theme will be tested (e.g. `https://my-site.test`, a local dev URL, or a staging URL). Use it to propose per-template URLs in step 4. If the site does not exist yet, ask whether to skip URL capture for this run; downstream commands will fall back to asking for URLs at build/refine time.
-3. For each design template, propose a mapping to a WordPress theme file based on the table above and the template hierarchy reference. Always propose `parts/header.html` and `parts/footer.html` even when these are not explicitly found in the Figma file, since most designs will have a header and footer even if they don't call them out as separate title cards.
+3. For each design template, propose a mapping to a WordPress theme file based on the table above and the template hierarchy reference. Always propose `parts/header.html` and `parts/footer.html` even when these are not explicitly found in the Figma file, since most designs will have a header and footer even if they don't call them out as separate title cards. Ask the user to provide Figma node links for the header and footer for desktop and mobile versions, validate and map these.
 4. Confirm each mapping with the user one at a time. Do not output a table of all your findings. Move through your findings one prompt at a time. For each template, propose **both** the WordPress file and a page URL based on convention, then confirm both before moving on. Example: "Figma has a template called `Blog`. I'd map this to `index.html`, with the page URL `https://my-site.test/`. OK with both?" URL conventions to propose:
    - `index.html` → `<base>/`
    - `single.html` → ask the user for an example published post URL (the canonical post used to preview the single template)
