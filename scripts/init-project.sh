@@ -2,8 +2,11 @@
 
 set -euo pipefail
 
-if [ "$#" -ne 4 ]; then
-	echo "Usage: $0 <project_name> <figma_file_id> <repository_url> <theme_slug>"
+if [ "$#" -ne 5 ]; then
+	echo "Usage: $0 <project_name> <figma_file_id> <repository_url> <theme_slug> <figma_dev_handoff_node_id>"
+	echo "  figma_dev_handoff_node_id is the X:Y node id of the dev-handoff page,"
+	echo "  extracted from a Figma 'Copy link to selection' URL (the node-id query"
+	echo "  param, with '-' converted to ':')."
 	exit 1
 fi
 
@@ -11,6 +14,17 @@ project_name="$1"
 figma_file_id="$2"
 repository_url="$3"
 theme_slug="$4"
+figma_dev_handoff_node_id="$5"
+
+# Validate node id shape: must look like "<digits>:<digits>".
+if [[ ! "$figma_dev_handoff_node_id" =~ ^[0-9]+:[0-9]+$ ]]; then
+	echo "Error: figma_dev_handoff_node_id \"$figma_dev_handoff_node_id\" is not a valid Figma node id."
+	echo "  Expected the form \"X:Y\" where X and Y are integers."
+	echo "  In Figma desktop, right-click the dev-handoff page tab, choose"
+	echo "  'Copy link to selection', and convert the URL's node-id from"
+	echo "  'X-Y' to 'X:Y'."
+	exit 1
+fi
 config_file="neptune-config.json"
 wordpress_dir="wordpress"
 wordpress_url="https://wordpress.org/latest.zip"
@@ -153,6 +167,7 @@ cat > "$config_file" <<EOF
 {
 	"projectName": "$project_name",
 	"figmaFileId": "$figma_file_id",
+	"figmaDevHandoffNodeId": "$figma_dev_handoff_node_id",
 	"repositoryUrl": "$repository_url",
 	"themeSlug": "$theme_slug"
 }

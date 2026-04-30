@@ -1,7 +1,7 @@
 ---
 description: Fill the body content of a single WP_Post / WP_Page from its Figma design and write it back via WP CLI, with validated block markup.
 argument-hint: [template-name] [page-url]
-allowed-tools: Read, Edit, Write, Glob, Grep, Bash(gh issue create:*), Bash(gh repo view:*), Bash(studio wp:*), Bash(rm:*), Bash(cat:*), Bash(curl:*), Bash(${CLAUDE_PLUGIN_ROOT}/scripts/check-state.sh:*), Skill, mcp__figma__*, mcp__wordpress-studio__*
+allowed-tools: Read, Edit, Write, Glob, Grep, Bash(gh issue create:*), Bash(gh repo view:*), Bash(studio wp:*), Bash(rm:*), Bash(cat:*), Bash(curl:*), Bash(${CLAUDE_PLUGIN_ROOT}/scripts/check-state.sh:*), Skill, mcp__figma-local__*, mcp__wordpress-studio__*
 ---
 
 Build the body content for one entry in `templateMappings` and write it onto the corresponding WordPress post or page via `studio wp`. This command is invoked once **per `templateMappings` entry** — sibling entries that share a `wordpressFile` (e.g. multiple page designs all using `page.html`) each have their own body content to fill, so each one needs its own `/build-content` run.
@@ -16,7 +16,8 @@ Preflight (run before any other step):
 
 Context to load before starting:
 - `neptune-config.json` at the project root — `themeSlug`, `templateMappings`, `devNotes`, `figmaFileId`, and (if present) `patterns`.
-- The Figma MCP — Figma is the source of truth for the content design. Use `mcp__figma__get_design_context` against the relevant node ID under `templateMappings[…].figmaNodes` to pull the actual content design. Load the `figma:figma-use` skill before any Figma MCP calls that need JS execution in the file context.
+- The Figma MCP — Figma is the source of truth for the content design. Use `mcp__figma-local__get_design_context` against the relevant node ID under `templateMappings[…].figmaNodes` to pull the actual content design. Local Dev Mode MCP is read-only; ensure the Figma file is open in Figma desktop while this command runs.
+- `${CLAUDE_PLUGIN_ROOT}/references/reading-design-context.md` — translation contract for `mcp__figma-local__get_design_context` output. Apply it for every Figma node you read in this run; treat the React+Tailwind response as a structural blueprint, not literal code.
 - The `wordpress-studio` MCP — block markup must be validated through `mcp__wordpress-studio__validate_blocks` before being written back to the post.
 - `wordpress/.agents/skills/wp-block-themes/SKILL.md` — block theme structure and theme.json reference.
 - Read the styling, building, pattern-reuse, accessibility, and performance/SEO guardrails outlined in `${CLAUDE_PLUGIN_ROOT}/commands/build-template.md` — every guardrail there applies here too. The block-markup validation step in particular is **mandatory**: every chunk of generated body markup goes through `mcp__wordpress-studio__validate_blocks` before the post is updated.
@@ -37,7 +38,7 @@ Context to load before starting:
    ```
    If both lookups fail, stop and ask the user to confirm the page exists and is published. Do not create the post automatically — the page is expected to have been created during `setup-project` (Home / Blog) or by the user; auto-creating risks duplicates.
 
-4. Pull the Figma design directly via the Figma MCP for every node ID under `figmaNodes` for this entry. Use `mcp__figma__get_design_context` with `figmaFileId` from `neptune-config.json` and the captured node IDs as the primary source — it returns code, a screenshot, and design tokens in one response. Pull both `desktop` and `mobile` where present. The node IDs captured by `/map-design-templates` cover the **whole** template design (wrapper + body); for `/build-content` you want only the body region — extract the content that sits between the header and footer of the design. If the entry's body is visually identical to the wrapper-source entry's body (i.e. there is no per-page difference), call that out and ask the user whether to skip — there may be nothing for this command to do.
+4. Pull the Figma design directly via the Figma MCP for every node ID under `figmaNodes` for this entry. Use `mcp__figma-local__get_design_context` with `figmaFileId` from `neptune-config.json` and the captured node IDs as the primary source — it returns code, a screenshot, and design tokens in one response. Pull both `desktop` and `mobile` where present. The node IDs captured by `/map-design-templates` cover the **whole** template design (wrapper + body); for `/build-content` you want only the body region — extract the content that sits between the header and footer of the design. If the entry's body is visually identical to the wrapper-source entry's body (i.e. there is no per-page difference), call that out and ask the user whether to skip — there may be nothing for this command to do.
 
 5. Filter `devNotes` from `neptune-config.json` to only those whose `context` plausibly applies to this page's body content. Do not reason over unrelated notes.
 

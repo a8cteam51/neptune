@@ -38,12 +38,13 @@ fi
 hint_for() {
 	case "$1" in
 		setupProjectCompleted)        echo "setup-project skill" ;;
-		devNotesCompleted|devNotes)   echo "dev-notes skill" ;;
+		figmaPullCompleted|devNotes|figmaVariables|figmaStyleGuideNodeId|figmaThemeAssets)
+		                              echo "pull-figma skill" ;;
 		templateMappingsCompleted|templateMappings)
-		                              echo "map-design-templates skill" ;;
+		                              echo "map-design-templates skill (after pull-figma populates candidates)" ;;
 		themeJsonCompleted)           echo "theme-json skill" ;;
 		patternsCompleted|patterns)   echo "extract-patterns skill" ;;
-		projectName|figmaFileId|repositoryUrl|themeSlug)
+		projectName|figmaFileId|figmaDevHandoffNodeId|repositoryUrl|themeSlug)
 		                              echo "setup-project skill (init-project.sh)" ;;
 		*)                            echo "the skill that populates \"$1\"" ;;
 	esac

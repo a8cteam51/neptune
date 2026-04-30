@@ -15,16 +15,24 @@ Steps:
 
 2. Gather from the user:
    - Project name
-   - Figma file ID
    - GitHub repository URL
+   - **Figma Dev Handoff page URL.** Ask the user to open the Figma file in Figma desktop, right-click the **dev-handoff page tab** (the page that contains `🗒️ Templates`, `🎨 Style Guide`, `Theme Assets`, etc.), and choose **"Copy link to selection."** Paste the URL. It must contain a `node-id` query param — if it doesn't, ask the user to repeat the right-click on the page tab itself rather than the canvas.
 
    Derive the theme slug from the repository URL (e.g. `https://github.com/user/my-theme.git` → `my-theme`). Do not ask the user for the theme slug.
 
-3. Run `${CLAUDE_PLUGIN_ROOT}/scripts/init-project.sh "<project_name>" "<figma_file_id>" "<repository_url>" "<theme_slug>"`. The script takes four positional arguments in that order and does not prompt. It will:
+   Extract the Figma file ID and the dev-handoff node ID from the URL with a one-liner. The URL format is `https://www.figma.com/design/<fileKey>/<name>?node-id=<X>-<Y>...`; the node id in the URL uses `-` and must be converted to `:` for the MCP. Example:
+   ```bash
+   FIGMA_URL="<url-from-user>"
+   FIGMA_FILE_ID=$(echo "$FIGMA_URL" | sed -E 's|.*figma.com/design/([^/?]+).*|\1|')
+   FIGMA_NODE_ID=$(echo "$FIGMA_URL" | sed -E 's|.*[?&]node-id=([0-9]+)-([0-9]+).*|\1:\2|')
+   ```
+   Validate both are non-empty before continuing.
+
+3. Run `${CLAUDE_PLUGIN_ROOT}/scripts/init-project.sh "<project_name>" "<figma_file_id>" "<repository_url>" "<theme_slug>" "<figma_dev_handoff_node_id>"`. The script takes five positional arguments in that order and does not prompt. It will:
    - Create `wordpress/` with WordPress core files.
    - Clone the theme repo into `wordpress/wp-content`.
    - Run `npm install` in `wp-content` if a `package.json` exists there.
-   - Write `neptune-config.json` at the project root with `projectName`, `figmaFileId`, `repositoryUrl`, `themeSlug`.
+   - Write `neptune-config.json` at the project root with `projectName`, `figmaFileId`, `figmaDevHandoffNodeId`, `repositoryUrl`, `themeSlug`.
 
 4. Create the WordPress site with Studio, from the `wordpress/` directory:
    - `studio site create --name="<project_name>"` — use the project name stored in `neptune-config.json`.
@@ -45,4 +53,4 @@ Steps:
 
 6. Update `neptune-config.json` with `setupProjectCompleted: true` so future runs know the scaffold has been completed.
 
-7. Load and follow the `dev-notes` skill to continue.
+7. Load and follow the `pull-figma` skill to continue.

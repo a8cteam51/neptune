@@ -18,12 +18,19 @@ Block markup is validated against a real WordPress site through `mcp__wordpress-
 
 - macOS.
 - [WordPress Studio](https://developer.wordpress.com/studio/) with the Block Themes agent skill installed.
-- [Figma MCP](https://developers.figma.com/docs/figma-mcp-server/remote-server-installation/#claude-code) enabled in Claude Code.
+- Figma desktop app running, with the [local Dev Mode MCP server](https://developers.figma.com/docs/figma-mcp-server/local-server-installation/) enabled (Figma menu → Preferences → Enable local MCP server). Neptune ships its own `.mcp.json` pointing at `http://127.0.0.1:3845/mcp` and never calls Figma's hosted MCP — every Figma read happens against the file currently open in your local Figma desktop app.
 - [GitHub CLI (`gh`)](https://cli.github.com/), authenticated (`gh auth login`).
 - Team51 CLI, configured.
 - [`jq`](https://jqlang.org/) on `PATH` — used by the state-gate script.
 
 Before running `setup-project`, you must also have run `team51 pressable:create-site` and created a GitHub repo from the no-code project template (leave the theme name empty).
+
+## Figma access model
+
+Neptune reads Figma exclusively through the local Dev Mode MCP server, never the hosted one. Two consequences worth knowing up front:
+
+- **The Figma file you are building from must be open in Figma desktop** for the duration of the build. The local MCP returns data for the file currently open in the desktop app — it cannot reach files by URL alone the way the hosted MCP can. If you switch tabs to a different file mid-build, the next Figma call returns data from the wrong file.
+- **A `PreToolUse` hook hard-blocks `mcp__figma__*`** (the hosted MCP's namespace) for the whole session while Neptune is enabled, even if Anthropic's official Figma plugin is also installed. The block surfaces a redirect message pointing at `mcp__figma-local__*`. If you need the hosted MCP for non-Neptune work, disable this plugin first.
 
 ## Workflow
 
@@ -32,42 +39,55 @@ Skills 1–6 auto-chain: each skill loads and follows the next one automatically
 | Step | Invocation                           | Purpose                                                                                                                                        |
 | ---- | ---                                  | ---                                                                                                                                            |
 | 1    | `check-environment` skill            | Environment check. Auto-chains into `setup-project`.                                                                                          |
-| 2    | `setup-project` skill                | Scaffold project + WordPress + theme clone. Auto-chains into `dev-notes`.                                                                      |
-| 3    | `dev-notes` skill                    | Pull `💬 Dev Note` components from Figma into config. Auto-chains into `map-design-templates`.                                                 |
-| 4    | `map-design-templates` skill         | Map Figma templates → WP files; scaffold empty files; capture Figma node IDs for each desktop/mobile layout and a preview `pageUrl` per entry. Auto-chains into `theme-json`. |
-| 5    | `theme-json` skill                   | Generate `theme.json` from Figma styles and variables, and register template parts / custom templates from the mappings. Auto-chains into `extract-patterns`. |
-| 6    | `extract-patterns` skill             | Lift reusable Figma components into WP block patterns under `patterns/` so subsequent build runs reference them by slug instead of re-emitting markup. Optional but recommended. |
+| 2    | `setup-project` skill                | Scaffold project + WordPress + theme clone. Capture the Figma dev-handoff page URL. Auto-chains into `pull-figma`.                            |
+| 3    | `pull-figma` skill                   | Walk the Figma dev-handoff page **once** and write every structural slice (template candidates, style-guide pointer, theme assets, dev notes, variable defs) into `neptune-config.json`. Auto-chains into `map-design-templates`. |
+| 4    | `map-design-templates` skill         | Confirm each candidate's WP file + page URL with the user; scaffold empty theme files. No Figma walking — pure config consumer. Auto-chains into `theme-json`. |
+| 5    | `theme-json` skill                   | Generate `theme.json` from `figmaVariables` in config plus a targeted `get_design_context` on the style-guide node. Register template parts / custom templates. Auto-chains into `extract-patterns`. |
+| 6    | `extract-patterns` skill             | Walk each layout in `templateMappings`, deduplicate component instances, lift multi-use components into WP block patterns under `patterns/`. Optional but recommended. |
 | 7    | `/build-template <name>`             | Populate one template/part wrapper with validated block markup, pulling the design from Figma. Run per unique `wordpressFile`.                  |
 | 8    | `/build-content <name>`              | Fill the body of one WP_Post / WP_Page from its Figma design. Run per `templateMappings` entry that shares a wrapper.                          |
 | 9    | `/refine-template <name> <site-url>` | Visual-diff a rendered template against Figma and refine the wrapper. Uses a measure-first / vision-fallback diff strategy.                     |
 | 10   | `/refine-content <name> <page-url>`  | Visual-diff a rendered page body against Figma and refine the post content. Same diff strategy.                                                 |
 
+The user provides the Figma dev-handoff page URL **once** during `setup-project`. From that one URL, `pull-figma` extracts everything Neptune needs into `neptune-config.json`. Every downstream skill and slash command reads from `neptune-config.json` rather than walking Figma to discover structural information.
+
 ## Project config file
 
 All skills share state through `neptune-config.json` at the project root:
 
-- `projectName`, `figmaFileId`, `repositoryUrl`, `themeSlug` — written by `init-project.sh` during `setup-project`.
+- `projectName`, `figmaFileId`, `figmaDevHandoffNodeId`, `repositoryUrl`, `themeSlug` — written by `init-project.sh` during `setup-project`. `figmaDevHandoffNodeId` is the `X:Y` id of the dev-handoff page, extracted from the URL the user pastes during setup.
 - `setupProjectCompleted` (boolean) — set by `setup-project` once Studio site creation finishes.
-- `devNotes` — the captured note objects, written by `dev-notes`.
-- `devNotesCompleted` (boolean) — set by `dev-notes` once notes are written.
-- `templateMappings` — per-Figma-template-card mapping object, written by `map-design-templates`. Keyed by Figma title-card name. Each entry has shape:
+- `figmaVariables` — raw output of `mcp__figma-local__get_variable_defs` for the dev-handoff page, captured by `pull-figma`. Drives `theme-json`'s palette / typography / spacing emission.
+- `figmaStyleGuideNodeId` — id of the `🎨 Style Guide` section, captured by `pull-figma`. `theme-json` calls `get_design_context` on it to cross-reference variables against rendered styles.
+- `figmaBrandOverridesNodeId` (optional) — id of the `🎨 New Brand Colors and Fonts` section if present.
+- `figmaThemeAssets` — `{themeThumbnail, siteIcon, sharecard}` node ids from the `Theme Assets` section, captured by `pull-figma`.
+- `devNotes` — every `💬 Dev Note` instance on the dev-handoff page, captured by `pull-figma`. Each entry: `{id, text, context, x, y}`.
+- `figmaPullCompleted` (boolean) — set by `pull-figma` once the walk has populated all of the above.
+- `templateMappings` — per-Figma-title-card mapping object. Initial candidates (with `figmaTitleCardId`, `figmaTitleTextId`, `figmaNodes.{desktop, mobile?}`, `proposedWordpressFile`) are written by `pull-figma`. `map-design-templates` then confirms each entry and adds `wordpressFile` and `pageUrl`. Final shape:
   ```json
   {
-    "wordpressFile": "<path relative to the theme root>",
-    "figmaNodes": {
-      "desktop": "<figma-node-id>",
-      "mobile":  "<figma-node-id>"
-    },
-    "pageUrl": "<full URL where this template renders>"
+    "<title>": {
+      "wordpressFile": "<path relative to the theme root>",
+      "figmaTitleCardId": "<figma-node-id>",
+      "figmaTitleTextId": "<figma-node-id>",
+      "figmaNodes": {
+        "desktop": "<figma-node-id>",
+        "mobile":  "<figma-node-id>"
+      },
+      "pageUrl": "<full URL where this template renders>",
+      "proposedWordpressFile": "<unchanged hint from pull-figma>"
+    }
   }
   ```
-  `figmaNodes` may include further breakpoint keys (e.g. `tablet`) when the design supplies them, and may omit `mobile` if the Figma title card has only one layout frame. `pageUrl` is consumed by `/build-content`, `/refine-*`, and header/footer nav wiring; entries that share a `wordpressFile` (e.g. multiple page designs all using `page.html`) all keep their own `figmaNodes` and `pageUrl`. Stored URLs are validated with a `curl` HEAD before they're trusted; on a 4xx/5xx the command re-resolves via WP CLI rather than relying on stale state.
-- `templateMappingsCompleted` (boolean) — set by `map-design-templates` once mappings are recorded and empty files scaffolded.
+  `figmaNodes` may include further breakpoint keys (e.g. `tablet`) when the design supplies them, and may omit `mobile` if the Figma title card has only one layout frame. `pageUrl` is consumed by `/build-content`, `/refine-*`, and header/footer nav wiring; entries that share a `wordpressFile` all keep their own `figmaNodes` and `pageUrl`. Stored URLs are validated with a `curl` HEAD before they're trusted; on a 4xx/5xx the command re-resolves via WP CLI rather than relying on stale state.
+- `templateMappingsCompleted` (boolean) — set by `map-design-templates` once each entry is confirmed and the empty theme files are scaffolded.
 - `themeJsonCompleted` (boolean) — set by `theme-json` once `theme.json` is generated.
-- `patterns` — registered block-pattern objects, written by `extract-patterns`. Keyed by pattern slug. Each entry carries `title`, `fullSlug` (`<themeSlug>/<pattern-slug>`), `figmaComponentId`, `figmaComponentKey`, and `file` (`patterns/<pattern-slug>.html`). Build commands consult this registry and emit `<!-- wp:pattern {"slug":"<fullSlug>"} /-->` instead of re-emitting the component's markup.
+- `patterns` — registered block-pattern objects, written by `extract-patterns`. Keyed by pattern slug. Each entry carries `title`, `fullSlug` (`<themeSlug>/<pattern-slug>`), `figmaComponentId`, `figmaComponentKey`, and `file` (`patterns/<pattern-slug>.php`). Build commands consult this registry and emit `<!-- wp:pattern {"slug":"<fullSlug>"} /-->` instead of re-emitting the component's markup.
 - `patternsCompleted` (boolean) — set by `extract-patterns` once the pattern lift has run (or when the user opts to skip the phase).
 
 The `*Completed` booleans are inputs to `scripts/check-state.sh`, which every skill and command runs as its preflight step. They signal to each skill/command whether the inputs it needs exist yet.
+
+`pull-figma` is **safe to re-run**. When the Figma file changes (designer adds a template, updates the style guide), invoking `pull-figma` again refreshes the figma-derived slices of `neptune-config.json` while preserving user-confirmed fields like `wordpressFile` and `pageUrl` on existing `templateMappings` entries.
 
 ## Styling guardrails
 
@@ -87,7 +107,7 @@ The build commands enforce production-grade defaults during the initial template
 
 `/refine-template` and `/refine-content` use a **measure-first / vision-fallback** diff:
 
-- **Stage A (numeric).** Pull the Figma node's measured properties via `mcp__figma__get_design_context` and `mcp__figma__get_variable_defs`. Compare against the rendered DOM's computed styles (via `theme.json` declarations, block stylesheets, and serialised block `style=` attributes; via `studio wp_cli` introspection where browser-side measurement isn't reliably available). Anything outside ±1px on layout, ±2% perceptual on color, or any difference in `font-weight` / `font-family` / token name is a discrepancy.
+- **Stage A (numeric).** Pull the Figma node's measured properties via `mcp__figma-local__get_design_context` and `mcp__figma-local__get_variable_defs`. Compare against the rendered DOM's computed styles (via `theme.json` declarations, block stylesheets, and serialised block `style=` attributes; via `studio wp_cli` introspection where browser-side measurement isn't reliably available). Anything outside ±1px on layout, ±2% perceptual on color, or any difference in `font-weight` / `font-family` / token name is a discrepancy.
 - **Stage B (visual).** Take matching-breakpoint screenshots (Studio's `take_screenshot`) and visually compare for things numbers don't catch: alignment, z-order, missing/extra elements, overflow, broken responsive behaviour.
 
 When a vision impression contradicts a numeric measurement, the numeric measurement wins. The discrepancy table the user sees lists rows from both stages with a `source` column (`measured` / `visual`).

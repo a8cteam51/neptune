@@ -1,61 +1,60 @@
 ---
 name: map-design-templates
-description: Maps Figma `🗒️ Templates` title cards to WordPress block-theme files (`index.html`, `single.html`, `parts/header.html`, etc.), confirms each mapping with the user, scaffolds the empty files, and records desktop/mobile node IDs plus a preview `pageUrl` per mapping in neptune-config.json. Used after dev-notes. Triggers on phrases like "map Figma templates to WordPress", "scaffold the template files", "wire up the theme files", or "figure out which Figma frames go where".
+description: Confirms each template-mapping candidate (extracted by `pull-figma`) with the user — picks the WordPress theme file each Figma title maps to, captures a preview page URL per mapping, and scaffolds the empty theme files. Used after `pull-figma`. Triggers on phrases like "confirm template mappings", "map templates to WordPress files", "scaffold the theme files", or "wire up the page URLs".
 ---
 
-In the Figma file, the `🗒️ Templates` layer contains a `Title Card` sublayer per design template; the title card text identifies the page the layout represents (e.g. `Title Card - Home` → the homepage). Beneath each title card there are usually two layout frames: a wider one (desktop) and a narrower one (mobile).
-
-Figma is the source of truth for the design. Pull every layout directly through the Figma MCP — never rely on local screenshot exports.
+This skill no longer walks Figma — `pull-figma` already extracted every title-card candidate, its child desktop/mobile node ids, and a proposed WordPress file. This skill is the **confirmation and scaffolding** step: walk the user through each candidate, confirm or override the proposed `wordpressFile` and `pageUrl`, and create the empty template files in the theme tree.
 
 Reference context:
 - `wordpress/.agents/skills/wp-block-themes/SKILL.md` — block theme file structure and page-layout file roles.
 - `wordpress/.agents/skills/wp-block-themes/references/templates-and-parts.md` — the WordPress template hierarchy.
 
-Typical mappings:
-
-| Design Template Name              | WordPress Theme File                                                 |
-| ---                               | ---                                                                  |
-| Blog                              | `index.html`                                                         |
-| Category                          | `archive.html` or `category.html` (if a category-specific layout)    |
-| Blog Post                         | `single.html`                                                        |
-| Search Results                    | `search.html`                                                        |
-| 404 Page                          | `404.html`                                                           |
-| Default Page                      | `page.html`                                                          |
-| Other pages (e.g. About, Contact) | `page.html` or a custom full-width page template for Gutenberg edits |
-
 Multiple Figma title cards can — and often will — map to the same `wordpressFile`. For example, "About Page", "Contact Page", and "Services Page" might all map to `page.html`. That's expected: `page.html` is a thin wrapper (header/footer + `<!-- wp:post-content /-->`), built once per file, while each page's body content lives on the WP_Post and is filled separately by `/build-content` using that entry's own `figmaNodes` and `pageUrl`. Keep one entry per Figma title card — do not collapse them — so per-page content has somewhere to attach.
 
-Steps:
+## Steps
 
-0. Run `${CLAUDE_PLUGIN_ROOT}/scripts/check-state.sh setupProjectCompleted devNotesCompleted figmaFileId themeSlug`. If it fails, surface the message and stop. (`devNotesCompleted` is required so the build/refine commands can filter `devNotes` per template later.)
+1. Run `${CLAUDE_PLUGIN_ROOT}/scripts/check-state.sh figmaPullCompleted templateMappings themeSlug`. If it fails, surface the message and stop.
 
-1. Load the `figma:figma-use` skill first. Use the Figma MCP to walk the `🗒️ Templates` layer of the `🛠️  Dev Handoff` page and gather every `Title Card` with its child layout frames. For each title card, capture the title text plus the node ID of every layout frame beneath it (typically a desktop frame and a mobile frame; sometimes more).
-2. Ask the user once for the base site URL where this theme will be tested (e.g. `https://my-site.test`, a local dev URL, or a staging URL). Use it to propose per-template URLs in step 4. If the site does not exist yet, ask whether to skip URL capture for this run; downstream commands will fall back to asking for URLs at build/refine time.
-3. For each design template, propose a mapping to a WordPress theme file based on the table above and the template hierarchy reference. Always propose `parts/header.html` and `parts/footer.html` even when these are not explicitly found in the Figma file, since most designs will have a header and footer even if they don't call them out as separate title cards. Ask the user to provide Figma node links for the header and footer for desktop and mobile versions, validate and map these.
-4. Confirm each mapping with the user one at a time. Do not output a table of all your findings. Move through your findings one prompt at a time. For each template, propose **both** the WordPress file and a page URL based on convention, then confirm both before moving on. Example: "Figma has a template called `Blog`. I'd map this to `index.html`, with the page URL `https://my-site.test/`. OK with both?" URL conventions to propose:
-   - `index.html` → `<base>/`
-   - `single.html` → ask the user for an example published post URL (the canonical post used to preview the single template)
-   - `archive.html` / `category.html` → `<base>/blog` or `<base>/category/<slug>` (ask if unsure)
-   - `search.html` → `<base>/?s=example`
-   - `404.html` → `<base>/this-page-does-not-exist` (or any deliberately broken slug)
-   - `page.html` and custom page templates → ask for the slug of the page that uses this template
-   - `header.html`, `footer.html` → reuse the URL of any full template the part renders in (the homepage URL is a sensible default)
-   Update mappings based on user feedback before moving on. Create any pages referenced that don't currently exist using WP CLI at `studio wp`. For any human-actionable follow-up surfaced during this skill, open a GitHub issue per the procedure in `${CLAUDE_PLUGIN_ROOT}/references/github-followups.md`.
-5. Record confirmed mappings under a `templateMappings` object in `neptune-config.json`, keyed by Figma template name. Each value is an object:
+2. Read `templateMappings` from `neptune-config.json`. Each entry has the shape `{figmaTitleCardId, figmaTitleTextId, figmaNodes: {desktop, mobile?}, proposedWordpressFile}` — produced by `pull-figma`. If an entry already has a confirmed `wordpressFile` (e.g. from a prior run), skip the WP-file question for that entry but still confirm `pageUrl`.
+
+3. Ask the user once for the base site URL where this theme will be tested (e.g. `https://my-site.test`, a local dev URL, or a staging URL). Use it to propose per-template URLs in step 4. If the site does not exist yet, ask whether to skip URL capture for this run; downstream commands will fall back to asking for URLs at build/refine time.
+
+4. **Walk each entry one at a time** — never batch-output a table for the user to review. For each entry:
+   - State the Figma title and the proposed WordPress file.
+   - Propose a preview page URL based on convention:
+     - `front-page.html` → `<base>/`
+     - `index.html` (blog landing or default posts list) → `<base>/blog` or `<base>/`
+     - `single.html` → ask the user for an example published post URL
+     - `archive.html` / `category.html` → `<base>/blog` or `<base>/category/<slug>`
+     - `search.html` → `<base>/?s=example`
+     - `404.html` → `<base>/this-page-does-not-exist`
+     - `page.html` and custom page templates → ask for the slug of the page that uses this template
+     - `parts/header.html`, `parts/footer.html` → reuse the URL of any full template the part renders in (the homepage URL is a sensible default)
+   - Ask the user to confirm both the WordPress file and the page URL together. Example: "Figma title 'Blog' — proposed `index.html`, page URL `https://my-site.test/blog`. OK with both?"
+   - If the user changes either, update the entry. Create any pages referenced that don't currently exist using WP CLI at `studio wp` (e.g. `studio wp post create --post_type=page --post_title='About' --post_status=publish --porcelain`). For any human-actionable follow-up surfaced during this skill, open a GitHub issue per `${CLAUDE_PLUGIN_ROOT}/references/github-followups.md`.
+   - For any entry where `figmaNodes.mobile` is missing, ask the user to confirm whether the design genuinely has only one breakpoint, or whether the mobile frame was missed during the pull (in which case prompt them to share its node-id URL — the user copies a link to the mobile frame in Figma desktop, and the skill extracts the node-id).
+
+5. Always ensure entries for `parts/header.html` and `parts/footer.html` exist in `templateMappings`, even if `pull-figma` didn't find dedicated title cards for them. Most designs have a header and footer that aren't called out as separate title cards — the layout regions usually live inside the page templates instead. Ask the user to share Figma node-id URLs for the header and footer regions for desktop and mobile, validate, and write them as new entries with `wordpressFile: parts/header.html` / `parts/footer.html`.
+
+6. Write the confirmed `templateMappings` back to `neptune-config.json` (same key; recursive-merge so other config slices are untouched). Each entry now carries:
    ```json
    {
      "wordpressFile": "<path relative to the theme root>",
-     "figmaNodes": {
-       "desktop": "<figma-node-id>",
-       "mobile": "<figma-node-id>"
-     },
-     "pageUrl": "<full URL where this template renders>"
+     "figmaTitleCardId": "<unchanged>",
+     "figmaTitleTextId": "<unchanged>",
+     "figmaNodes": { "desktop": "...", "mobile": "..." },
+     "pageUrl": "<full URL>",
+     "proposedWordpressFile": "<unchanged — kept for traceability>"
    }
    ```
-   Use the layout frame's aspect ratio or width to decide which frame is `desktop` vs `mobile`. If the title card has only one layout frame, record it under `desktop` and omit `mobile`. If there are additional named breakpoints, add further keys (e.g. `tablet`) using the same convention. When confirming each mapping with the user, also confirm the desktop/mobile assignment for any case that is ambiguous. If the user opted to skip URL capture for a mapping (or for the whole run in step 2), omit `pageUrl` for that entry — downstream commands will treat its absence as "ask the user at run time."
-6. Create each mapped template file with only a call to the header and footer template parts, in the correct directory under the theme (use `themeSlug` from `neptune-config.json`). Templates live under `wordpress/wp-content/themes/<themeSlug>/templates/`; template parts live under `wordpress/wp-content/themes/<themeSlug>/parts/` and should be scaffolded empty. **If a target file already exists and is non-empty, leave it alone** — never truncate a partially-built template on a re-run. List any files skipped this way in the run summary so the user can see what was preserved. Do not populate the files with block markup yet — that happens in `/build-template`. Do not write to `theme.json` from this skill; the next skill, `theme-json`, reads `templateMappings` from `neptune-config.json` and registers the resulting template parts and custom templates there.
-7. Before finishing, list any title cards in `🗒️ Templates` whose layout frames could not be resolved into clean `desktop` / `mobile` assignments, any mappings that ended up without a `figmaNodes` entry, and any mappings without a `pageUrl`. Ask the user how to handle these — do not auto-resolve. Mention that captured `pageUrl` values double as the URL pool for header/footer nav wiring during `/build-template`, so leaving them empty means nav items will need to be wired manually later. Also list groups of entries that share the same `wordpressFile` (e.g. all entries pointing to `page.html`) so the user knows `/build-template` will run once for that file while `/build-content` will run per entry.
 
-8. Set `templateMappingsCompleted: true` in `neptune-config.json` (alongside the `templateMappings` object). The boolean is the completion signal; the data lives under `templateMappings`.
+7. Create each mapped template file under the theme (use `themeSlug` from `neptune-config.json`). Templates live under `wordpress/wp-content/themes/<themeSlug>/templates/`; template parts live under `wordpress/wp-content/themes/<themeSlug>/parts/` and should be scaffolded empty. **If a target file already exists and is non-empty, leave it alone** — never truncate a partially-built template on a re-run. List any files skipped this way in the run summary so the user can see what was preserved. Do not populate the files with block markup yet — that happens in `/build-template`. Do not write to `theme.json` from this skill; the next skill, `theme-json`, registers the resulting template parts and custom templates there.
 
-9. Load and follow the `theme-json` skill to continue.
+8. Before finishing, list:
+   - Any mappings that ended up without a `figmaNodes.mobile` (and whether the user confirmed the design is desktop-only).
+   - Any mappings without a `pageUrl` (and the warning that nav wiring during `/build-template` will need manual URL supply for those).
+   - Groups of entries that share the same `wordpressFile` (e.g. all entries pointing to `page.html`) so the user knows `/build-template` will run once per file while `/build-content` will run per entry.
+
+9. Set `templateMappingsCompleted: true` in `neptune-config.json` (alongside the `templateMappings` object). The boolean is the completion signal; the data lives under `templateMappings`.
+
+10. Load and follow the `theme-json` skill to continue.
