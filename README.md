@@ -59,8 +59,6 @@ All skills share state through `neptune-config.json` at the project root:
 - `setupProjectCompleted` (boolean) — set by `setup-project` once Studio site creation finishes.
 - `figmaVariables` — raw output of `mcp__figma-local__get_variable_defs` for the dev-handoff page, captured by `pull-figma`. Drives `theme-json`'s palette / typography / spacing emission.
 - `figmaStyleGuideNodeId` — id of the `🎨 Style Guide` section, captured by `pull-figma`. `theme-json` calls `get_design_context` on it to cross-reference variables against rendered styles.
-- `figmaBrandOverridesNodeId` (optional) — id of the `🎨 New Brand Colors and Fonts` section if present.
-- `figmaThemeAssets` — `{themeThumbnail, siteIcon, sharecard}` node ids from the `Theme Assets` section, captured by `pull-figma`.
 - `devNotes` — every `💬 Dev Note` instance on the dev-handoff page, captured by `pull-figma`. Each entry: `{id, text, context, x, y}`.
 - `figmaPullCompleted` (boolean) — set by `pull-figma` once the walk has populated all of the above.
 - `templateMappings` — per-Figma-title-card mapping object. Initial candidates (with `figmaTitleCardId`, `figmaTitleTextId`, `figmaNodes.{desktop, mobile?}`, `proposedWordpressFile`) are written by `pull-figma`. `map-design-templates` then confirms each entry and adds `wordpressFile` and `pageUrl`. Final shape:

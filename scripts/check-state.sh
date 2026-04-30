@@ -38,7 +38,7 @@ fi
 hint_for() {
 	case "$1" in
 		setupProjectCompleted)        echo "setup-project skill" ;;
-		figmaPullCompleted|devNotes|figmaVariables|figmaStyleGuideNodeId|figmaThemeAssets)
+		figmaPullCompleted|devNotes|figmaVariables|figmaStyleGuideNodeId)
 		                              echo "pull-figma skill" ;;
 		templateMappingsCompleted|templateMappings)
 		                              echo "map-design-templates skill (after pull-figma populates candidates)" ;;

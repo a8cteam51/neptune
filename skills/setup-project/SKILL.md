@@ -16,7 +16,7 @@ Steps:
 2. Gather from the user:
    - Project name
    - GitHub repository URL
-   - **Figma Dev Handoff page URL.** Ask the user to open the Figma file in Figma desktop, right-click the **dev-handoff page tab** (the page that contains `🗒️ Templates`, `🎨 Style Guide`, `Theme Assets`, etc.), and choose **"Copy link to selection."** Paste the URL. It must contain a `node-id` query param — if it doesn't, ask the user to repeat the right-click on the page tab itself rather than the canvas.
+   - **Figma Dev Handoff page URL.** Ask the user to open the Figma file in Figma desktop, right-click the **dev-handoff page tab** (the page that contains the `🗒️ Templates` and `🎨 Style Guide` sections), and choose **"Copy link to selection."** Paste the URL. It must contain a `node-id` query param — if it doesn't, ask the user to repeat the right-click on the page tab itself rather than the canvas.
 
    Derive the theme slug from the repository URL (e.g. `https://github.com/user/my-theme.git` → `my-theme`). Do not ask the user for the theme slug.
 
