@@ -1,7 +1,6 @@
 ---
 name: extract-patterns
 description: Walks the linked Figma file's published components and generates a WordPress block-pattern for each one into the theme's `patterns/` directory, then records the slug-to-Figma-node mapping in neptune-config.json so subsequent /build-* runs reference patterns by slug instead of re-emitting their block markup. Used after `theme-json` and before `/build-template`. Triggers on phrases like "extract patterns from Figma", "generate block patterns", "build the pattern library", or "register reusable components".
-model: opus
 ---
 
 Why this skill exists: when a designer uses the same component (e.g. a feature card, a CTA section, a media-text row) across many Figma frames, every `/build-template` and `/build-content` run that meets that component would otherwise re-generate its block markup from scratch — and would drift across pages, because the LLM has no shared anchor. This skill lifts those repeated components into named WordPress block patterns once, so downstream commands reference them by slug (`<!-- wp:pattern {"slug":"<themeSlug>/<pattern-slug>"} /-->`) and the markup stays consistent across the whole site.
@@ -57,4 +56,4 @@ Steps:
 
 7. Open a GitHub issue per `${CLAUDE_PLUGIN_ROOT}/references/github-followups.md` for any component that could not be cleanly extracted (validation kept failing, dependent variables missing from `theme.json`, etc.) so the human knows to revisit it.
 
-8. Tell the user how many patterns were extracted, list the slugs, and note that `/build-template` and `/build-content` will reference these patterns by slug in subsequent runs. The next step is `/build-template <name>` (or `/build-all-templates`).
+8. Tell the user how many patterns were extracted, list the slugs, and note that `/build-template` and `/build-content` will reference these patterns by slug in subsequent runs. The next step is `/build-template <name>` per unique `wordpressFile` in `templateMappings` — run this slash command manually for each template or part to be built.

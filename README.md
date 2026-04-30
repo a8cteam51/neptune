@@ -27,40 +27,20 @@ Before running `setup-project`, you must also have run `team51 pressable:create-
 
 ## Workflow
 
-The user invokes every skill explicitly. Each skill ends by **offering** the next step but never auto-invokes it — re-runs are idempotent only because the user gates them. Slash commands (steps 7+) are always run manually.
+Skills 1–6 auto-chain: each skill loads and follows the next one automatically when it completes. Slash commands (steps 7+) are always run manually per template or page.
 
-| Step | Invocation                                    | Purpose                                                                                                                                       |
-| ---- | ---                                           | ---                                                                                                                                           |
-| 1    | `check-environment` skill                     | Environment check.                                                                                                                            |
-| 2    | `setup-project` skill                         | Scaffold project + WordPress + theme clone.                                                                                                   |
-| 3    | `dev-notes` skill                             | Pull `💬 Dev Note` components from Figma into config.                                                                                         |
-| 4    | `map-design-templates` skill                  | Map Figma templates → WP files; scaffold empty files; capture Figma node IDs for each desktop/mobile layout and a preview `pageUrl` per entry. |
-| 5    | `theme-json` skill                            | Generate `theme.json` from Figma styles and variables, and register template parts / custom templates from the mappings.                       |
-| 6    | `extract-patterns` skill                      | Lift reusable Figma components into WP block patterns under `patterns/` so subsequent build runs reference them by slug instead of re-emitting markup. Optional but recommended. |
-| 7    | `/build-template <name>`                      | Populate one template/part wrapper with validated block markup, pulling the design from Figma. Run per unique `wordpressFile`.                 |
-| 8    | `/build-content <name>`                       | Fill the body of one WP_Post / WP_Page from its Figma design. Run per `templateMappings` entry that shares a wrapper.                          |
-| 9    | `/refine-template <name> <site-url>`          | Visual-diff a rendered template against Figma and refine the wrapper. Uses a measure-first / vision-fallback diff strategy.                    |
-| 10   | `/refine-content <name> <page-url>`           | Visual-diff a rendered page body against Figma and refine the post content. Same diff strategy.                                                |
-| —    | `/build-all-templates`, `/build-all-content`  | Batch wrappers around steps 7–8. **Spawn one subagent per item** (see "Batch execution" below). Build-only — never refine.                     |
-| —    | `/refine-all-templates`, `/refine-all-content`| Batch wrappers around steps 9–10. Same subagent model.                                                                                         |
-
-### Why explicit invocation?
-
-Auto-chaining is opt-in to keep the user in control of when expensive Figma + Studio work runs and when checkpoints get recorded. Every skill ends with a one-line offer of the next step (and a note if that next step has already completed) but never invokes it for you.
-
-## Batch execution
-
-The four `*-all-*` commands act as **orchestrators**. They never execute the per-item procedure inline. Instead, for each item in their planned set, they spawn a subagent via the `Agent` tool that follows the matching per-item command's procedure (`build-template.md`, `build-content.md`, `refine-template.md`, `refine-content.md`) end-to-end.
-
-Why subagents instead of inline-with-`/compact`-pauses:
-
-- **Context isolation.** A 10-template build dragging every previous template's block markup, screenshots, and Figma payloads through the same window degrades quality on later items. Each subagent gets a fresh ~200k-token window with only the artifacts it needs.
-- **No `/compact` dance.** The orchestrator's window stays small because each item's working state lives in the subagent. The user does not have to stop every two items to compact.
-- **Predictable costs.** Every per-item subagent runs on Sonnet (`model: sonnet`). The orchestrator commands and the per-item slash commands also default to Sonnet. The one exception is `extract-patterns`, which stays on Opus — pattern extraction is the most consequential generative task in the pipeline because every subsequent build inherits its output, so the stronger model pays off many times over.
-
-Subagents run **sequentially**, not in parallel. They share theme files, `theme.json`, `register_block_style` registrations, and the WP database — parallelism would race on every one of those. Sequential subagents that write to disk between items see each other's outputs cleanly.
-
-The full execution model (orchestrator/subagent contract, return shape, `--skip` parsing) lives in `references/batch-policy.md`.
+| Step | Invocation                           | Purpose                                                                                                                                        |
+| ---- | ---                                  | ---                                                                                                                                            |
+| 1    | `check-environment` skill            | Environment check. Auto-chains into `setup-project`.                                                                                          |
+| 2    | `setup-project` skill                | Scaffold project + WordPress + theme clone. Auto-chains into `dev-notes`.                                                                      |
+| 3    | `dev-notes` skill                    | Pull `💬 Dev Note` components from Figma into config. Auto-chains into `map-design-templates`.                                                 |
+| 4    | `map-design-templates` skill         | Map Figma templates → WP files; scaffold empty files; capture Figma node IDs for each desktop/mobile layout and a preview `pageUrl` per entry. Auto-chains into `theme-json`. |
+| 5    | `theme-json` skill                   | Generate `theme.json` from Figma styles and variables, and register template parts / custom templates from the mappings. Auto-chains into `extract-patterns`. |
+| 6    | `extract-patterns` skill             | Lift reusable Figma components into WP block patterns under `patterns/` so subsequent build runs reference them by slug instead of re-emitting markup. Optional but recommended. |
+| 7    | `/build-template <name>`             | Populate one template/part wrapper with validated block markup, pulling the design from Figma. Run per unique `wordpressFile`.                  |
+| 8    | `/build-content <name>`              | Fill the body of one WP_Post / WP_Page from its Figma design. Run per `templateMappings` entry that shares a wrapper.                          |
+| 9    | `/refine-template <name> <site-url>` | Visual-diff a rendered template against Figma and refine the wrapper. Uses a measure-first / vision-fallback diff strategy.                     |
+| 10   | `/refine-content <name> <page-url>`  | Visual-diff a rendered page body against Figma and refine the post content. Same diff strategy.                                                 |
 
 ## Project config file
 
@@ -87,7 +67,7 @@ All skills share state through `neptune-config.json` at the project root:
 - `patterns` — registered block-pattern objects, written by `extract-patterns`. Keyed by pattern slug. Each entry carries `title`, `fullSlug` (`<themeSlug>/<pattern-slug>`), `figmaComponentId`, `figmaComponentKey`, and `file` (`patterns/<pattern-slug>.html`). Build commands consult this registry and emit `<!-- wp:pattern {"slug":"<fullSlug>"} /-->` instead of re-emitting the component's markup.
 - `patternsCompleted` (boolean) — set by `extract-patterns` once the pattern lift has run (or when the user opts to skip the phase).
 
-The `*Completed` booleans are inputs to `scripts/check-state.sh`, which every skill and command runs as its preflight step. They do not auto-chain — they only tell each skill/command whether the inputs it needs exist yet.
+The `*Completed` booleans are inputs to `scripts/check-state.sh`, which every skill and command runs as its preflight step. They signal to each skill/command whether the inputs it needs exist yet.
 
 ## Styling guardrails
 

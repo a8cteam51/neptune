@@ -1,7 +1,6 @@
 ---
 name: map-design-templates
 description: Maps Figma `🗒️ Templates` title cards to WordPress block-theme files (`index.html`, `single.html`, `parts/header.html`, etc.), confirms each mapping with the user, scaffolds the empty files, and records desktop/mobile node IDs plus a preview `pageUrl` per mapping in neptune-config.json. Used after dev-notes. Triggers on phrases like "map Figma templates to WordPress", "scaffold the template files", "wire up the theme files", or "figure out which Figma frames go where".
-model: sonnet
 ---
 
 In the Figma file, the `🗒️ Templates` layer contains a `Title Card` sublayer per design template; the title card text identifies the page the layout represents (e.g. `Title Card - Home` → the homepage). Beneath each title card there are usually two layout frames: a wider one (desktop) and a narrower one (mobile).
@@ -59,4 +58,4 @@ Steps:
 
 8. Set `templateMappingsCompleted: true` in `neptune-config.json` (alongside the `templateMappings` object). The boolean is the completion signal; the data lives under `templateMappings`.
 
-9. Tell the user mappings have been recorded and **offer** the `theme-json` skill as the next step. Do not auto-invoke. If `themeJsonCompleted: true` is already present in `neptune-config.json`, mention that fact and ask whether the user wants to re-run `theme-json` or skip — still wait for explicit invocation.
+9. Load and follow the `theme-json` skill to continue.

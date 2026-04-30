@@ -1,6 +1,5 @@
 ---
 description: Fill the body content of a single WP_Post / WP_Page from its Figma design and write it back via WP CLI, with validated block markup.
-model: sonnet
 argument-hint: [template-name] [page-url]
 allowed-tools: Read, Edit, Write, Glob, Grep, Bash(gh issue create:*), Bash(gh repo view:*), Bash(studio wp:*), Bash(rm:*), Bash(cat:*), Bash(curl:*), Bash(${CLAUDE_PLUGIN_ROOT}/scripts/check-state.sh:*), Skill, mcp__figma__*, mcp__wordpress-studio__*
 ---
@@ -56,6 +55,6 @@ Context to load before starting:
 
 10. Optionally run `mcp__wordpress-studio__rank_me_up` and `mcp__wordpress-studio__need_for_speed` against the resolved URL for an SEO/a11y audit and a Core Web Vitals snapshot. Surface any failures as GitHub issues per the followups procedure.
 
-11. If a `page-url` was resolved in step 2 and the site is reachable, suggest running `/refine-content <template-name> <page-url>` next so the body output can be visual-diffed against Figma. (Use `/refine-template` for wrapper-level differences only — `/refine-content` is the right tool for body content.) Do not auto-invoke either command; the user runs them manually.
+11. If sibling entries in `templateMappings` share this entry's `wordpressFile` and still have unfilled body content (i.e. their target post's `post_content` is empty or matches the WP default), list them at the end with their `pageUrl` values and remind the user to run `/build-content <name>` once per remaining sibling. Determining "unfilled" can be a soft check (e.g. `studio wp post get <id> --field=post_content | wc -c` returning a small number) — if you're unsure, list all siblings and let the user decide.
 
-12. If sibling entries in `templateMappings` share this entry's `wordpressFile` and still have unfilled body content (i.e. their target post's `post_content` is empty or matches the WP default), list them at the end with their `pageUrl` values and remind the user to run `/build-content <name>` once per remaining sibling. Determining "unfilled" can be a soft check (e.g. `studio wp post get <id> --field=post_content | wc -c` returning a small number) — if you're unsure, list all siblings and let the user decide.
+12. If a `page-url` was resolved in step 2 and the site is reachable, read `${CLAUDE_PLUGIN_ROOT}/references/refine-content.md` and follow its Steps section for this entry — skip steps 1–3 of the reference as the entry, page URL, and post ID are already resolved above. If no URL was resolved, remind the user to run `/refine-content <template-name> <page-url>` once the page is reachable.

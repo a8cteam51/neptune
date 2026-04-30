@@ -1,7 +1,6 @@
 ---
 name: setup-project
 description: Scaffolds a new Team 51 WordPress block-theme project — downloads WordPress core, clones the theme repo into wp-content, creates a Studio site, and writes neptune-config.json. Used after `check-environment` has confirmed the environment, and after the user has created the Pressable site and GitHub repo via the Team51 CLI. Triggers on phrases like "set up the project", "scaffold a new theme", "create the Studio site", or "clone the theme repo".
-model: sonnet
 ---
 
 Prerequisites the user must complete before this skill runs:
@@ -46,4 +45,4 @@ Steps:
 
 6. Update `neptune-config.json` with `setupProjectCompleted: true` so future runs know the scaffold has been completed.
 
-7. Tell the user setup is complete and **offer** to continue with `dev-notes` next. Do not auto-invoke. Phrasing: "Setup complete. Run the `dev-notes` skill next when you're ready." If `devNotesCompleted: true` is already present in `neptune-config.json`, mention that it has already been run and ask whether to re-run (overwrites stored notes) or skip — but still wait for the user to invoke the skill.
+7. Load and follow the `dev-notes` skill to continue.

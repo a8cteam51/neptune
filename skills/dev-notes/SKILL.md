@@ -1,7 +1,6 @@
 ---
 name: dev-notes
 description: Collates every `💬 Dev Note` component from the linked Figma file's Dev Handoff page into neptune-config.json under `devNotes`. Safe to re-run; overwrites stored notes. Used after setup-project, or any time the Figma file's dev notes have changed. Triggers on phrases like "pull dev notes from Figma", "refresh the dev notes", "sync Figma annotations", or "capture designer notes".
-model: sonnet
 ---
 
 This skill is safe to re-run; it overwrites the stored notes with the current state of the Figma file.
@@ -18,4 +17,4 @@ Goal: find every `💬 Dev Note` component in the Figma file from the `🛠️  
 4. Write the notes to `neptune-config.json` under a `devNotes` object. Each key is a stable, context-derived identifier (e.g. `header-logo-spacing`, `blog-post-byline`). Each value is `{ "text": "...", "context": "..." }`.
 5. Set `devNotesCompleted: true` in `neptune-config.json` (alongside the `devNotes` object). The boolean is the completion signal; the data lives under `devNotes`.
 
-6. Tell the user how many dev notes were captured and **offer** the `map-design-templates` skill as the next step. Do not auto-invoke. If `templateMappingsCompleted: true` is already present in `neptune-config.json`, mention that fact and ask whether the user wants to re-run `map-design-templates` (overwrites stored mappings) or skip — but still wait for an explicit invocation.
+6. Tell the user how many dev notes were captured, then load and follow the `map-design-templates` skill to continue.

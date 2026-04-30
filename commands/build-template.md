@@ -1,6 +1,5 @@
 ---
 description: Build a single template or template part in the WordPress theme from its mapped Figma design using validated block markup.
-model: sonnet
 argument-hint: [template-or-part-name] [page-url]
 allowed-tools: Read, Edit, Write, Glob, Grep, Bash(gh issue create:*), Bash(gh repo view:*), Bash(npm run build:styles:block-styles), Bash(${CLAUDE_PLUGIN_ROOT}/scripts/check-state.sh:*), Bash(curl:*), Skill, mcp__figma__*, mcp__wordpress-studio__*
 ---
@@ -32,7 +31,7 @@ After gathering the above context, consider this: Templates are the outer wrappe
 
 If `neptune-config.json` has a non-empty `patterns` object, prefer **referencing** patterns over re-emitting their markup. Before generating a section's block markup, scan the `patterns` registry: each entry's `figmaComponentId` and `figmaComponentKey` lets you check whether the Figma node you're about to translate is an instance of a registered component. When it matches, emit `<!-- wp:pattern {"slug":"<fullSlug>"} /-->` and move on instead of re-translating the component's children. This is what keeps repeated sections (feature cards, CTAs, hero rows) consistent across pages — re-emitting the markup per page guarantees drift.
 
-## Block-markup validation (replaces the old wp-blockmarkup MCP)
+## Block-markup validation
 
 Every chunk of block markup this command produces — both for the template wrapper and any pattern fallbacks — must be validated by calling `mcp__wordpress-studio__validate_blocks` before being written to disk. If validation reports errors, fix them and re-validate; do not write invalid markup. Do not fall back to plain HTML or `wp:html` to bypass validation — see the building guardrails below.
 
@@ -65,8 +64,8 @@ These are non-negotiable for a "production-ready" wrapper. Apply them as you bui
 
 5. Validate the generated markup via `mcp__wordpress-studio__validate_blocks` before writing it to disk. If validation fails, fix and re-validate. Only write the validated markup to the target `wordpressFile`.
 
-6. Resolve the `page-url` for this template in this priority order: (a) the `page-url` argument from `$ARGUMENTS` if provided; (b) the `pageUrl` field on this mapping in `templateMappings`, if present; (c) ask the user. If the resolved URL came from the stored `pageUrl`, sanity-check it with a quick `curl -sf -o /dev/null -w '%{http_code}' '<url>'` — a 4xx/5xx means the URL is stale (the page was renamed or the slug changed) and you should re-resolve via WP CLI (`studio wp post list --post_type=any --field=ID --format=ids`) or ask the user. If a URL is resolved by any of those, run this template through the `/refine-template` command — we do this by default to give a better user experience. If no URL is resolved (user declined to provide one), tell the user the template or part is built, and remind them `/refine-template` is the next step once they can view the rendered output.
+6. Resolve the `page-url` for this template in this priority order: (a) the `page-url` argument from `$ARGUMENTS` if provided; (b) the `pageUrl` field on this mapping in `templateMappings`, if present; (c) ask the user. If the resolved URL came from the stored `pageUrl`, sanity-check it with a quick `curl -sf -o /dev/null -w '%{http_code}' '<url>'` — a 4xx/5xx means the URL is stale (the page was renamed or the slug changed) and you should re-resolve via WP CLI (`studio wp post list --post_type=any --field=ID --format=ids`) or ask the user.
 
-7. After the template renders successfully, optionally run `mcp__wordpress-studio__rank_me_up` against the resolved URL for an on-page SEO/a11y audit and `mcp__wordpress-studio__need_for_speed` for a Core Web Vitals snapshot. Surface any failures as GitHub issues per the followups procedure. Skip both if no URL was resolved in step 6.
+7. If other `templateMappings` entries share this `wordpressFile`, list them at the end with their `pageUrl` values and remind the user to run `/build-content` once per entry to fill the body content for each page. Do not run `/build-content` automatically — content fills are a separate, per-page concern and the user may want to do them in their own order.
 
-8. If other `templateMappings` entries share this `wordpressFile`, list them at the end with their `pageUrl` values and remind the user to run `/build-content` once per entry to fill the body content for each page. Do not run `/build-content` automatically — content fills are a separate, per-page concern and the user may want to do them in their own order.
+8. If a URL was resolved in step 6, read `${CLAUDE_PLUGIN_ROOT}/references/refine-template.md` and follow it end-to-end for this template, treating the resolved URL as the site URL. If no URL was resolved, tell the user the template or part is built and remind them to run `/refine-template` once they can view the rendered output.

@@ -1,7 +1,6 @@
 ---
 name: theme-json
 description: Generates theme.json from the Figma file's `🎨 Style Guide` layer and variable tables (palette, typography, spacing) and registers the template parts and custom templates captured by `map-design-templates`. Used after map-design-templates — writes a populated theme.json into the project theme directory. Triggers on phrases like "generate theme.json", "pull the style guide", "set up the design tokens", "register the template parts", or "wire up the color palette".
-model: sonnet
 ---
 
 0. Run `${CLAUDE_PLUGIN_ROOT}/scripts/check-state.sh templateMappingsCompleted templateMappings themeSlug figmaFileId`. If it fails, surface the message and stop.
@@ -31,4 +30,4 @@ model: sonnet
 
 8. Set `themeJsonCompleted: true` in `neptune-config.json` so future runs know `theme.json` has been generated.
 
-9. Tell the user `theme.json` has been written and **offer** the `extract-patterns` skill as the next step (it lifts repeated Figma components into WP block patterns so subsequent build runs reference them by slug instead of re-emitting markup). Do not auto-invoke. If `patternsCompleted: true` is already present in `neptune-config.json`, mention that fact and ask whether to re-run or skip ahead to `/build-template`. After `extract-patterns` completes — or if the user opts to skip it — the next concrete step is `/build-template <name>` per unique `wordpressFile` in `templateMappings`, or `/build-all-templates` to batch all unbuilt wrappers in one run.
+9. Load and follow the `extract-patterns` skill to continue.
