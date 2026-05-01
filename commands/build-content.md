@@ -15,12 +15,12 @@ Preflight (run before any other step):
 - `${CLAUDE_PLUGIN_ROOT}/scripts/check-state.sh templateMappingsCompleted templateMappings themeSlug figmaFileId` — fail fast if prior phases are incomplete.
 
 Context to load before starting:
-- `neptune-config.json` at the project root — `themeSlug`, `templateMappings`, `devNotes`, `figmaFileId`, and (if present) `patterns`.
+- `neptune-config.json` at the project root — `themeSlug`, `templateMappings`, `devNotes`, `figmaFileId`.
 - The Figma MCP — Figma is the source of truth for the content design. Use `mcp__figma-local__get_design_context` against the relevant node ID under `templateMappings[…].figmaNodes` to pull the actual content design. Local Dev Mode MCP is read-only; ensure the Figma file is open in Figma desktop while this command runs.
 - `${CLAUDE_PLUGIN_ROOT}/references/reading-design-context.md` — translation contract for `mcp__figma-local__get_design_context` output. Apply it for every Figma node you read in this run; treat the React+Tailwind response as a structural blueprint, not literal code.
 - The `wordpress-studio` MCP — block markup must be validated through `mcp__wordpress-studio__validate_blocks` before being written back to the post.
 - `wordpress/.agents/skills/wp-block-themes/SKILL.md` — block theme structure and theme.json reference.
-- Read the styling, building, pattern-reuse, accessibility, and performance/SEO guardrails outlined in `${CLAUDE_PLUGIN_ROOT}/commands/build-template.md` — every guardrail there applies here too. The block-markup validation step in particular is **mandatory**: every chunk of generated body markup goes through `mcp__wordpress-studio__validate_blocks` before the post is updated.
+- Read the styling, building, accessibility, and performance/SEO guardrails outlined in `${CLAUDE_PLUGIN_ROOT}/commands/build-template.md` — every guardrail there applies here too. The block-markup validation step in particular is **mandatory**: every chunk of generated body markup goes through `mcp__wordpress-studio__validate_blocks` before the post is updated.
 
 ## Steps
 
@@ -42,7 +42,7 @@ Context to load before starting:
 
 5. Filter `devNotes` from `neptune-config.json` to only those whose `context` plausibly applies to this page's body content. Do not reason over unrelated notes.
 
-6. Generate the body content as WordPress block markup only. Reference registered patterns by slug whenever the section being translated is an instance of a registered Figma component (see "Pattern reuse" in `build-template.md`). Apply every accessibility/performance/SEO guardrail from `build-template.md`. Do not fall back to plain HTML at any point. If you're about to use a `wp:html` block to achieve a goal, stop — add a placeholder paragraph block instead and open a GitHub issue describing what the human needs to wire up. For internal links inside the body (e.g. CTAs pointing at other pages on the site), wire each `href` to a `pageUrl` from `templateMappings` whenever the link label matches a mapped entry; for labels that don't match any mapped entry, leave a placeholder `#` href and open a GitHub issue listing the unwired labels so the user can supply URLs.
+6. Generate the body content as WordPress block markup only. Apply every accessibility/performance/SEO guardrail from `build-template.md`. Do not fall back to plain HTML at any point. If you're about to use a `wp:html` block to achieve a goal, stop — add a placeholder paragraph block instead and open a GitHub issue describing what the human needs to wire up. For internal links inside the body (e.g. CTAs pointing at other pages on the site), wire each `href` to a `pageUrl` from `templateMappings` whenever the link label matches a mapped entry; for labels that don't match any mapped entry, leave a placeholder `#` href and open a GitHub issue listing the unwired labels so the user can supply URLs.
 
 7. Validate the generated markup via `mcp__wordpress-studio__validate_blocks` before writing it back. If validation fails, fix and re-validate; do not push invalid content into `post_content`.
 

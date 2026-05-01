@@ -8,10 +8,10 @@ Build the template or template part named in `$ARGUMENTS` for the current Team 5
 
 Preflight (run before any other step):
 
-- `${CLAUDE_PLUGIN_ROOT}/scripts/check-state.sh templateMappingsCompleted themeJsonCompleted templateMappings themeSlug figmaFileId` — fail fast with a clear message if the user hasn't completed the prior phases. (`patternsCompleted` is **not** required: pattern extraction is optional.)
+- `${CLAUDE_PLUGIN_ROOT}/scripts/check-state.sh templateMappingsCompleted themeJsonCompleted templateMappings themeSlug figmaFileId` — fail fast with a clear message if the user hasn't completed the prior phases.
 
 Context to load before starting:
-- `neptune-config.json` at the project root — `themeSlug`, `templateMappings`, `devNotes`, `figmaFileId`, and (if present) `patterns`.
+- `neptune-config.json` at the project root — `themeSlug`, `templateMappings`, `devNotes`, `figmaFileId`.
 - The Figma MCP — Figma is the source of truth for the design. The plugin uses Figma's local Dev Mode MCP server (read-only); ensure the relevant Figma file is open in Figma desktop and that the relevant frame is selected when the skill needs the current selection.
 - `${CLAUDE_PLUGIN_ROOT}/references/reading-design-context.md` — translation contract for `mcp__figma-local__get_design_context` output. Apply it for every Figma node you read in this run; treat the React+Tailwind response as a structural blueprint, not literal code.
 - The `wordpress-studio` MCP — block markup must be validated through `mcp__wordpress-studio__validate_blocks` before being written to disk.
@@ -28,13 +28,9 @@ After gathering the above context, consider this: Templates are the outer wrappe
 - Register new block styles via the theme's block-styles registration function in `functions.php`. The team51 scaffold typically exposes a single function that registers styles — grep `functions.php` for `register_block_style` and follow the existing pattern. Target the registered style slugs from a block stylesheet.
 - Add an SCSS file in `assets/block-styles/src/`, named after the block being styled (e.g. `core-group.scss` for `core/group`). Run `npm run build:styles:block-styles` to compile. The theme handles enqueueing.
 
-## Pattern reuse
-
-If `neptune-config.json` has a non-empty `patterns` object, prefer **referencing** patterns over re-emitting their markup. Before generating a section's block markup, scan the `patterns` registry: each entry's `figmaComponentId` and `figmaComponentKey` lets you check whether the Figma node you're about to translate is an instance of a registered component. When it matches, emit `<!-- wp:pattern {"slug":"<fullSlug>"} /-->` and move on instead of re-translating the component's children. This is what keeps repeated sections (feature cards, CTAs, hero rows) consistent across pages — re-emitting the markup per page guarantees drift.
-
 ## Block-markup validation
 
-Every chunk of block markup this command produces — both for the template wrapper and any pattern fallbacks — must be validated by calling `mcp__wordpress-studio__validate_blocks` before being written to disk. If validation reports errors, fix them and re-validate; do not write invalid markup. Do not fall back to plain HTML or `wp:html` to bypass validation — see the building guardrails below.
+Every chunk of block markup this command produces must be validated by calling `mcp__wordpress-studio__validate_blocks` before being written to disk. If validation reports errors, fix them and re-validate; do not write invalid markup. Do not fall back to plain HTML or `wp:html` to bypass validation — see the building guardrails below.
 
 ## Building guardrails
 
@@ -61,7 +57,7 @@ These are non-negotiable for a "production-ready" wrapper. Apply them as you bui
 
 3. Filter `devNotes` from `neptune-config.json` to only those whose `context` plausibly applies to the template being built (e.g. notes scoped to "Header" apply to `parts/header.html`; notes scoped to a specific page apply only to that page's wrapper). Reasoning over unrelated notes pollutes the build.
 
-4. Build the template in WordPress block markup only. Reference registered patterns by slug rather than re-emitting their markup (see "Pattern reuse" above). Apply every accessibility/performance/SEO guardrail from the section above as you go. Do not fall back to plain HTML at any point.
+4. Build the template in WordPress block markup only. Apply every accessibility/performance/SEO guardrail from the section above as you go. Do not fall back to plain HTML at any point.
 
 5. Validate the generated markup via `mcp__wordpress-studio__validate_blocks` before writing it to disk. If validation fails, fix and re-validate. Only write the validated markup to the target `wordpressFile`.
 

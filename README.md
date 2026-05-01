@@ -34,7 +34,7 @@ Neptune reads Figma exclusively through the local Dev Mode MCP server, never the
 
 ## Workflow
 
-Skills 1–6 auto-chain: each skill loads and follows the next one automatically when it completes. Slash commands (steps 7+) are always run manually per template or page.
+Skills 1–5 auto-chain: each skill loads and follows the next one automatically when it completes. Slash commands (steps 6+) are always run manually per template or page.
 
 | Step | Invocation                           | Purpose                                                                                                                                        |
 | ---- | ---                                  | ---                                                                                                                                            |
@@ -42,12 +42,11 @@ Skills 1–6 auto-chain: each skill loads and follows the next one automatically
 | 2    | `setup-project` skill                | Scaffold project + WordPress + theme clone. Capture the Figma dev-handoff page URL. Auto-chains into `pull-figma`.                            |
 | 3    | `pull-figma` skill                   | Walk the Figma dev-handoff page **once** and write every structural slice (template candidates, style-guide pointer, theme assets, dev notes, variable defs) into `neptune-config.json`. Auto-chains into `map-design-templates`. |
 | 4    | `map-design-templates` skill         | Confirm each candidate's WP file + page URL with the user; scaffold empty theme files. No Figma walking — pure config consumer. Auto-chains into `theme-json`. |
-| 5    | `theme-json` skill                   | Generate `theme.json` from `figmaVariables` in config plus a targeted `get_design_context` on the style-guide node. Register template parts / custom templates. Auto-chains into `extract-patterns`. |
-| 6    | `extract-patterns` skill             | Walk each layout in `templateMappings`, deduplicate component instances, lift multi-use components into WP block patterns under `patterns/`. Optional but recommended. |
-| 7    | `/build-template <name>`             | Populate one template/part wrapper with validated block markup, pulling the design from Figma. Run per unique `wordpressFile`.                  |
-| 8    | `/build-content <name>`              | Fill the body of one WP_Post / WP_Page from its Figma design. Run per `templateMappings` entry that shares a wrapper.                          |
-| 9    | `/refine-template <name> <site-url>` | Visual-diff a rendered template against Figma and refine the wrapper. Uses a measure-first / vision-fallback diff strategy.                     |
-| 10   | `/refine-content <name> <page-url>`  | Visual-diff a rendered page body against Figma and refine the post content. Same diff strategy.                                                 |
+| 5    | `theme-json` skill                   | Generate `theme.json` from `figmaVariables` in config plus a targeted `get_design_context` on the style-guide node. Register template parts / custom templates. |
+| 6    | `/build-template <name>`             | Populate one template/part wrapper with validated block markup, pulling the design from Figma. Run per unique `wordpressFile`.                  |
+| 7    | `/build-content <name>`              | Fill the body of one WP_Post / WP_Page from its Figma design. Run per `templateMappings` entry that shares a wrapper.                          |
+| 8    | `/refine-template <name> <site-url>` | Visual-diff a rendered template against Figma and refine the wrapper. Uses a measure-first / vision-fallback diff strategy.                     |
+| 9    | `/refine-content <name> <page-url>`  | Visual-diff a rendered page body against Figma and refine the post content. Same diff strategy.                                                 |
 
 The user provides the Figma dev-handoff page URL **once** during `setup-project`. From that one URL, `pull-figma` extracts everything Neptune needs into `neptune-config.json`. Every downstream skill and slash command reads from `neptune-config.json` rather than walking Figma to discover structural information.
 
@@ -80,8 +79,6 @@ All skills share state through `neptune-config.json` at the project root:
   `figmaNodes` may include further breakpoint keys (e.g. `tablet`) when the design supplies them, and may omit `mobile` if the Figma title card has only one layout frame. `pageUrl` is consumed by `/build-content`, `/refine-*`, and header/footer nav wiring; entries that share a `wordpressFile` all keep their own `figmaNodes` and `pageUrl`. Stored URLs are validated with a `curl` HEAD before they're trusted; on a 4xx/5xx the command re-resolves via WP CLI rather than relying on stale state.
 - `templateMappingsCompleted` (boolean) — set by `map-design-templates` once each entry is confirmed and the empty theme files are scaffolded.
 - `themeJsonCompleted` (boolean) — set by `theme-json` once `theme.json` is generated.
-- `patterns` — registered block-pattern objects, written by `extract-patterns`. Keyed by pattern slug. Each entry carries `title`, `fullSlug` (`<themeSlug>/<pattern-slug>`), `figmaComponentId`, `figmaComponentKey`, and `file` (`patterns/<pattern-slug>.php`). Build commands consult this registry and emit `<!-- wp:pattern {"slug":"<fullSlug>"} /-->` instead of re-emitting the component's markup.
-- `patternsCompleted` (boolean) — set by `extract-patterns` once the pattern lift has run (or when the user opts to skip the phase).
 
 The `*Completed` booleans are inputs to `scripts/check-state.sh`, which every skill and command runs as its preflight step. They signal to each skill/command whether the inputs it needs exist yet.
 

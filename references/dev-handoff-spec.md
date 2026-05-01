@@ -112,27 +112,11 @@ These are the patterns Neptune translates into `theme.json`. Stick to them and t
 
 ---
 
-## 6. Reusable components (for `extract-patterns`)
-
-| ID  | Assumption                                                                                              | Level | Designer response |
-| --- | ---                                                                                                     | ---   | ---               |
-| 6.1 | Components used as **patterns** in WordPress are defined as **published Figma components** (not just frames). They show up in the Figma component library. | R |  |
-| 6.2 | Pattern candidates are discovered by walking the layouts and finding components used in **two or more templates**. Single-use components are inlined, not lifted. | r |  |
-| 6.3 | Components only get pattern lift if they're **instantiated inside the Templates section**. A defined-but-unused component is invisible to Neptune. | R |  |
-| 6.4 | Component descriptions in Figma flow into the WordPress pattern's `Description` header. (Optional but produces nicer output.) | r |  |
-| 6.5 | All reusable components must be **discoverable from inside the dev-handoff page**. If components live on a separate `🧩 Components` page that isn't instantiated inside Templates, Neptune won't find them. | R |  |
-
-> **Designer notes (Section 6):**
->
-> _
-
----
-
-## 7. Asset / image layer naming
+## 6. Asset / image layer naming
 
 The single most impactful designer-side discipline. Neptune triages every exported asset URL into "shape primitive" (render in CSS) vs "real content" (upload to media library) **based on the Figma layer name**. Sloppy naming → bad imports.
 
-### 7a. Layer names that mean "shape primitive — don't upload"
+### 6a. Layer names that mean "shape primitive — don't upload"
 
 Neptune treats these as renderable in WordPress block markup directly. Don't rename them to descriptive names just because they look important — they're decorative, not content.
 
@@ -144,7 +128,7 @@ Neptune treats these as renderable in WordPress block markup directly. Don't ren
 | `Line`, `Line N`                                         | `wp:separator`                                     |
 | `Frame N`, `Group N`                                     | Layout container, ignored as asset                 |
 
-### 7b. Layer names that mean "real content — upload to media library"
+### 6b. Layer names that mean "real content — upload to media library"
 
 | Pattern                                            | Becomes                       |
 | ---                                                | ---                           |
@@ -155,14 +139,30 @@ Neptune treats these as renderable in WordPress block markup directly. Don't ren
 | `Avatar`, `Portrait`                               | PNG/JPG upload                |
 | `Illustration`                                     | SVG/PNG upload                |
 
-### 7c. Designer guidelines
+### 6c. Designer guidelines
 
 | ID  | Guideline                                                                                                                                                  | Designer response |
 | --- | ---                                                                                                                                                        | ---               |
-| 7.1 | **Rename intentional content layers.** A logo SVG named `Vector` will be inferred as a shape primitive and rendered as CSS — wrong.                        |                   |
-| 7.2 | **Don't rename shape primitives.** A divider line renamed to `Hero Divider` will be uploaded to the media library — bloat.                                 |                   |
-| 7.3 | Use **alt-text-friendly names** for content images. The layer name becomes the WordPress attachment's `alt` attribute (e.g. `Newsletter Icon` → alt text "Newsletter Icon"). |                   |
-| 7.4 | Group multi-path icons into a single component. Otherwise Figma exports each path as a separate `Vector` constant and Neptune can't tell they belong together. |                   |
+| 6.1 | **Rename intentional content layers.** A logo SVG named `Vector` will be inferred as a shape primitive and rendered as CSS — wrong.                        |                   |
+| 6.2 | **Don't rename shape primitives.** A divider line renamed to `Hero Divider` will be uploaded to the media library — bloat.                                 |                   |
+| 6.3 | Use **alt-text-friendly names** for content images. The layer name becomes the WordPress attachment's `alt` attribute (e.g. `Newsletter Icon` → alt text "Newsletter Icon"). |                   |
+| 6.4 | Group multi-path icons into a single component. Otherwise Figma exports each path as a separate `Vector` constant and Neptune can't tell they belong together. |                   |
+
+> **Designer notes (Section 6):**
+>
+> _
+
+---
+
+## 7. Site-level brand assets (favicon, screenshot, sharecard)
+
+Neptune extracts site-level brand assets **from inside the page designs at build time** — not from a dedicated section. Place each one inside whichever page design naturally contains it (e.g. the favicon and sharecard typically appear inside header / front-page designs; the theme screenshot is auto-generated from the rendered front page during build).
+
+| ID  | Assumption                                                                                              | Level | Designer response |
+| --- | ---                                                                                                     | ---   | ---               |
+| 7.1 | The browser-tab favicon, when present in the design, lives inside the relevant page design (e.g. inside the header layer of `Front Page`). Layer name: `Site Icon`, `Favicon`, or similar — descriptive enough that asset triage in Section 6b imports it. | r |  |
+| 7.2 | The social-sharing card (og:image), when present, lives inside the relevant page design — layer name should make it identifiable (e.g. `Social Sharecard`, `OG Image`). | r |  |
+| 7.3 | The theme thumbnail (`screenshot.png` shown in the WordPress theme picker) does **not** need to be designed separately. Neptune auto-generates it from the rendered front page during build. | r |  |
 
 > **Designer notes (Section 7):**
 >
@@ -170,37 +170,20 @@ Neptune treats these as renderable in WordPress block markup directly. Don't ren
 
 ---
 
-## 8. Site-level brand assets (favicon, screenshot, sharecard)
-
-Neptune extracts site-level brand assets **from inside the page designs at build time** — not from a dedicated section. Place each one inside whichever page design naturally contains it (e.g. the favicon and sharecard typically appear inside header / front-page designs; the theme screenshot is auto-generated from the rendered front page during build).
-
-| ID  | Assumption                                                                                              | Level | Designer response |
-| --- | ---                                                                                                     | ---   | ---               |
-| 8.1 | The browser-tab favicon, when present in the design, lives inside the relevant page design (e.g. inside the header layer of `Front Page`). Layer name: `Site Icon`, `Favicon`, or similar — descriptive enough that asset triage in Section 7b imports it. | r |  |
-| 8.2 | The social-sharing card (og:image), when present, lives inside the relevant page design — layer name should make it identifiable (e.g. `Social Sharecard`, `OG Image`). | r |  |
-| 8.3 | The theme thumbnail (`screenshot.png` shown in the WordPress theme picker) does **not** need to be designed separately. Neptune auto-generates it from the rendered front page during build. | r |  |
-
-> **Designer notes (Section 8):**
->
-> _
-
----
-
-## 9. Known limitations to flag with the designer
+## 8. Known limitations to flag with the designer
 
 These aren't assumptions Neptune *makes*, but constraints designers should know about so they don't produce designs Neptune can't handle.
 
 | ID  | Limitation                                                                                                                                                                                                              | Designer response |
 | --- | ---                                                                                                                                                                                                                     | ---               |
-| 9.1 | **No multi-mode variables.** Figma variables with light/dark modes are read in their default mode only. Dark-mode theming needs to be authored separately (or done post-build by a developer).                          |                   |
-| 9.2 | **No multi-page Figma files for component sources.** All reusable components must be instantiated inside the dev-handoff page's Templates section. A separate `🧩 Components` Figma page is invisible to Neptune.        |                   |
-| 9.3 | **No animations or interactions.** Hover states, transitions, prototypes — all ignored. Designs should specify final rendered state only.                                                                                |                   |
-| 9.4 | **No responsive variants beyond standard breakpoints.** `desktop` / `tablet` / `mobile` are the bucket anchors; intermediate breakpoints (e.g. a "wide-desktop" at 1920) get folded into `desktop` and surfaced as `desktop-alt` for user choice. |                   |
-| 9.5 | **One title card per visual concept.** Multiple title cards with the same text (e.g. two "Blog" cards for A/B variants) collide on `templateMappings` keys. Use distinct titles ("Blog A", "Blog B").                     |                   |
-| 9.6 | **Hex colours painted without a variable** become inline `#xxxxxx` in produced markup, not theme.json palette references. Always paint via a Figma variable when consistency matters.                                    |                   |
-| 9.7 | **Figma plugin-rendered content is unsupported.** If a layer's contents are produced by a plugin (e.g. iconify, Lorem Ipsum generators) the produced output isn't represented in the local MCP's `get_design_context` response. |                   |
+| 8.1 | **No multi-mode variables.** Figma variables with light/dark modes are read in their default mode only. Dark-mode theming needs to be authored separately (or done post-build by a developer).                          |                   |
+| 8.2 | **No animations or interactions.** Hover states, transitions, prototypes — all ignored. Designs should specify final rendered state only.                                                                                |                   |
+| 8.3 | **No responsive variants beyond standard breakpoints.** `desktop` / `tablet` / `mobile` are the bucket anchors; intermediate breakpoints (e.g. a "wide-desktop" at 1920) get folded into `desktop` and surfaced as `desktop-alt` for user choice. |                   |
+| 8.4 | **One title card per visual concept.** Multiple title cards with the same text (e.g. two "Blog" cards for A/B variants) collide on `templateMappings` keys. Use distinct titles ("Blog A", "Blog B").                     |                   |
+| 8.5 | **Hex colours painted without a variable** become inline `#xxxxxx` in produced markup, not theme.json palette references. Always paint via a Figma variable when consistency matters.                                    |                   |
+| 8.6 | **Figma plugin-rendered content is unsupported.** If a layer's contents are produced by a plugin (e.g. iconify, Lorem Ipsum generators) the produced output isn't represented in the local MCP's `get_design_context` response. |                   |
 
-> **Designer notes (Section 9):**
+> **Designer notes (Section 8):**
 >
 > _
 
@@ -214,7 +197,7 @@ If only the top 5 items below are confirmed, Neptune will work end-to-end on fir
 2. **3.1 / 3.2** — Title Card naming and the single-text-child rule.
 3. **4.1 / 4.4 / 4.5 / 4.6** — Tokens are defined as Figma variables with the named-path conventions.
 4. **5.1** — `💬 Dev Note` component name is exact.
-5. **7.1 / 7.2** — Asset layer naming discipline.
+5. **6.1 / 6.2** — Asset layer naming discipline.
 
 ---
 

@@ -119,10 +119,6 @@ For each asset triaged as real content:
 
 **What to ignore.** Tailwind specificity workarounds (`shrink-0`, `relative`, `min-w-px`, `flex-[1_0_0]`, `content-stretch`) are React/Tailwind compiler artefacts with no block-markup equivalent. The same goes for the outer React component wrapper, `type FooterProps = …`, default-prop assignments, and conditional rendering scaffolding. Translate the JSX tree, not the framework around it.
 
-## Code Connect snippets
-
-If the response includes a Code Connect snippet (look for `Source: <theme-dir>/path/to/Component.tsx` or similar), check whether that snippet maps to a registered WP block pattern. Patterns are listed in `neptune-config.json` under `patterns`; the `figmaComponentId` / `figmaComponentKey` fields tell you whether the Figma node you're translating is an instance of a known component. If yes, emit `<!-- wp:pattern {"slug":"<fullSlug>"} /-->` and skip the rest of the translation for that subtree.
-
 ## Why not request HTML+CSS instead?
 
 The local MCP's `clientLanguages` parameter is **telemetry only** — it does not change output format. The Figma MCP team ships React+Tailwind as a structural reference because the JSX tree mirrors the Figma frame tree exactly, the Tailwind utilities pack token references and concrete values together, and Code Connect snippets are React-shaped natively. Requesting "HTML + CSS" via natural language splits this into two artefacts the model has to cross-reference, drops the variant logic, and degrades the Code Connect bridge. Read the React+Tailwind output as a blueprint and translate straight to block markup.

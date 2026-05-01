@@ -43,7 +43,6 @@ hint_for() {
 		templateMappingsCompleted|templateMappings)
 		                              echo "map-design-templates skill (after pull-figma populates candidates)" ;;
 		themeJsonCompleted)           echo "theme-json skill" ;;
-		patternsCompleted|patterns)   echo "extract-patterns skill" ;;
 		projectName|figmaFileId|figmaDevHandoffNodeId|repositoryUrl|themeSlug)
 		                              echo "setup-project skill (init-project.sh)" ;;
 		*)                            echo "the skill that populates \"$1\"" ;;

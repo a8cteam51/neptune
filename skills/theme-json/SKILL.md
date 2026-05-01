@@ -30,4 +30,4 @@ description: Generates theme.json from the Figma file's `🎨 Style Guide` layer
 
 8. Set `themeJsonCompleted: true` in `neptune-config.json` so future runs know `theme.json` has been generated.
 
-9. Load and follow the `extract-patterns` skill to continue.
+9. The setup phase is now complete. Tell the user how many template parts and custom templates were registered, and that the next step is `/build-template <name>` per unique `wordpressFile` in `templateMappings` — run this slash command manually for each template or part to be built. Prompt the user to discard this session and start fresh to avoid context window overload, since the next phase (`/build-template`) requires a lot of file-specific context that would be too heavy to load all at once.

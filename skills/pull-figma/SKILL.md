@@ -5,7 +5,7 @@ description: Walks the Figma dev-handoff page once and writes the structural dat
 
 This skill is safe to re-run — it overwrites figma-derived slices of `neptune-config.json` with the current state of the Figma file, but leaves user-edited fields (e.g. `wordpressFile` mappings on `templateMappings` entries, `pageUrl` values) untouched on existing keys.
 
-Goal: walk the dev-handoff page **once** with `mcp__figma-local__get_metadata`, extract every piece of structural information the rest of the workflow needs, and persist it. Downstream skills (`map-design-templates`, `theme-json`, `extract-patterns`) then become pure config consumers.
+Goal: walk the dev-handoff page **once** with `mcp__figma-local__get_metadata`, extract every piece of structural information the rest of the workflow needs, and persist it. Downstream skills (`map-design-templates`, `theme-json`) then become pure config consumers.
 
 Prerequisites:
 
