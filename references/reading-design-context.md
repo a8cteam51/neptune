@@ -118,7 +118,3 @@ For each asset triaged as real content:
 **Node IDs.** `data-node-id="5860:7051"` attributes are traceability aids for `/refine-*` later. Discard them when emitting production block markup — they are not output.
 
 **What to ignore.** Tailwind specificity workarounds (`shrink-0`, `relative`, `min-w-px`, `flex-[1_0_0]`, `content-stretch`) are React/Tailwind compiler artefacts with no block-markup equivalent. The same goes for the outer React component wrapper, `type FooterProps = …`, default-prop assignments, and conditional rendering scaffolding. Translate the JSX tree, not the framework around it.
-
-## Why not request HTML+CSS instead?
-
-The MCP's `clientLanguages` parameter is **telemetry only** — it does not change output format. The Figma MCP team ships React+Tailwind as a structural reference because the JSX tree mirrors the Figma frame tree exactly, the Tailwind utilities pack token references and concrete values together, and Code Connect snippets are React-shaped natively. Requesting "HTML + CSS" via natural language splits this into two artefacts the model has to cross-reference, drops the variant logic, and degrades the Code Connect bridge. Read the React+Tailwind output as a blueprint and translate straight to block markup.

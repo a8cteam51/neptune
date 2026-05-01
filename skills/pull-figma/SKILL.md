@@ -77,41 +77,30 @@ Prerequisites:
 
 5. **Capture a pointer to `🎨 Style Guide`.** Record the section's `id` as `figmaStyleGuideNodeId`. The actual visual extraction happens later in `theme-json`, which calls `get_design_context` on this node id — `pull-figma` only captures the address.
 
-6. **Walk for `💬 Dev Note` instances and extract their text.** Search the metadata response from step 2 for `<instance>` (or `<frame>`) elements whose `name` attribute is `💬 Dev Note` (or starts with `💬 Dev Note`). For each, capture id, x, y, width, height from the metadata.
+6. **Capture every `💬 Dev Note`'s text and placement context** via the `figma:figma-use` skill. Load that skill once (it loads the JS execution context the Figma MCP needs for `use_figma`), then run a single `use_figma` call scoped to `figmaDevHandoffNodeId` that:
 
-   **Text must come from per-instance `get_design_context` calls.** Component-instance overrides do not surface in `get_metadata` — the instance is rendered as a reference to the master component, and its `<text>` children belong to the component definition, not the instance's overridden values. Page-level `get_design_context` on `figmaDevHandoffNodeId` collapses these instances into self-closing tags and is also unusable as a fallback. The only call that materializes the overridden note text is `mcp__figma__get_design_context` invoked with the **instance's own node id**.
+   - Finds every component instance whose master component name is `💬 Dev Note` (or starts with `💬 Dev Note`).
+   - Returns each instance's **overridden text** by reading the visible text content of the instance's children through the JS API (instance overrides, not the master's defaults). Reading overrides through `use_figma` avoids the per-instance `get_design_context` fan-out the metadata-only approach required and keeps the whole sweep to one MCP call.
+   - Returns each instance's **placement context** — the name of the parent layout / template / title-card the note sits inside (walk up the parent chain until you hit a `Title Card`'s associated layout instance from step 4), plus any specific elements the note overlaps or its connector arrow points at when the design uses Figma connectors. Connector targets come from the connector node's `endpoint` / `connectorEnd` references; overlaps come from sibling bounding-box intersection within the enclosing layout.
 
-   For each Dev Note instance found in metadata, call `mcp__figma__get_design_context` with `nodeId = <that instance's id>`. **Issue these calls in parallel** — emit many tool calls in a single response message rather than awaiting each in sequence; wall-clock cost for 50+ notes stays in the low single-digit seconds. From each response, read the rendered text content (the visible characters in the returned JSX/markup); concatenate multi-line content with newlines. If a specific instance still returns no text (truly malformed), record `text: ""` and flag it in the run summary.
+   For each captured note, derive a **stable, context-derived key** from its placement and intent — `header-logo-spacing`, `blog-post-byline`, `front-page-cta-overlap`, etc. Never use ordinal suffixes (`front-page-1`, `front-page-2`). Compose the key from the layout title (the `Title Card` text from step 4) plus a short topic phrase derived from the note's text, so a re-run with the same notes produces the same keys and overwrites entries in place rather than duplicating them.
 
-   The earlier prohibition on per-note calls was based on the assumption that metadata carried the override text. It does not. Per-note `get_design_context` is required, not optional — but parallelization keeps the cost bounded.
+   Write each note to `neptune-config.json` under `devNotes`:
 
-   **Associate each note to its nearest layout by edge distance, not strict containment.** Notes commonly sit in the gutter between layouts with pointer arrows pointing at the design — they are not enclosed by any layout, but they're clearly *for* the nearest one. For each note:
-   - Compute the note's centre `(cx, cy) = (x + width/2, y + height/2)`.
-   - For every layout instance `L` already captured in step 4 (across every `templateMappings` entry's `figmaNodes`, combining desktop / tablet / mobile), compute the rectangle distance from the note's centre to `L`'s bounding box:
-     - `dx = max(0, L.x - cx, cx - (L.x + L.width))`
-     - `dy = max(0, L.y - cy, cy - (L.y + L.height))`
-     - `distance = sqrt(dx² + dy²)` (zero when the note's centre is inside `L`).
-   - Pick the layout with the smallest distance. The note's `context` becomes `<title-card-name> – <breakpoint>` (e.g. `Front Page – Desktop`). Notes inside a layout naturally get distance 0 and are still associated correctly.
-
-   This rule never produces a null association — every note attaches to whichever layout is nearest, even when it sits in a gutter between two. Notes whose distance is more than 4× the median note→layout distance are still associated, but flagged in the run summary as "weak association — verify manually" so the user can inspect them.
-
-   For each captured note, write to:
    ```json
    {
      "devNotes": {
-       "front-page-1": {
-         "id": "5968:12192",
+       "front-page-cta-overlap": {
          "text": "<visible note text>",
-         "context": "Front Page – Desktop",
-         "x": 789,
-         "y": 986
+         "context": "Front Page – Desktop, overlapping the hero CTA button"
        }
      }
    }
    ```
-   Derive the key from the associated layout's title-card name plus a numeric suffix that disambiguates multiple notes on the same layout (`front-page-1`, `front-page-2`, …) in `(y, x)` reading order.
 
-7. **Pull variable definitions.** Call `mcp__figma__get_variable_defs` with `nodeId = figmaDevHandoffNodeId`. Persist the raw response under `figmaVariables` in `neptune-config.json`. `theme-json` reads this directly to populate palette / typography / spacing — no per-token re-fetch is required.
+   Each entry carries `text` and `context` only — no node ID, no coordinates. Downstream skills filter by `context` substring, not by spatial fields. If a note's overridden text is genuinely empty (designer left the placeholder), skip it and surface the count in the run summary; an empty note is not a useful entry to persist.
+
+7. **Pull variable definitions via `use_figma`.** The `figma:figma-use` skill is already loaded from step 6. Run a `use_figma` JS call that enumerates the file's local variables — for each variable, return `name`, `resolvedType`, the owning collection's name and modes, and the variable's value at each defined mode (with aliases resolved to their concrete leaf values). Persist the result under `figmaVariables` in `neptune-config.json`. `theme-json` reads this directly to populate palette / typography / spacing — no per-token re-fetch is required.
 
 8. **Write everything to `neptune-config.json`.** Use a single `jq` invocation to merge the new slices into the existing config without losing other keys:
    ```bash
@@ -125,7 +114,7 @@ Prerequisites:
 10. **Run summary.** Tell the user:
     - Number of template-mapping candidates captured (with their proposed WP files).
     - Whether the style-guide pointer was resolved.
-    - Number of dev notes captured (and whether text was extracted or deferred).
+    - Number of dev notes captured, plus the count of any whose overridden text was empty and were skipped.
     - Number of figma variables pulled.
     - Any sections that were missing or named differently than expected — surface as GitHub issues per `${CLAUDE_PLUGIN_ROOT}/references/github-followups.md`.
 

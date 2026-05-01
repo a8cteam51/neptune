@@ -1,6 +1,6 @@
 # theme.json contract
 
-The subset of `theme.json` keys Neptune reads from and writes to, plus the merge rules and validation invariants. The `theme-json` skill writes this file from `figmaVariables` in `neptune-config.json`; the `theme-validator` subagent enforces the invariants below; build / refine commands resolve preset slugs against this contract.
+The subset of `theme.json` keys Neptune reads from and writes to, plus the merge rules and required output shape. The `theme-json` skill writes this file from `figmaVariables` in `neptune-config.json`; build / refine commands resolve preset slugs against this contract.
 
 `theme.json` requires WordPress 6.5+ for `appearanceTools`, `customTemplates`, `templateParts`, and `spacing.spacingSizes` as written here. Team51 sites all run a current WordPress, so target version `3` of the schema.
 
@@ -217,18 +217,18 @@ When `theme-json` re-runs (designer changes upstream variables), it MERGES into 
 
 Read the file, parse JSON, mutate in memory, write back with stable key ordering and 2-space indent.
 
-## Validation invariants (enforced by `theme-validator`)
+## Required output shape
 
-The subagent at `${CLAUDE_PLUGIN_ROOT}/agents/theme-validator.md` runs after any step that writes `theme.json` or theme files. It treats each of the following as an `ERROR`:
+The `theme-json` skill must produce a file that satisfies all of the following. The build and refine commands assume these hold; violating any of them will break theme loading or render an empty editor.
 
-- File doesn't parse as JSON.
-- `version` is not `3`.
-- `$schema` is missing or not pointing at `schemas.wp.org`.
-- A duplicate slug exists within any single preset array.
-- A `templateParts` entry has no matching file at `parts/<name>.html`.
-- A `customTemplates` entry has no matching file at `templates/<name>.html`.
-- A preset reference in `styles.*`, in any template/part HTML, or in any block-style SCSS resolves to a slug not in `theme.json`.
-- A `parts/*.html` file has no entry in `templateParts`.
-- A `templates/*.html` file is neither in the WP-recognized list nor in `customTemplates`.
+- File parses as JSON.
+- `version` is `3`.
+- `$schema` is set to a `schemas.wp.org` URL.
+- No duplicate slug exists within any single preset array (`color.palette`, `color.gradients`, `typography.fontFamilies`, `typography.fontSizes`, `spacing.spacingSizes`).
+- Every `templateParts` entry has a matching file at `parts/<name>.html`.
+- Every `customTemplates` entry has a matching file at `templates/<name>.html`.
+- Every preset reference in `styles.*`, in any template/part HTML, or in any block-style SCSS resolves to a slug declared in `theme.json`.
+- Every `parts/*.html` file has an entry in `templateParts`.
+- Every `templates/*.html` file is either in the WP-recognized hierarchy list or registered under `customTemplates`.
 
-The validator additionally emits `WARNING` for: missing `appearanceTools`, missing `layout.contentSize` / `wideSize`, an empty palette, an empty `fontSizes`, an empty `spacingSizes`. These are recoverable but signal an incomplete `theme-json` run.
+The following are recoverable but signal an incomplete run: missing `appearanceTools`, missing `layout.contentSize` / `wideSize`, an empty palette, empty `fontSizes`, or empty `spacingSizes`.

@@ -1,7 +1,7 @@
 ---
 description: Build every templateMappings entry whose target wrapper file is empty/unbuilt — sequentially, on the main agent. Build-only; refinement is per-item.
 argument-hint: [--skip=name1,name2]
-allowed-tools: Read, Edit, Write, Glob, Grep, Task, Bash(gh issue create:*), Bash(gh repo view:*), Bash(npm run build:styles:block-styles), Bash(${CLAUDE_PLUGIN_ROOT}/scripts/check-state.sh:*), Bash(curl:*), Bash(jq:*), Bash(test:*), Bash(grep:*), Bash(wc:*), Skill, mcp__figma__*, mcp__wordpress-studio__*
+allowed-tools: Read, Edit, Write, Glob, Grep, Bash(gh issue create:*), Bash(gh repo view:*), Bash(npm run build:styles:block-styles), Bash(${CLAUDE_PLUGIN_ROOT}/scripts/check-state.sh:*), Bash(curl:*), Bash(jq:*), Bash(test:*), Bash(grep:*), Bash(wc:*), Skill, mcp__figma__*, mcp__wordpress-studio__*
 ---
 
 Build every `templateMappings` entry whose target wrapper file does not yet exist or is empty, in one sequential pass on the main agent. This command is the batch analogue of `/build-template <name>`; the per-item procedure is unchanged.
@@ -42,7 +42,7 @@ Context to load before starting:
    - Read `${CLAUDE_PLUGIN_ROOT}/commands/build-template.md` and apply its **Steps** section to the source entry chosen for this group, with two divergences:
      - Skip the "ask the user which template or part this run will build" gate at the top of step 1 — the entry is already chosen for this iteration. The rest of step 1 (sibling-entry handling) still applies.
      - Skip step 8's auto-suggestion of `/refine-template` at the end. Build batches do not call refine. Per the batch policy, refinement is per-item and the user runs `/refine-template <name>` themselves when ready.
-   - Apply every guardrail in `${CLAUDE_PLUGIN_ROOT}/references/build-guardrails.md`. Validate every chunk of block markup via `mcp__wordpress-studio__validate_blocks` before writing. The per-item procedure invokes the `theme-validator` subagent after each item; let it run — do not skip it for speed.
+   - Apply every guardrail in `${CLAUDE_PLUGIN_ROOT}/references/build-guardrails.md`. Validate every chunk of block markup via `mcp__wordpress-studio__validate_blocks` before writing. Verify cross-file properties (template-part slug references, preset resolution, `templateParts` registration, required blocks per template slug) against `${CLAUDE_PLUGIN_ROOT}/references/theme-json-keys.md` and `${CLAUDE_PLUGIN_ROOT}/references/block-markup.md` before moving to the next item.
    - For any human-actionable follow-up that arises during this item (unwired nav labels, missing alt text, ambiguous asset, etc.), open a GitHub issue *immediately* per `${CLAUDE_PLUGIN_ROOT}/references/github-followups.md`. Do not accumulate them for the final summary.
    - Once the item finishes, append exactly one outcome line to your in-memory running summary: `<entry-key> | <wordpressFile> | built` (or `skipped:<reason>` if the per-item procedure aborted on a precondition like `no-pageUrl` for a part that needs one). Then move to the next item.
 

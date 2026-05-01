@@ -15,7 +15,6 @@ If a guardrail can't be applied as written for a specific case, file a GitHub is
 ## Block-markup validation
 
 - Every chunk of block markup produced by a build or refine command **must** pass `mcp__wordpress-studio__validate_blocks` before being written to disk or pushed to a post via WP CLI. Fix and re-validate on failure; never write invalid markup.
-- The validator is per-chunk. Cross-file checks (template-part slug references, theme.json registrations, preset resolution) are the responsibility of the `theme-validator` subagent — invoke it after any step that writes theme files or `theme.json`.
 - The authoritative list of blocks Neptune is allowed to emit lives at `${CLAUDE_PLUGIN_ROOT}/references/block-markup.md`. Anything outside that list — including `wp:html`, custom blocks, third-party blocks, or shortcodes inside template HTML — is forbidden.
 
 ## Building
@@ -38,9 +37,9 @@ These are non-negotiable defaults during initial builds. Apply as you emit marku
 - **Focus states.** Buttons and links rendered via block stylesheets must have visible `:focus-visible` styles defined in their corresponding SCSS file. Never rely on browser defaults.
 - **Skip link.** Templates that include a header part must ensure the header part includes `<a class="skip-link" href="#main">` (or equivalent).
 
-## Cross-file validation
+## Cross-file consistency
 
-After any step that writes a theme file (template, part, `theme.json`, `functions.php`, a block stylesheet), invoke the `theme-validator` subagent. It performs the cross-file checks the chunk-level validator cannot:
+`mcp__wordpress-studio__validate_blocks` validates per-chunk markup but does not see across files. When a build or refine step writes a theme file (template, part, `theme.json`, `functions.php`, a block stylesheet), be deliberate about the cross-file properties below — `validate_blocks` will not catch them for you, and the contracts in `${CLAUDE_PLUGIN_ROOT}/references/theme-json-keys.md` and `${CLAUDE_PLUGIN_ROOT}/references/block-markup.md` are authoritative:
 
 - `theme.json` schema (version, $schema, slug uniqueness across each preset array).
 - Every `templateParts` entry has a matching `parts/<name>.html`.
@@ -48,5 +47,3 @@ After any step that writes a theme file (template, part, `theme.json`, `function
 - Every `<!-- wp:template-part {"slug":"X"} /-->` references a part that exists.
 - Every preset reference (`var(--wp--preset--…)`, `"textColor":"…"`, `"fontSize":"…"`) resolves to a slug in `theme.json`.
 - Required blocks per template slug (e.g. `single.html` contains `<!-- wp:post-content`).
-
-The validator is read-only; it returns a structured report. Fix any `ERROR` rows before considering the step done.

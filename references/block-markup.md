@@ -2,12 +2,12 @@
 
 Authoritative list of the core Gutenberg blocks Neptune is allowed to emit and the syntax for each. Every `templates/*.html`, `parts/*.html`, and any block markup written into a WP_Post `post_content` via `/build-content` must use only the blocks documented here.
 
-This file is the single source of truth referenced by `commands/build-template.md`, `commands/build-content.md`, the refine references, and the `theme-validator` subagent. If you find yourself reaching for a block not listed here, stop and open a GitHub issue per `${CLAUDE_PLUGIN_ROOT}/references/github-followups.md`.
+This file is the single source of truth referenced by `commands/build-template.md`, `commands/build-content.md`, and the refine references. If you find yourself reaching for a block not listed here, stop and open a GitHub issue per `${CLAUDE_PLUGIN_ROOT}/references/github-followups.md`.
 
 ## Validation contract
 
 - **Per-chunk validation is mandatory.** Every block-markup string this plugin produces is validated through `mcp__wordpress-studio__validate_blocks` before being written to disk or pushed to a post via WP CLI. The Studio MCP runs validation against the actual WordPress install the markup will render in, so the validation context matches the rendered context.
-- **Cross-file validation is the `theme-validator` subagent.** It checks slug references, `templateParts` registration, preset resolution, and required-block presence — things that can't be checked from one chunk in isolation.
+- **Cross-file consistency is your responsibility.** `validate_blocks` is per-chunk — slug references, `templateParts` registration, preset resolution, and required-block presence are not checked for you. Verify them against `${CLAUDE_PLUGIN_ROOT}/references/theme-json-keys.md` whenever a step writes theme files.
 - **Never bypass validation.** Falling back to `wp:html`, embedding raw HTML, or shipping markup that the validator rejected is forbidden under the building guardrails.
 
 ## Block-comment syntax
@@ -314,7 +314,7 @@ Walk depth-first per `${CLAUDE_PLUGIN_ROOT}/references/reading-design-context.md
    b. If it's a container, recurse.
    c. If it's a leaf (text, image), emit the leaf block.
 4. Apply spacing on parents, not on every child.
-5. Validate: every preset reference resolves; the chunk passes `mcp__wordpress-studio__validate_blocks`; the `theme-validator` subagent will catch the cross-file pieces.
+5. Validate: every preset reference resolves against `theme.json`; the chunk passes `mcp__wordpress-studio__validate_blocks`. Cross-file pieces (template-part slug references, `templateParts` registration, required blocks per template slug) are not covered by `validate_blocks` — verify them against `${CLAUDE_PLUGIN_ROOT}/references/theme-json-keys.md`.
 
 ## When a Figma element has no clean mapping
 

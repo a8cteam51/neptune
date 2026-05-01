@@ -9,6 +9,7 @@ description: Verifies the local environment for the Neptune plugin (WordPress St
    - `pull-figma` — walk the Figma dev-handoff page once and extract every structural slice Neptune needs (template candidates, style-guide pointer, theme assets, dev notes, variable definitions) into `neptune-config.json`.
    - `map-design-templates` — confirm each template-mapping candidate with the user and scaffold empty theme files. (No Figma walking — reads candidates from config.)
    - `theme-json` — generate `theme.json` from `figmaVariables` in config plus a targeted `get_design_context` call on the style-guide node, and register custom templates / template parts from the mappings.
+   - `extract-patterns` — walk the Figma file's published components and emit each one as a registered WordPress block pattern, then record the slug-to-component mapping in `neptune-config.json`. Final onboarding step before the build phase.
    - `/build-template <name>` — slash command; populate one template or part wrapper with block markup.
    - `/build-content <name>` — slash command; fill the body of one WP_Post / WP_Page from its Figma design.
    - `/refine-template <name> <site-url>` — slash command; visual-diff rendered template wrapper against Figma and refine.

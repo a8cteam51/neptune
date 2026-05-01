@@ -7,7 +7,7 @@ description: Generates theme.json from the Figma file's `🎨 Style Guide` layer
 
 1. Confirm the user has installed the WordPress Block Themes agent skill inside Studio (see https://developer.wordpress.com/docs/developer-tools/studio/agent-skills-wordpress-studio/).
 
-2. Read `figmaVariables` from `neptune-config.json` — this is the raw output of `mcp__figma__get_variable_defs`, captured during `pull-figma`. It contains every named variable in the file (palette colors, font definitions, spacing scale, etc.) with resolved values per mode. Use it as the **primary** source for the style dataset that `theme.json` needs.
+2. Read `figmaVariables` from `neptune-config.json` — the file-scoped variable snapshot captured during `pull-figma` via a `use_figma` JS call. It contains every named variable in the file (palette colors, font definitions, spacing scale, etc.) with resolved values per mode. Use it as the **primary** source for the style dataset that `theme.json` needs.
 
 3. Cross-reference variables against the visual `🎨 Style Guide` rendering. Read `figmaStyleGuideNodeId` from `neptune-config.json` and call `mcp__figma__get_design_context` on it once. The response shows which variables the style guide actually demonstrates (vs. defining-but-unused variables) and how typography variants combine font-family + size + weight + line-height.
 
@@ -27,10 +27,10 @@ description: Generates theme.json from the Figma file's `🎨 Style Guide` layer
 
 6. Always ensure that `parts/header.html` and `parts/footer.html` are registered as template parts in theme.json, even if they weren't captured by `map-design-templates`.
 
-7. Invoke the `theme-validator` subagent (Task tool, `subagent_type: theme-validator`) to verify the freshly-written `theme.json` against the invariants documented in `${CLAUDE_PLUGIN_ROOT}/references/theme-json-keys.md` — slug uniqueness, version, `$schema`, `templateParts` / `customTemplates` resolving to existing files, preset references in `styles.*`. Fix any `ERROR` rows it returns before continuing; surface `WARNING` rows in the run summary. The validator is read-only — it never edits files.
+7. Confirm the freshly-written `theme.json` satisfies the required output shape documented in `${CLAUDE_PLUGIN_ROOT}/references/theme-json-keys.md` — `version` is `3`, `$schema` is set, slug uniqueness across each preset array, `templateParts` / `customTemplates` resolve to existing files, preset references in `styles.*` resolve to declared slugs. Fix any violations before continuing.
 
 8. For any human-actionable follow-up surfaced during this skill, open a GitHub issue per the procedure in `${CLAUDE_PLUGIN_ROOT}/references/github-followups.md`.
 
 9. Set `themeJsonCompleted: true` in `neptune-config.json` so future runs know `theme.json` has been generated.
 
-10. The setup phase is now complete. Tell the user how many template parts and custom templates were registered, and that the next step is `/build-template <name>` per unique `wordpressFile` in `templateMappings` — run this slash command manually for each template or part to be built. Prompt the user to discard this session and start fresh to avoid context window overload, since the next phase (`/build-template`) requires a lot of file-specific context that would be too heavy to load all at once.
+10. Tell the user how many template parts and custom templates were registered. Then load and follow the `extract-patterns` skill to continue — that is the final onboarding step before `/build-template`.

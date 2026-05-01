@@ -1,7 +1,7 @@
 ---
 description: Fill the body content of a single WP_Post / WP_Page from its Figma design and write it back via WP CLI, with validated block markup.
 argument-hint: [template-name] [page-url]
-allowed-tools: Read, Edit, Write, Glob, Grep, Task, Bash(gh issue create:*), Bash(gh repo view:*), Bash(studio wp:*), Bash(rm:*), Bash(cat:*), Bash(curl:*), Bash(${CLAUDE_PLUGIN_ROOT}/scripts/check-state.sh:*), Skill, mcp__figma__*, mcp__wordpress-studio__*
+allowed-tools: Read, Edit, Write, Glob, Grep, Bash(gh issue create:*), Bash(gh repo view:*), Bash(studio wp:*), Bash(rm:*), Bash(cat:*), Bash(curl:*), Bash(${CLAUDE_PLUGIN_ROOT}/scripts/check-state.sh:*), Skill, mcp__figma__*, mcp__wordpress-studio__*
 ---
 
 Build the body content for one entry in `templateMappings` and write it onto the corresponding WordPress post or page via `studio wp`. This command is invoked once **per `templateMappings` entry** — sibling entries that share a `wordpressFile` (e.g. multiple page designs all using `page.html`) each have their own body content to fill, so each one needs its own `/build-content` run.
@@ -56,8 +56,6 @@ Context to load before starting:
    ```
    After the update, verify with `studio wp post get <post-id> --field=post_content | head -n 5` that the new content is present (a quick check that the update wrote and didn't silently no-op due to a quoting issue). Delete the temp file once the update is verified.
 
-10. **If this run touched any theme file** (a `theme.json` edit to add a missing token, a new block stylesheet for a registered block style, an asset added to `assets/`), invoke the `theme-validator` subagent (Task tool, `subagent_type: theme-validator`) to catch cross-file regressions. Skip this step if only the post body changed — the chunk-level validator already covered the post content. Fix any `ERROR` rows it returns before continuing.
+10. If sibling entries in `templateMappings` share this entry's `wordpressFile` and still have unfilled body content (i.e. their target post's `post_content` is empty or matches the WP default), list them at the end with their `pageUrl` values and remind the user to run `/build-content <name>` once per remaining sibling. Determining "unfilled" can be a soft check (e.g. `studio wp post get <id> --field=post_content | wc -c` returning a small number) — if you're unsure, list all siblings and let the user decide.
 
-11. If sibling entries in `templateMappings` share this entry's `wordpressFile` and still have unfilled body content (i.e. their target post's `post_content` is empty or matches the WP default), list them at the end with their `pageUrl` values and remind the user to run `/build-content <name>` once per remaining sibling. Determining "unfilled" can be a soft check (e.g. `studio wp post get <id> --field=post_content | wc -c` returning a small number) — if you're unsure, list all siblings and let the user decide.
-
-12. If a `page-url` was resolved in step 2 and the site is reachable, read `${CLAUDE_PLUGIN_ROOT}/references/refine-content.md` and follow its Steps section for this entry — skip steps 1–3 of the reference as the entry, page URL, and post ID are already resolved above. If no URL was resolved, remind the user to run `/refine-content <template-name> <page-url>` once the page is reachable.
+11. If a `page-url` was resolved in step 2 and the site is reachable, read `${CLAUDE_PLUGIN_ROOT}/references/refine-content.md` and follow its Steps section for this entry — skip steps 1–3 of the reference as the entry, page URL, and post ID are already resolved above. If no URL was resolved, remind the user to run `/refine-content <template-name> <page-url>` once the page is reachable.

@@ -1,7 +1,7 @@
 ---
 description: Build a single template or template part in the WordPress theme from its mapped Figma design using validated block markup.
 argument-hint: [template-or-part-name] [page-url]
-allowed-tools: Read, Edit, Write, Glob, Grep, Task, Bash(gh issue create:*), Bash(gh repo view:*), Bash(npm run build:styles:block-styles), Bash(${CLAUDE_PLUGIN_ROOT}/scripts/check-state.sh:*), Bash(curl:*), Skill, mcp__figma__*, mcp__wordpress-studio__*
+allowed-tools: Read, Edit, Write, Glob, Grep, Bash(gh issue create:*), Bash(gh repo view:*), Bash(npm run build:styles:block-styles), Bash(${CLAUDE_PLUGIN_ROOT}/scripts/check-state.sh:*), Bash(curl:*), Skill, mcp__figma__*, mcp__wordpress-studio__*
 ---
 
 Build the template or template part named in `$ARGUMENTS` for the current Team 51 project. If `$ARGUMENTS` is empty, ask the user which template or part to build from the `templateMappings` in `neptune-config.json`. This command is invoked once per template or part.
@@ -37,12 +37,10 @@ Read these before emitting any markup. They are the single source of truth — d
 
 4. Build the template in WordPress block markup only, using the blocks listed in `${CLAUDE_PLUGIN_ROOT}/references/block-markup.md` and the preset slugs declared in `theme.json`. Apply every guardrail in `${CLAUDE_PLUGIN_ROOT}/references/build-guardrails.md` as you go.
 
-5. Validate the generated markup via `mcp__wordpress-studio__validate_blocks` before writing it to disk. If validation fails, fix and re-validate. Only write the validated markup to the target `wordpressFile`.
+5. Validate the generated markup via `mcp__wordpress-studio__validate_blocks` before writing it to disk. If validation fails, fix and re-validate. Only write the validated markup to the target `wordpressFile`. Cross-file properties (template-part slug references, preset resolution, `templateParts` registration, required blocks per template slug) are not covered by `validate_blocks` — verify them against `${CLAUDE_PLUGIN_ROOT}/references/theme-json-keys.md` and `${CLAUDE_PLUGIN_ROOT}/references/block-markup.md` before continuing.
 
-6. Run the `theme-validator` subagent (Task tool, `subagent_type: theme-validator`) to catch cross-file issues the chunk-level validator cannot — broken `template-part` slug references, unresolved preset references, missing `templateParts` registrations, required-block omissions for known template slugs. Fix any `ERROR` rows it returns before continuing; surface `WARNING` rows in the run summary.
+6. Resolve the `page-url` for this template in this priority order: (a) the `page-url` argument from `$ARGUMENTS` if provided; (b) the `pageUrl` field on this mapping in `templateMappings`, if present; (c) ask the user. If the resolved URL came from the stored `pageUrl`, sanity-check it with a quick `curl -sf -o /dev/null -w '%{http_code}' '<url>'` — a 4xx/5xx means the URL is stale (the page was renamed or the slug changed) and you should re-resolve via WP CLI (`studio wp post list --post_type=any --field=ID --format=ids`) or ask the user.
 
-7. Resolve the `page-url` for this template in this priority order: (a) the `page-url` argument from `$ARGUMENTS` if provided; (b) the `pageUrl` field on this mapping in `templateMappings`, if present; (c) ask the user. If the resolved URL came from the stored `pageUrl`, sanity-check it with a quick `curl -sf -o /dev/null -w '%{http_code}' '<url>'` — a 4xx/5xx means the URL is stale (the page was renamed or the slug changed) and you should re-resolve via WP CLI (`studio wp post list --post_type=any --field=ID --format=ids`) or ask the user.
+7. If other `templateMappings` entries share this `wordpressFile`, list them at the end with their `pageUrl` values and remind the user to run `/build-content` once per entry to fill the body content for each page. Do not run `/build-content` automatically — content fills are a separate, per-page concern and the user may want to do them in their own order.
 
-8. If other `templateMappings` entries share this `wordpressFile`, list them at the end with their `pageUrl` values and remind the user to run `/build-content` once per entry to fill the body content for each page. Do not run `/build-content` automatically — content fills are a separate, per-page concern and the user may want to do them in their own order.
-
-9. If a URL was resolved in step 7, read `${CLAUDE_PLUGIN_ROOT}/references/refine-template.md` and follow it end-to-end for this template, treating the resolved URL as the site URL. If no URL was resolved, tell the user the template or part is built and remind them to run `/refine-template` once they can view the rendered output.
+8. If a URL was resolved in step 6, read `${CLAUDE_PLUGIN_ROOT}/references/refine-template.md` and follow it end-to-end for this template, treating the resolved URL as the site URL. If no URL was resolved, tell the user the template or part is built and remind them to run `/refine-template` once they can view the rendered output.
