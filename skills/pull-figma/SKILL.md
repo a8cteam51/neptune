@@ -1,6 +1,6 @@
 ---
 name: pull-figma
-description: Walks the Figma dev-handoff page once and writes the structural data Neptune needs into neptune-config.json — template-mapping candidates (with desktop/mobile node ids), the style-guide pointer, every dev note's text and context, and the file's variable definitions. Used after `setup-project`. Triggers on phrases like "pull figma data", "sync the figma file", "refresh figma config", "re-pull design data".
+description: Walks the Figma dev-handoff page once and writes the structural data Neptune needs into neptune-config.json — template-mapping candidates (with desktop/mobile node ids), the style-guide pointer, every dev note's text and context, and the file's variable definitions. Used after `setup-project`.
 ---
 
 This skill is safe to re-run — it overwrites figma-derived slices of `neptune-config.json` with the current state of the Figma file, but leaves user-edited fields (e.g. `wordpressFile` mappings on `templateMappings` entries, `pageUrl` values) untouched on existing keys.
@@ -77,9 +77,13 @@ Prerequisites:
 
 5. **Capture a pointer to `🎨 Style Guide`.** Record the section's `id` as `figmaStyleGuideNodeId`. The actual visual extraction happens later in `theme-json`, which calls `get_design_context` on this node id — `pull-figma` only captures the address.
 
-6. **Walk for `💬 Dev Note` instances.** Search the metadata response from step 2 for `<instance>` (or `<frame>`) elements whose `name` attribute is `💬 Dev Note` (or starts with `💬 Dev Note`). For each, capture id, x, y, width, height. The visible note text lives in inner `<text>` children of the same metadata response — read the rendered characters straight off those nodes. **Do not call `get_design_context` per note** — the metadata payload already carries the text content for every `<text>` node, and per-note calls are the dominant cost on large files.
+6. **Walk for `💬 Dev Note` instances and extract their text.** Search the metadata response from step 2 for `<instance>` (or `<frame>`) elements whose `name` attribute is `💬 Dev Note` (or starts with `💬 Dev Note`). For each, capture id, x, y, width, height from the metadata.
 
-   If a Dev Note's metadata genuinely has no extractable text (e.g. malformed component instance), make a **single batched fallback** call: one `mcp__figma-local__get_design_context` on `figmaDevHandoffNodeId`, then match the missing notes by their `data-node-id` attribute in the returned JSX and read their text from there. One batched call, not N per-note calls.
+   **Text must come from per-instance `get_design_context` calls.** Component-instance overrides do not surface in `get_metadata` — the instance is rendered as a reference to the master component, and its `<text>` children belong to the component definition, not the instance's overridden values. Page-level `get_design_context` on `figmaDevHandoffNodeId` collapses these instances into self-closing tags and is also unusable as a fallback. The only call that materializes the overridden note text is `mcp__figma-local__get_design_context` invoked with the **instance's own node id**.
+
+   For each Dev Note instance found in metadata, call `mcp__figma-local__get_design_context` with `nodeId = <that instance's id>`. **Issue these calls in parallel** — emit many tool calls in a single response message rather than awaiting each in sequence; wall-clock cost for 50+ notes stays in the low single-digit seconds. From each response, read the rendered text content (the visible characters in the returned JSX/markup); concatenate multi-line content with newlines. If a specific instance still returns no text (truly malformed), record `text: ""` and flag it in the run summary.
+
+   The earlier prohibition on per-note calls was based on the assumption that metadata carried the override text. It does not. Per-note `get_design_context` is required, not optional — but parallelization keeps the cost bounded.
 
    **Associate each note to its nearest layout by edge distance, not strict containment.** Notes commonly sit in the gutter between layouts with pointer arrows pointing at the design — they are not enclosed by any layout, but they're clearly *for* the nearest one. For each note:
    - Compute the note's centre `(cx, cy) = (x + width/2, y + height/2)`.

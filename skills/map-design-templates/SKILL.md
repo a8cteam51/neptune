@@ -1,9 +1,9 @@
 ---
 name: map-design-templates
-description: Confirms each template-mapping candidate (extracted by `pull-figma`) with the user — picks the WordPress theme file each Figma title maps to, captures a preview page URL per mapping, and scaffolds the empty theme files. Used after `pull-figma`. Triggers on phrases like "confirm template mappings", "map templates to WordPress files", "scaffold the theme files", or "wire up the page URLs".
+description: Confirms each template-mapping candidate (extracted by `pull-figma`) with the user — picks the WordPress theme file each Figma title maps to, captures a preview page URL per mapping, and scaffolds the empty theme files. Used after `pull-figma`. 
 ---
 
-This skill no longer walks Figma — `pull-figma` already extracted every title-card candidate, its child desktop/mobile node ids, and a proposed WordPress file. This skill is the **confirmation and scaffolding** step: walk the user through each candidate, confirm or override the proposed `wordpressFile` and `pageUrl`, and create the empty template files in the theme tree.
+This skill is the **confirmation and scaffolding** step: walk the user through each title-card candidate, confirm or override the proposed `wordpressFile` and `pageUrl`, and create the empty template files in the theme tree. Do not invoke the `askUserQuestions` helper, as the questions here are more complex and interdependent than that helper can handle.
 
 Reference context:
 - `wordpress/.agents/skills/wp-block-themes/SKILL.md` — block theme file structure and page-layout file roles.

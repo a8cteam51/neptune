@@ -80,7 +80,7 @@ When an asset is a shape primitive, **do not upload it** — express it natively
 | Multiple `imgVector` constants stacked in a parent with `bg-gradient-to-*` Tailwind utility              | `wp:group` with `style.background.gradient` (resolve through `theme.json` `gradients` if matched)  |
 | `imgVector` set as a Tailwind background image (`bg-[url(...)]`)                                         | `wp:cover` or `wp:group` with `style.background.backgroundImage` — but only if it isn't a shape    |
 
-If you can't decisively classify an asset as either shape primitive or real content after these checks, **flag it in the run summary** and open a GitHub issue per `${CLAUDE_PLUGIN_ROOT}/references/github-followups.md` listing the asset URL and the parent node ID. Do not silently import — bad imports pollute the media library and are tedious to clean up.
+If you can't decisively classify an asset as either shape primitive or real content after these checks, **open a GitHub issue** per `${CLAUDE_PLUGIN_ROOT}/references/github-followups.md` listing the asset URL and the parent node ID, and reference the issue URL in the run summary. Do not list the asset inline as a "needs human review" bullet without a backing issue. Do not silently import — bad imports pollute the media library and are tedious to clean up.
 
 ### Importing real content
 

@@ -1,6 +1,6 @@
 ---
 name: setup-project
-description: Scaffolds a new Team 51 WordPress block-theme project — downloads WordPress core, clones the theme repo into wp-content, creates a Studio site, and writes neptune-config.json. Used after `check-environment` has confirmed the environment, and after the user has created the Pressable site and GitHub repo via the Team51 CLI. Triggers on phrases like "set up the project", "scaffold a new theme", "create the Studio site", or "clone the theme repo".
+description: Scaffolds a new Team 51 WordPress block-theme project — downloads WordPress core, clones the theme repo into wp-content, creates a Studio site, and writes neptune-config.json. Used after `check-environment` has confirmed the environment, and after the user has created the Pressable site and GitHub repo via the Team51 CLI. 
 ---
 
 Prerequisites the user must complete before this skill runs:

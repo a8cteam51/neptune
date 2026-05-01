@@ -1,6 +1,6 @@
 ---
 name: theme-json
-description: Generates theme.json from the Figma file's `🎨 Style Guide` layer and variable tables (palette, typography, spacing) and registers the template parts and custom templates captured by `map-design-templates`. Used after map-design-templates — writes a populated theme.json into the project theme directory. Triggers on phrases like "generate theme.json", "pull the style guide", "set up the design tokens", "register the template parts", or "wire up the color palette".
+description: Generates theme.json from the Figma file's `🎨 Style Guide` layer and variable tables (palette, typography, spacing) and registers the template parts and custom templates captured by `map-design-templates`. Used after map-design-templates — writes a populated theme.json into the project theme directory. 
 ---
 
 0. Run `${CLAUDE_PLUGIN_ROOT}/scripts/check-state.sh templateMappingsCompleted templateMappings themeSlug figmaFileId figmaVariables figmaStyleGuideNodeId`. If it fails, surface the message and stop.

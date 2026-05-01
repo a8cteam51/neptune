@@ -103,7 +103,7 @@ These are the patterns Neptune translates into `theme.json`. Stick to them and t
 | --- | ---                                                                                                     | ---   | ---   | ---               |
 | 5.1 | A reusable component named exactly `💬 Dev Note` exists (or instances whose names start with that string). | R | Exact |                   |
 | 5.2 | Notes are placed as **instances** anywhere on the dev-handoff page. They can sit inside the Templates section, near layouts, anywhere visible. | R | — |  |
-| 5.3 | Each note's visible text is its **rendered text content** (any `<text>` child or set of children inside the instance). Neptune reads it straight from the `get_metadata` response — no per-note `get_design_context` call. | R | — |  |
+| 5.3 | Each note's visible text is its **rendered text content**. Because Dev Notes are component instances and Figma does not surface override text in `get_metadata` (the instance points at its master, whose `<text>` children carry the *default* text, not the override), Neptune calls `get_design_context` on each instance's own node id to materialize the overridden text. These per-instance calls are issued in parallel. | R | — |  |
 | 5.4 | A Dev Note's **nearest layout by edge distance** determines its `context`. Notes sitting in gutters between layouts (with pointer arrows) are still associated to the closest layout — never null. Notes whose distance to the nearest layout is more than 4× the median are flagged for manual verification. | r | — |  |
 
 > **Designer notes (Section 5):**

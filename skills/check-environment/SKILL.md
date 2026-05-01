@@ -1,6 +1,6 @@
 ---
 name: check-environment
-description: Verifies the local environment for the Neptune plugin (WordPress Studio CLI, Figma MCP, GitHub CLI, Team51 CLI, jq) before any other Neptune skill or command runs. Used at the start of a new Team 51 WordPress block-theme build. Triggers on phrases like "start a new Team 51 site", "begin a new theme project", "kick off a Neptune build", "check my environment", "check my MCPs", or "preflight before building".
+description: Verifies the local environment for the Neptune plugin (WordPress Studio CLI, Figma MCP, GitHub CLI, Team51 CLI, jq) before any other Neptune skill or command runs. Used at the start of a new Team 51 WordPress block-theme build. 
 ---
 
 1. Greet the user briefly and list the skill flow for this plugin. Skills auto-chain — each skill flows directly into the next when it completes. Slash commands at the end of the chain are run manually per template:
