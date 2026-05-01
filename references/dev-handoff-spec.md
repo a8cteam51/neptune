@@ -103,8 +103,8 @@ These are the patterns Neptune translates into `theme.json`. Stick to them and t
 | --- | ---                                                                                                     | ---   | ---   | ---               |
 | 5.1 | A reusable component named exactly `💬 Dev Note` exists (or instances whose names start with that string). | R | Exact |                   |
 | 5.2 | Notes are placed as **instances** anywhere on the dev-handoff page. They can sit inside the Templates section, near layouts, anywhere visible. | R | — |  |
-| 5.3 | Each note's visible text is its **rendered text content** (any `<text>` child or set of children inside the instance). Neptune captures this via a `get_design_context` call per note. | R | — |  |
-| 5.4 | A Dev Note's **proximity to a layout** determines its `context` field in `neptune-config.json`. Notes far from any layout get a generic context. | r | — |  |
+| 5.3 | Each note's visible text is its **rendered text content** (any `<text>` child or set of children inside the instance). Neptune reads it straight from the `get_metadata` response — no per-note `get_design_context` call. | R | — |  |
+| 5.4 | A Dev Note's **nearest layout by edge distance** determines its `context`. Notes sitting in gutters between layouts (with pointer arrows) are still associated to the closest layout — never null. Notes whose distance to the nearest layout is more than 4× the median are flagged for manual verification. | r | — |  |
 
 > **Designer notes (Section 5):**
 >

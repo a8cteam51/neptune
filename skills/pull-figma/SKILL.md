@@ -77,24 +77,35 @@ Prerequisites:
 
 5. **Capture a pointer to `🎨 Style Guide`.** Record the section's `id` as `figmaStyleGuideNodeId`. The actual visual extraction happens later in `theme-json`, which calls `get_design_context` on this node id — `pull-figma` only captures the address.
 
-6. **Walk for `💬 Dev Note` instances.** Search the entire dev-handoff page tree for `<instance>` (or `<frame>`) elements whose `name` attribute is `💬 Dev Note` (or starts with `💬 Dev Note`). For each one, capture the position and size — but the note's actual text content lives in inner `<text>` children. **For each Dev Note, call `mcp__figma-local__get_design_context` once to fetch its text content.** The note's React+Tailwind output contains the visible string in plain text; extract it.
+6. **Walk for `💬 Dev Note` instances.** Search the metadata response from step 2 for `<instance>` (or `<frame>`) elements whose `name` attribute is `💬 Dev Note` (or starts with `💬 Dev Note`). For each, capture id, x, y, width, height. The visible note text lives in inner `<text>` children of the same metadata response — read the rendered characters straight off those nodes. **Do not call `get_design_context` per note** — the metadata payload already carries the text content for every `<text>` node, and per-note calls are the dominant cost on large files.
 
-   This is the most expensive part of the pull (one MCP call per note; a typical file has 30–80 notes). If the user wants to skip Dev Note text extraction (e.g. for a fast re-pull), offer it once at the start of step 6 — they can confirm/decline. If skipped, persist the node ids only and set a `devNotesTextPending: true` flag.
+   If a Dev Note's metadata genuinely has no extractable text (e.g. malformed component instance), make a **single batched fallback** call: one `mcp__figma-local__get_design_context` on `figmaDevHandoffNodeId`, then match the missing notes by their `data-node-id` attribute in the returned JSX and read their text from there. One batched call, not N per-note calls.
 
-   For each captured note, derive a stable identifier from the surrounding context (e.g. the nearest enclosing layout instance's name; falls back to `note-<short-hash>` if context is unclear). Write to:
+   **Associate each note to its nearest layout by edge distance, not strict containment.** Notes commonly sit in the gutter between layouts with pointer arrows pointing at the design — they are not enclosed by any layout, but they're clearly *for* the nearest one. For each note:
+   - Compute the note's centre `(cx, cy) = (x + width/2, y + height/2)`.
+   - For every layout instance `L` already captured in step 4 (across every `templateMappings` entry's `figmaNodes`, combining desktop / tablet / mobile), compute the rectangle distance from the note's centre to `L`'s bounding box:
+     - `dx = max(0, L.x - cx, cx - (L.x + L.width))`
+     - `dy = max(0, L.y - cy, cy - (L.y + L.height))`
+     - `distance = sqrt(dx² + dy²)` (zero when the note's centre is inside `L`).
+   - Pick the layout with the smallest distance. The note's `context` becomes `<title-card-name> – <breakpoint>` (e.g. `Front Page – Desktop`). Notes inside a layout naturally get distance 0 and are still associated correctly.
+
+   This rule never produces a null association — every note attaches to whichever layout is nearest, even when it sits in a gutter between two. Notes whose distance is more than 4× the median note→layout distance are still associated, but flagged in the run summary as "weak association — verify manually" so the user can inspect them.
+
+   For each captured note, write to:
    ```json
    {
      "devNotes": {
-       "front-page-hero-cta": {
+       "front-page-1": {
          "id": "5968:12192",
          "text": "<visible note text>",
-         "context": "Front Page – Desktop, near the hero CTA",
+         "context": "Front Page – Desktop",
          "x": 789,
          "y": 986
        }
      }
    }
    ```
+   Derive the key from the associated layout's title-card name plus a numeric suffix that disambiguates multiple notes on the same layout (`front-page-1`, `front-page-2`, …) in `(y, x)` reading order.
 
 7. **Pull variable definitions.** Call `mcp__figma-local__get_variable_defs` with `nodeId = figmaDevHandoffNodeId`. Persist the raw response under `figmaVariables` in `neptune-config.json`. `theme-json` reads this directly to populate palette / typography / spacing — no per-token re-fetch is required.
 
