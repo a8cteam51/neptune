@@ -16,9 +16,9 @@ description: Verifies the local environment for the Neptune plugin (WordPress St
 
 2. Run `${CLAUDE_PLUGIN_ROOT}/scripts/check-studio-install.sh`. If it fails, point the user at https://developer.wordpress.com/studio/.
 
-3. Confirm the Figma local MCP is reachable. Run `${CLAUDE_PLUGIN_ROOT}/scripts/check-figma-mcp.sh`. If it fails, follow the instructions the script prints — the user needs Figma desktop running with the local Dev Mode MCP server enabled. Neptune does not use Figma's hosted MCP, only the local one.
+3. Confirm the Figma MCP is reachable. Call `mcp__figma__whoami` (it requires no arguments and returns immediately if the server is up). If the call errors, point the user at https://developers.figma.com/docs/figma-mcp-server/remote-server-installation/#claude-code.
 
-4. Confirm the `wordpress-studio` MCP server is enabled. The plugin ships it in `.mcp.json`; confirm the user has approved it in Claude Code's MCP server enablement (`/mcp` lists enabled servers). If the user has not enabled it, ask them to do so before continuing — `/build-*` and `/refine-*` all depend on it (block-markup validation now goes through `mcp__wordpress-studio__validate_blocks`; performance and SEO sanity checks use `need_for_speed` and `rank_me_up`).
+4. Confirm the `wordpress-studio` MCP server is enabled. The plugin ships it in `.mcp.json`; confirm the user has approved it in Claude Code's MCP server enablement (`/mcp` lists enabled servers). If the user has not enabled it, ask them to do so before continuing — `/build-*` and `/refine-*` all depend on it (block-markup validation goes through `mcp__wordpress-studio__validate_blocks`).
 
 5. Run `${CLAUDE_PLUGIN_ROOT}/scripts/check-github-cli.sh`. If it fails, follow the instructions the script prints.
 

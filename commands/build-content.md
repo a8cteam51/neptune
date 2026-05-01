@@ -1,7 +1,7 @@
 ---
 description: Fill the body content of a single WP_Post / WP_Page from its Figma design and write it back via WP CLI, with validated block markup.
 argument-hint: [template-name] [page-url]
-allowed-tools: Read, Edit, Write, Glob, Grep, Bash(gh issue create:*), Bash(gh repo view:*), Bash(studio wp:*), Bash(rm:*), Bash(cat:*), Bash(curl:*), Bash(${CLAUDE_PLUGIN_ROOT}/scripts/check-state.sh:*), Skill, mcp__figma-local__*, mcp__wordpress-studio__*
+allowed-tools: Read, Edit, Write, Glob, Grep, Task, Bash(gh issue create:*), Bash(gh repo view:*), Bash(studio wp:*), Bash(rm:*), Bash(cat:*), Bash(curl:*), Bash(${CLAUDE_PLUGIN_ROOT}/scripts/check-state.sh:*), Skill, mcp__figma__*, mcp__wordpress-studio__*
 ---
 
 Build the body content for one entry in `templateMappings` and write it onto the corresponding WordPress post or page via `studio wp`. This command is invoked once **per `templateMappings` entry** — sibling entries that share a `wordpressFile` (e.g. multiple page designs all using `page.html`) each have their own body content to fill, so each one needs its own `/build-content` run.
@@ -16,11 +16,13 @@ Preflight (run before any other step):
 
 Context to load before starting:
 - `neptune-config.json` at the project root — `themeSlug`, `templateMappings`, `devNotes`, `figmaFileId`.
-- The Figma MCP — Figma is the source of truth for the content design. Use `mcp__figma-local__get_design_context` against the relevant node ID under `templateMappings[…].figmaNodes` to pull the actual content design. Local Dev Mode MCP is read-only; ensure the Figma file is open in Figma desktop while this command runs.
-- `${CLAUDE_PLUGIN_ROOT}/references/reading-design-context.md` — translation contract for `mcp__figma-local__get_design_context` output. Apply it for every Figma node you read in this run; treat the React+Tailwind response as a structural blueprint, not literal code.
+- The Figma MCP — Figma is the source of truth for the content design. Use `mcp__figma__get_design_context` against the relevant node ID under `templateMappings[…].figmaNodes` to pull the actual content design. Load the `figma:figma-use` skill before any Figma MCP calls that need JS execution in the file context.
+- `${CLAUDE_PLUGIN_ROOT}/references/reading-design-context.md` — translation contract for `mcp__figma__get_design_context` output. Apply it for every Figma node you read in this run; treat the React+Tailwind response as a structural blueprint, not literal code.
 - The `wordpress-studio` MCP — block markup must be validated through `mcp__wordpress-studio__validate_blocks` before being written back to the post.
 - `wordpress/.agents/skills/wp-block-themes/SKILL.md` — block theme structure and theme.json reference.
-- Read the styling, building, accessibility, and performance/SEO guardrails outlined in `${CLAUDE_PLUGIN_ROOT}/commands/build-template.md` — every guardrail there applies here too. The block-markup validation step in particular is **mandatory**: every chunk of generated body markup goes through `mcp__wordpress-studio__validate_blocks` before the post is updated.
+- `${CLAUDE_PLUGIN_ROOT}/references/build-guardrails.md` — every styling, validation, building, and accessibility/performance/SEO guardrail there applies here. The block-markup validation step in particular is **mandatory**: every chunk of generated body markup goes through `mcp__wordpress-studio__validate_blocks` before the post is updated.
+- `${CLAUDE_PLUGIN_ROOT}/references/block-markup.md` — the allow-list of blocks Neptune can emit and the attribute syntax for each.
+- `${CLAUDE_PLUGIN_ROOT}/references/theme-json-keys.md` — what `theme.json` exposes; resolve every preset reference against it.
 
 ## Steps
 
@@ -38,11 +40,11 @@ Context to load before starting:
    ```
    If both lookups fail, stop and ask the user to confirm the page exists and is published. Do not create the post automatically — the page is expected to have been created during `setup-project` (Home / Blog) or by the user; auto-creating risks duplicates.
 
-4. Pull the Figma design directly via the Figma MCP for every node ID under `figmaNodes` for this entry. Use `mcp__figma-local__get_design_context` with `figmaFileId` from `neptune-config.json` and the captured node IDs as the primary source — it returns code, a screenshot, and design tokens in one response. Pull both `desktop` and `mobile` where present. The node IDs captured by `/map-design-templates` cover the **whole** template design (wrapper + body); for `/build-content` you want only the body region — extract the content that sits between the header and footer of the design. If the entry's body is visually identical to the wrapper-source entry's body (i.e. there is no per-page difference), call that out and ask the user whether to skip — there may be nothing for this command to do.
+4. Pull the Figma design directly via the Figma MCP for every node ID under `figmaNodes` for this entry. Use `mcp__figma__get_design_context` with `figmaFileId` from `neptune-config.json` and the captured node IDs as the primary source — it returns code, a screenshot, and design tokens in one response. Pull both `desktop` and `mobile` where present. The node IDs captured by `/map-design-templates` cover the **whole** template design (wrapper + body); for `/build-content` you want only the body region — extract the content that sits between the header and footer of the design. If the entry's body is visually identical to the wrapper-source entry's body (i.e. there is no per-page difference), call that out and ask the user whether to skip — there may be nothing for this command to do.
 
 5. Filter `devNotes` from `neptune-config.json` to only those whose `context` plausibly applies to this page's body content. Do not reason over unrelated notes.
 
-6. Generate the body content as WordPress block markup only. Apply every accessibility/performance/SEO guardrail from `build-template.md`. Do not fall back to plain HTML at any point. If you're about to use a `wp:html` block to achieve a goal, stop — add a placeholder paragraph block instead and open a GitHub issue describing what the human needs to wire up. For internal links inside the body (e.g. CTAs pointing at other pages on the site), wire each `href` to a `pageUrl` from `templateMappings` whenever the link label matches a mapped entry; for labels that don't match any mapped entry, leave a placeholder `#` href and open a GitHub issue listing the unwired labels so the user can supply URLs.
+6. Generate the body content as WordPress block markup only, using the allow-list at `${CLAUDE_PLUGIN_ROOT}/references/block-markup.md` and applying every guardrail in `${CLAUDE_PLUGIN_ROOT}/references/build-guardrails.md`.
 
 7. Validate the generated markup via `mcp__wordpress-studio__validate_blocks` before writing it back. If validation fails, fix and re-validate; do not push invalid content into `post_content`.
 
@@ -54,7 +56,7 @@ Context to load before starting:
    ```
    After the update, verify with `studio wp post get <post-id> --field=post_content | head -n 5` that the new content is present (a quick check that the update wrote and didn't silently no-op due to a quoting issue). Delete the temp file once the update is verified.
 
-10. Optionally run `mcp__wordpress-studio__rank_me_up` and `mcp__wordpress-studio__need_for_speed` against the resolved URL for an SEO/a11y audit and a Core Web Vitals snapshot. Surface any failures as GitHub issues per the followups procedure.
+10. **If this run touched any theme file** (a `theme.json` edit to add a missing token, a new block stylesheet for a registered block style, an asset added to `assets/`), invoke the `theme-validator` subagent (Task tool, `subagent_type: theme-validator`) to catch cross-file regressions. Skip this step if only the post body changed — the chunk-level validator already covered the post content. Fix any `ERROR` rows it returns before continuing.
 
 11. If sibling entries in `templateMappings` share this entry's `wordpressFile` and still have unfilled body content (i.e. their target post's `post_content` is empty or matches the WP default), list them at the end with their `pageUrl` values and remind the user to run `/build-content <name>` once per remaining sibling. Determining "unfilled" can be a soft check (e.g. `studio wp post get <id> --field=post_content | wc -c` returning a small number) — if you're unsure, list all siblings and let the user decide.
 

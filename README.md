@@ -12,25 +12,18 @@ Provides a step-by-step workflow (one skill or slash command per phase) that:
 4. Maps Figma templates to WordPress block-theme files and scaffolds them empty.
 5. Builds and refines each template using validated block markup, `theme.json`, and optional block stylesheets.
 
-Block markup is validated against a real WordPress site through `mcp__wordpress-studio__validate_blocks` before being written to disk; performance and on-page-SEO sanity checks use the same MCP's `need_for_speed` and `rank_me_up` tools.
+Block markup is validated against a real WordPress site through `mcp__wordpress-studio__validate_blocks` before being written to disk. Cross-file invariants (theme.json schema, slug uniqueness, `templateParts`/`customTemplates` ↔ files on disk, preset reference resolution, required blocks per template slug) are enforced by a `theme-validator` subagent that runs after `theme-json`, after every `/build-template`, and after refinements that touch theme files.
 
 ## Prerequisites
 
 - macOS.
 - [WordPress Studio](https://developer.wordpress.com/studio/) with the Block Themes agent skill installed.
-- Figma desktop app running, with the [local Dev Mode MCP server](https://developers.figma.com/docs/figma-mcp-server/local-server-installation/) enabled (Figma menu → Preferences → Enable local MCP server). Neptune ships its own `.mcp.json` pointing at `http://127.0.0.1:3845/mcp` and never calls Figma's hosted MCP — every Figma read happens against the file currently open in your local Figma desktop app.
+- [Figma MCP](https://developers.figma.com/docs/figma-mcp-server/remote-server-installation/#claude-code) enabled in Claude Code.
 - [GitHub CLI (`gh`)](https://cli.github.com/), authenticated (`gh auth login`).
 - Team51 CLI, configured.
 - [`jq`](https://jqlang.org/) on `PATH` — used by the state-gate script.
 
 Before running `setup-project`, you must also have run `team51 pressable:create-site` and created a GitHub repo from the no-code project template (leave the theme name empty).
-
-## Figma access model
-
-Neptune reads Figma exclusively through the local Dev Mode MCP server, never the hosted one. Two consequences worth knowing up front:
-
-- **The Figma file you are building from must be open in Figma desktop** for the duration of the build. The local MCP returns data for the file currently open in the desktop app — it cannot reach files by URL alone the way the hosted MCP can. If you switch tabs to a different file mid-build, the next Figma call returns data from the wrong file.
-- **A `PreToolUse` hook hard-blocks `mcp__figma__*`** (the hosted MCP's namespace) for the whole session while Neptune is enabled, even if Anthropic's official Figma plugin is also installed. The block surfaces a redirect message pointing at `mcp__figma-local__*`. If you need the hosted MCP for non-Neptune work, disable this plugin first.
 
 ## Workflow
 
@@ -56,7 +49,7 @@ All skills share state through `neptune-config.json` at the project root:
 
 - `projectName`, `figmaFileId`, `figmaDevHandoffNodeId`, `repositoryUrl`, `themeSlug` — written by `init-project.sh` during `setup-project`. `figmaDevHandoffNodeId` is the `X:Y` id of the dev-handoff page, extracted from the URL the user pastes during setup.
 - `setupProjectCompleted` (boolean) — set by `setup-project` once Studio site creation finishes.
-- `figmaVariables` — raw output of `mcp__figma-local__get_variable_defs` for the dev-handoff page, captured by `pull-figma`. Drives `theme-json`'s palette / typography / spacing emission.
+- `figmaVariables` — raw output of `mcp__figma__get_variable_defs` for the dev-handoff page, captured by `pull-figma`. Drives `theme-json`'s palette / typography / spacing emission.
 - `figmaStyleGuideNodeId` — id of the `🎨 Style Guide` section, captured by `pull-figma`. `theme-json` calls `get_design_context` on it to cross-reference variables against rendered styles.
 - `devNotes` — every `💬 Dev Note` instance on the dev-handoff page, captured by `pull-figma`. Each entry: `{id, text, context, x, y}`.
 - `figmaPullCompleted` (boolean) — set by `pull-figma` once the walk has populated all of the above.
@@ -96,13 +89,13 @@ When building templates:
 
 ## Accessibility, performance, and SEO guardrails
 
-The build commands enforce production-grade defaults during the initial template/body fill: a single `<h1>` per page, no skipped heading levels, semantic landmarks (`<header>`, `<main>`, `<footer>`, `<nav>`, `<aside>`), `alt` text on `core/image` blocks (or an explicit GitHub follow-up if alt is unknown), `loading="lazy"` for below-the-fold images, `loading="eager"`/`fetchpriority="high"` for hero imagery, visible `:focus-visible` styles in any registered block style, and a skip link in any header part. After build, the commands optionally run `mcp__wordpress-studio__rank_me_up` and `mcp__wordpress-studio__need_for_speed` against the resolved URL and surface failures as GitHub issues.
+The build commands enforce production-grade defaults during the initial template/body fill: a single `<h1>` per page, no skipped heading levels, semantic landmarks (`<header>`, `<main>`, `<footer>`, `<nav>`, `<aside>`), `alt` text on `core/image` blocks (or an explicit GitHub follow-up if alt is unknown), `loading="lazy"` for below-the-fold images, `loading="eager"`/`fetchpriority="high"` for hero imagery, visible `:focus-visible` styles in any registered block style, and a skip link in any header part.
 
 ## Visual-diff strategy
 
 `/refine-template` and `/refine-content` use a **measure-first / vision-fallback** diff:
 
-- **Stage A (numeric).** Pull the Figma node's measured properties via `mcp__figma-local__get_design_context` and `mcp__figma-local__get_variable_defs`. Compare against the rendered DOM's computed styles (via `theme.json` declarations, block stylesheets, and serialised block `style=` attributes; via `studio wp_cli` introspection where browser-side measurement isn't reliably available). Anything outside ±1px on layout, ±2% perceptual on color, or any difference in `font-weight` / `font-family` / token name is a discrepancy.
+- **Stage A (numeric).** Pull the Figma node's measured properties via `mcp__figma__get_design_context` and `mcp__figma__get_variable_defs`. Compare against the rendered DOM's computed styles (via `theme.json` declarations, block stylesheets, and serialised block `style=` attributes; via `studio wp_cli` introspection where browser-side measurement isn't reliably available). Anything outside ±1px on layout, ±2% perceptual on color, or any difference in `font-weight` / `font-family` / token name is a discrepancy.
 - **Stage B (visual).** Take matching-breakpoint screenshots (Studio's `take_screenshot`) and visually compare for things numbers don't catch: alignment, z-order, missing/extra elements, overflow, broken responsive behaviour.
 
 When a vision impression contradicts a numeric measurement, the numeric measurement wins. The discrepancy table the user sees lists rows from both stages with a `source` column (`measured` / `visual`).

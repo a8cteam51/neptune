@@ -5,18 +5,18 @@ description: Walks the Figma dev-handoff page once and writes the structural dat
 
 This skill is safe to re-run — it overwrites figma-derived slices of `neptune-config.json` with the current state of the Figma file, but leaves user-edited fields (e.g. `wordpressFile` mappings on `templateMappings` entries, `pageUrl` values) untouched on existing keys.
 
-Goal: walk the dev-handoff page **once** with `mcp__figma-local__get_metadata`, extract every piece of structural information the rest of the workflow needs, and persist it. Downstream skills (`map-design-templates`, `theme-json`) then become pure config consumers.
+Goal: walk the dev-handoff page **once** with `mcp__figma__get_metadata`, extract every piece of structural information the rest of the workflow needs, and persist it. Downstream skills (`map-design-templates`, `theme-json`) then become pure config consumers.
 
 Prerequisites:
 
 1. Run `${CLAUDE_PLUGIN_ROOT}/scripts/check-state.sh setupProjectCompleted figmaFileId figmaDevHandoffNodeId`. If it fails, surface the message and stop.
-2. Confirm the Figma file is open in Figma desktop. The local MCP cannot read content from a file that is not open. If unsure, run `${CLAUDE_PLUGIN_ROOT}/scripts/check-figma-mcp.sh` and verify the user has the project's Figma file as the active file.
+2. Confirm the Figma MCP is connected — the `mcp__figma__*` tools must be available. The walk uses `figmaFileId` plus node IDs from `neptune-config.json` to address content; the file does not need to be open in any desktop app.
 
 ## Steps
 
 1. Read `figmaFileId` and `figmaDevHandoffNodeId` from `neptune-config.json`.
 
-2. **Walk the dev-handoff page once.** Call `mcp__figma-local__get_metadata` with `nodeId = figmaDevHandoffNodeId`. The response is the full XML tree of the page — typically tens of kilobytes, with named sections (e.g. `🗒️ Templates`, `🎨 Style Guide`) plus nested instances and dev-note components throughout. Hold the response in memory; every subsequent slice operates on it without further MCP calls.
+2. **Walk the dev-handoff page once.** Call `mcp__figma__get_metadata` with `nodeId = figmaDevHandoffNodeId`. The response is the full XML tree of the page — typically tens of kilobytes, with named sections (e.g. `🗒️ Templates`, `🎨 Style Guide`) plus nested instances and dev-note components throughout. Hold the response in memory; every subsequent slice operates on it without further MCP calls.
 
 3. **Validate the page shape.** The walk expects two required named sections at the top level:
    - `🗒️ Templates` — title cards + layout instances.
@@ -79,9 +79,9 @@ Prerequisites:
 
 6. **Walk for `💬 Dev Note` instances and extract their text.** Search the metadata response from step 2 for `<instance>` (or `<frame>`) elements whose `name` attribute is `💬 Dev Note` (or starts with `💬 Dev Note`). For each, capture id, x, y, width, height from the metadata.
 
-   **Text must come from per-instance `get_design_context` calls.** Component-instance overrides do not surface in `get_metadata` — the instance is rendered as a reference to the master component, and its `<text>` children belong to the component definition, not the instance's overridden values. Page-level `get_design_context` on `figmaDevHandoffNodeId` collapses these instances into self-closing tags and is also unusable as a fallback. The only call that materializes the overridden note text is `mcp__figma-local__get_design_context` invoked with the **instance's own node id**.
+   **Text must come from per-instance `get_design_context` calls.** Component-instance overrides do not surface in `get_metadata` — the instance is rendered as a reference to the master component, and its `<text>` children belong to the component definition, not the instance's overridden values. Page-level `get_design_context` on `figmaDevHandoffNodeId` collapses these instances into self-closing tags and is also unusable as a fallback. The only call that materializes the overridden note text is `mcp__figma__get_design_context` invoked with the **instance's own node id**.
 
-   For each Dev Note instance found in metadata, call `mcp__figma-local__get_design_context` with `nodeId = <that instance's id>`. **Issue these calls in parallel** — emit many tool calls in a single response message rather than awaiting each in sequence; wall-clock cost for 50+ notes stays in the low single-digit seconds. From each response, read the rendered text content (the visible characters in the returned JSX/markup); concatenate multi-line content with newlines. If a specific instance still returns no text (truly malformed), record `text: ""` and flag it in the run summary.
+   For each Dev Note instance found in metadata, call `mcp__figma__get_design_context` with `nodeId = <that instance's id>`. **Issue these calls in parallel** — emit many tool calls in a single response message rather than awaiting each in sequence; wall-clock cost for 50+ notes stays in the low single-digit seconds. From each response, read the rendered text content (the visible characters in the returned JSX/markup); concatenate multi-line content with newlines. If a specific instance still returns no text (truly malformed), record `text: ""` and flag it in the run summary.
 
    The earlier prohibition on per-note calls was based on the assumption that metadata carried the override text. It does not. Per-note `get_design_context` is required, not optional — but parallelization keeps the cost bounded.
 
@@ -111,7 +111,7 @@ Prerequisites:
    ```
    Derive the key from the associated layout's title-card name plus a numeric suffix that disambiguates multiple notes on the same layout (`front-page-1`, `front-page-2`, …) in `(y, x)` reading order.
 
-7. **Pull variable definitions.** Call `mcp__figma-local__get_variable_defs` with `nodeId = figmaDevHandoffNodeId`. Persist the raw response under `figmaVariables` in `neptune-config.json`. `theme-json` reads this directly to populate palette / typography / spacing — no per-token re-fetch is required.
+7. **Pull variable definitions.** Call `mcp__figma__get_variable_defs` with `nodeId = figmaDevHandoffNodeId`. Persist the raw response under `figmaVariables` in `neptune-config.json`. `theme-json` reads this directly to populate palette / typography / spacing — no per-token re-fetch is required.
 
 8. **Write everything to `neptune-config.json`.** Use a single `jq` invocation to merge the new slices into the existing config without losing other keys:
    ```bash

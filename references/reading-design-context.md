@@ -1,6 +1,6 @@
 # Reading get_design_context output
 
-`mcp__figma-local__get_design_context` returns React + Tailwind code, design tokens, font definitions, and asset URLs. **Treat the React component as a structural blueprint, not literal code to convert.** Figma's MCP ships React+Tailwind as a structural reference — your job is to read it as a tree of layout intents, design-token references, and content slots, and emit the equivalent WordPress block markup directly. Do not translate React → HTML+CSS → WP block markup; go straight from blueprint to blocks.
+`mcp__figma__get_design_context` returns React + Tailwind code, design tokens, font definitions, and asset URLs. **Treat the React component as a structural blueprint, not literal code to convert.** Figma's MCP ships React+Tailwind as a structural reference — your job is to read it as a tree of layout intents, design-token references, and content slots, and emit the equivalent WordPress block markup directly. Do not translate React → HTML+CSS → WP block markup; go straight from blueprint to blocks.
 
 ## Translation contract
 
@@ -34,7 +34,7 @@ If you find tokens in the JSX that do **not** appear in `theme.json`, surface th
 
 ## Assets
 
-Top-of-file constants like `const imgVector = "http://localhost:3845/assets/<hash>.<ext>"` reference SVGs and PNGs hosted on Figma desktop's local MCP server. Those URLs only resolve while Figma desktop is running, so they must never appear in produced block markup. **But not every asset constant should be uploaded** — Figma exports both real content (icons, photos, logos) and shape primitives (rectangles, lines, gradient fills, decorative paths) as constants. Triage each constant before deciding what to do with it.
+Top-of-file constants like `const imgVector = "<asset-url>"` reference SVGs and PNGs the Figma MCP exports for the frame. Whatever the URL form, **never** ship those URLs through to produced block markup — they're transient export references, not stable site assets. **And not every asset constant should be uploaded** — Figma exports both real content (icons, photos, logos) and shape primitives (rectangles, lines, gradient fills, decorative paths) as constants. Triage each constant before deciding what to do with it.
 
 ### Triage: shape primitive vs. real content
 
@@ -64,7 +64,7 @@ The variable name is the primary signal. Figma names exported constants from the
 **Tie-breaker for ambiguous cases.** If the variable name doesn't fall into either bucket, look at the parent layer:
 
 1. Get the variable's `data-node-id` reference from the JSX. Most asset `<img>` tags appear next to a `data-node-id` attribute on the wrapping div.
-2. Call `mcp__figma-local__get_metadata` on that node ID and read its `name` attribute (and the parent's name, if needed). If the name is descriptive (`Footer Logo`, `Hero Image`, `Newsletter Icon`), treat as content. If it's generic (`Vector`, `Group 17`, `Frame 51076674`), treat as a shape primitive.
+2. Call `mcp__figma__get_metadata` on that node ID and read its `name` attribute (and the parent's name, if needed). If the name is descriptive (`Footer Logo`, `Hero Image`, `Newsletter Icon`), treat as content. If it's generic (`Vector`, `Group 17`, `Frame 51076674`), treat as a shape primitive.
 3. Check geometry. A `<img>` rendered into a parent box that's <= 64×64px is almost always an icon. A `<img>` rendered into a full-width container at the top of a section is almost always content. Boxes with width = container, height ≤ 4px are dividers (`wp:separator`).
 
 ### Shape primitives → WP block / CSS equivalents
@@ -113,7 +113,7 @@ For each asset triaged as real content:
 
 4. **De-duplicate within a run.** The same asset hash often appears multiple times in a single `get_design_context` response (e.g. an icon used by every card in a list). Import each unique URL once per run, keep a map from asset URL → attachment ID, and reuse the ID across every block that needs it. This avoids piling duplicates into the media library on every build.
 
-5. **SVG note.** Team 51 sites ship `safe-svg` activated, so SVG uploads are allowed out of the box. If an SVG import still fails (e.g. malformed source), surface it in the run summary and open a GitHub issue. Never substitute the original `localhost:3845` URL — that breaks the rendered page once Figma desktop closes.
+5. **SVG note.** Team 51 sites ship `safe-svg` activated, so SVG uploads are allowed out of the box. If an SVG import still fails (e.g. malformed source), surface it in the run summary and open a GitHub issue. Never substitute the original Figma export URL — those URLs are transient and will break once the Figma MCP rotates them.
 
 **Node IDs.** `data-node-id="5860:7051"` attributes are traceability aids for `/refine-*` later. Discard them when emitting production block markup — they are not output.
 
@@ -121,4 +121,4 @@ For each asset triaged as real content:
 
 ## Why not request HTML+CSS instead?
 
-The local MCP's `clientLanguages` parameter is **telemetry only** — it does not change output format. The Figma MCP team ships React+Tailwind as a structural reference because the JSX tree mirrors the Figma frame tree exactly, the Tailwind utilities pack token references and concrete values together, and Code Connect snippets are React-shaped natively. Requesting "HTML + CSS" via natural language splits this into two artefacts the model has to cross-reference, drops the variant logic, and degrades the Code Connect bridge. Read the React+Tailwind output as a blueprint and translate straight to block markup.
+The MCP's `clientLanguages` parameter is **telemetry only** — it does not change output format. The Figma MCP team ships React+Tailwind as a structural reference because the JSX tree mirrors the Figma frame tree exactly, the Tailwind utilities pack token references and concrete values together, and Code Connect snippets are React-shaped natively. Requesting "HTML + CSS" via natural language splits this into two artefacts the model has to cross-reference, drops the variant logic, and degrades the Code Connect bridge. Read the React+Tailwind output as a blueprint and translate straight to block markup.

@@ -14,11 +14,14 @@ Preflight (run before any other step):
 
 Context to load before starting:
 - `neptune-config.json` — `themeSlug`, `templateMappings`, `devNotes`, `figmaFileId`.
-- The Figma MCP — Figma is the source of truth. Local Dev Mode MCP is read-only; ensure the Figma file is open in Figma desktop while this command runs. Use `mcp__figma-local__get_variable_defs` for numeric token values.
-- `${CLAUDE_PLUGIN_ROOT}/references/reading-design-context.md` — translation contract for `mcp__figma-local__get_design_context` output. Apply it whenever you compare the Figma side of the diff against rendered markup; the same blueprint-not-literal rules govern what counts as a real discrepancy vs. a React/Tailwind artefact.
+- The Figma MCP — Figma is the source of truth. Load the `figma:figma-use` skill before any Figma MCP calls that need JS execution in the file context. Use `mcp__figma__get_variable_defs` for numeric token values.
+- `${CLAUDE_PLUGIN_ROOT}/references/reading-design-context.md` — translation contract for `mcp__figma__get_design_context` output. Apply it whenever you compare the Figma side of the diff against rendered markup; the same blueprint-not-literal rules govern what counts as a real discrepancy vs. a React/Tailwind artefact.
 - The `wordpress-studio` MCP — `take_screenshot` for the rendered shot, `validate_blocks` for any block-markup edits, `wp_cli` for runtime introspection.
 - `wordpress/.agents/skills/wp-block-themes/SKILL.md` — block theme structure and theme.json reference.
-- Read the styling and building guardrails outlined in `${CLAUDE_PLUGIN_ROOT}/commands/build-template.md`. For any human-actionable follow-up surfaced during this command, open a GitHub issue per `${CLAUDE_PLUGIN_ROOT}/references/github-followups.md`.
+- `${CLAUDE_PLUGIN_ROOT}/references/build-guardrails.md` — every styling, validation, building, and accessibility/performance/SEO guardrail there applies to refinement edits the same way it applies to the initial build.
+- `${CLAUDE_PLUGIN_ROOT}/references/block-markup.md` — allow-list of blocks; any markup change must stay inside it.
+- `${CLAUDE_PLUGIN_ROOT}/references/theme-json-keys.md` — `theme.json` keys; any token-level change must respect this contract.
+- For any human-actionable follow-up surfaced during this command, open a GitHub issue per `${CLAUDE_PLUGIN_ROOT}/references/github-followups.md`.
 
 ## Diff strategy
 
@@ -42,7 +45,7 @@ Same measure-first / vision-fallback strategy as `${CLAUDE_PLUGIN_ROOT}/referenc
 
 4. Take a screenshot of the rendered page at the resolved page URL via `mcp__wordpress-studio__take_screenshot`. Record the breakpoint (desktop or mobile width) so step 5 can match it.
 
-5. Pull the Figma design directly via the Figma MCP — call `mcp__figma-local__get_design_context` (and `mcp__figma-local__get_screenshot` if you need a separate image) using `figmaFileId` from `neptune-config.json` and the relevant node ID under `figmaNodes`. Match the breakpoint of the rendered screenshot from step 4: use the `desktop` node for a desktop-width screenshot, the `mobile` node for a mobile-width screenshot. If both are available and relevant, refine against each in turn. The captured node IDs cover the **whole** template design (wrapper + body); for refinement here, extract only the body region — the content that sits between the header and footer of the design. Wrapper-level differences are out of scope. Also pull `mcp__figma-local__get_variable_defs` for the file once — its output feeds the numeric comparison.
+5. Pull the Figma design directly via the Figma MCP — call `mcp__figma__get_design_context` (and `mcp__figma__get_screenshot` if you need a separate image) using `figmaFileId` from `neptune-config.json` and the relevant node ID under `figmaNodes`. Match the breakpoint of the rendered screenshot from step 4: use the `desktop` node for a desktop-width screenshot, the `mobile` node for a mobile-width screenshot. If both are available and relevant, refine against each in turn. The captured node IDs cover the **whole** template design (wrapper + body); for refinement here, extract only the body region — the content that sits between the header and footer of the design. Wrapper-level differences are out of scope. Also pull `mcp__figma__get_variable_defs` for the file once — its output feeds the numeric comparison.
 
 6. Run the measure-first / vision-fallback diff per `${CLAUDE_PLUGIN_ROOT}/references/refine-template.md`'s "Diff strategy" section. Produce a single discrepancy table with columns `region` | `property` | `figma` | `rendered` | `source` | `scope` | `severity`. Share it with the user before making changes. Only proceed to step 7 with rows whose `scope` is `body`; flag `wrapper` rows for `/refine-template` and surface them again in the final summary.
 
@@ -59,6 +62,8 @@ Same measure-first / vision-fallback strategy as `${CLAUDE_PLUGIN_ROOT}/referenc
    After the update, verify with `studio wp post get <post-id> --field=post_content | head -n 5` that the new content is present (a quick check that the update wrote and didn't silently no-op due to a quoting issue). Delete the temp file once the update is verified.
 
 9. Re-take the screenshot from step 4 at the same breakpoint and confirm the in-scope discrepancies have been resolved. If any remain, iterate on steps 6–8 until either they're resolved or you've reached a point where remaining differences need human input — in which case open a GitHub issue describing what's blocked. If you opened any GitHub issues during this run, list them at the end with their URLs.
+
+   If any change was applied under `wordpress/wp-content/themes/<themeSlug>/` during this run (e.g. a `theme.json` token added to fix a missing preset, or a block stylesheet edit), invoke the `theme-validator` subagent (Task tool, `subagent_type: theme-validator`) and resolve any `ERROR` rows before declaring the refinement done. Skip the validator when only `post_content` was edited — the chunk-level validator already covered it.
 
 10. If wrapper-level discrepancies were flagged in step 6, remind the user to run `/refine-template <template-name> <page-url>` to address them — those edits live in the theme file, not in `post_content`, and are out of scope here.
 

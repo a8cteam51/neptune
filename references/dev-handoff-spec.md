@@ -24,7 +24,7 @@ Each item is marked with a level:
 | --- | ---                                                                                                                              | ---   | ---               |
 | 1.1 | A single Figma file page exists that is the "dev handoff" — the source of truth for templates, styles, and notes.                | R     |                   |
 | 1.2 | The user can right-click the **page tab** (not the canvas) and "Copy link to selection" to get a URL with a `node-id` parameter. | R     |                   |
-| 1.3 | The Figma file is **open in Figma desktop** while Neptune skills run. Local Dev Mode MCP can't read closed files.                | R     |                   |
+| 1.3 | The official Figma MCP (`mcp__figma__*`) is connected in the Claude Code session; the file is addressable by `figmaFileId` + node ID. | R     |                   |
 | 1.4 | If multiple dated dev-handoff pages exist (e.g. "Dev Handoff — Nov 10, 2025"), the user picks one URL — Neptune doesn't auto-resolve "latest". | r |                   |
 
 ---
@@ -181,7 +181,7 @@ These aren't assumptions Neptune *makes*, but constraints designers should know 
 | 8.3 | **No responsive variants beyond standard breakpoints.** `desktop` / `tablet` / `mobile` are the bucket anchors; intermediate breakpoints (e.g. a "wide-desktop" at 1920) get folded into `desktop` and surfaced as `desktop-alt` for user choice. |                   |
 | 8.4 | **One title card per visual concept.** Multiple title cards with the same text (e.g. two "Blog" cards for A/B variants) collide on `templateMappings` keys. Use distinct titles ("Blog A", "Blog B").                     |                   |
 | 8.5 | **Hex colours painted without a variable** become inline `#xxxxxx` in produced markup, not theme.json palette references. Always paint via a Figma variable when consistency matters.                                    |                   |
-| 8.6 | **Figma plugin-rendered content is unsupported.** If a layer's contents are produced by a plugin (e.g. iconify, Lorem Ipsum generators) the produced output isn't represented in the local MCP's `get_design_context` response. |                   |
+| 8.6 | **Figma plugin-rendered content is unsupported.** If a layer's contents are produced by a plugin (e.g. iconify, Lorem Ipsum generators) the produced output isn't represented in the MCP's `get_design_context` response. |                   |
 
 > **Designer notes (Section 8):**
 >

@@ -20,7 +20,7 @@ figma_dev_handoff_node_id="$5"
 if [[ ! "$figma_dev_handoff_node_id" =~ ^[0-9]+:[0-9]+$ ]]; then
 	echo "Error: figma_dev_handoff_node_id \"$figma_dev_handoff_node_id\" is not a valid Figma node id."
 	echo "  Expected the form \"X:Y\" where X and Y are integers."
-	echo "  In Figma desktop, right-click the dev-handoff page tab, choose"
+	echo "  In Figma, right-click the dev-handoff page tab, choose"
 	echo "  'Copy link to selection', and convert the URL's node-id from"
 	echo "  'X-Y' to 'X:Y'."
 	exit 1
