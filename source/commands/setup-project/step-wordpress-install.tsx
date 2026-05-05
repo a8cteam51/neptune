@@ -17,7 +17,7 @@ export default function WordPressInstallStep({
 	return (
 		<EventStep
 			title="Step 4 — Install WordPress"
-			start={async () => installWordPress(projectDir)}
+			start={async signal => installWordPress(projectDir, signal)}
 			onSuccess={() =>
 				onComplete({
 					steps: {...config.steps, wordpressInstalled: true},

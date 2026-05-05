@@ -2,7 +2,7 @@ import React from 'react';
 import {Box, Text, useInput} from 'ink';
 import SelectInput from 'ink-select-input';
 import type {SelectionMetadata} from '../../integrations/figma/mcp.js';
-import type {SpecialPullKind} from '../setup-project/types.js';
+import type {SpecialPullKind} from '../../lib/types.js';
 import SelectionLine from './selection-line.js';
 
 type ItemValue =

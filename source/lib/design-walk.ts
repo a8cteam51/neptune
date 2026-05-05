@@ -2,9 +2,10 @@
 // design/<slug>/ and carries a meta.json describing it. We deliberately do
 // NOT store this in neptune-config.json — config flags can drift from disk
 // state (e.g. user deletes design/dev-handoff/ but config says it's pulled).
-import {mkdir, readdir, readFile, stat, writeFile} from 'node:fs/promises';
+import {mkdir, readdir, readFile, stat} from 'node:fs/promises';
 import {dirname, join} from 'node:path';
-import type {PullMeta, SpecialPullKind} from '../commands/setup-project/types.js';
+import {writeFileAtomic} from './atomic-write.js';
+import type {PullMeta, SpecialPullKind} from './types.js';
 
 const DESIGN_DIRNAME = 'design';
 
@@ -12,7 +13,7 @@ export async function listPulls(projectDir: string): Promise<PullMeta[]> {
 	const designDir = join(projectDir, DESIGN_DIRNAME);
 	let entries: string[];
 	try {
-		entries = await readdir(designDir);
+		entries = (await readdir(designDir)).sort();
 	} catch (err) {
 		if ((err as NodeJS.ErrnoException).code === 'ENOENT') return [];
 		throw err;
@@ -37,6 +38,20 @@ export async function listPulls(projectDir: string): Promise<PullMeta[]> {
 		}
 	}
 	return pulls;
+}
+
+export async function findPullBySlug(
+	projectDir: string,
+	slug: string,
+): Promise<PullMeta | null> {
+	const metaPath = join(projectDir, DESIGN_DIRNAME, slug, 'meta.json');
+	try {
+		const raw = await readFile(metaPath, 'utf8');
+		return JSON.parse(raw) as PullMeta;
+	} catch (err) {
+		if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
+		throw err;
+	}
 }
 
 export async function getSpecialPullsStatus(
@@ -69,5 +84,5 @@ export async function writePullMeta(
 ): Promise<void> {
 	const path = join(projectDir, DESIGN_DIRNAME, slug, 'meta.json');
 	await mkdir(dirname(path), {recursive: true});
-	await writeFile(path, JSON.stringify(meta, null, 2) + '\n');
+	await writeFileAtomic(path, JSON.stringify(meta, null, 2) + '\n');
 }

@@ -3,6 +3,11 @@
 // the configured theme. Requires `studio` on PATH.
 import {resolve} from 'node:path';
 import {spawn} from 'node:child_process';
+import {
+	attachAbortSignal,
+	trackChild,
+} from '../../lib/process-tracker.js';
+import {stripAnsi} from '../../lib/strip-ansi.js';
 import type {LogEvent} from '../../lib/event-list.js';
 
 const REQUIRED_PLUGINS = ['create-block-theme', 'safe-svg'];
@@ -11,52 +16,49 @@ export async function* createStudioSite(
 	projectDir: string,
 	siteName: string,
 	themeSlug: string,
+	signal?: AbortSignal,
 ): AsyncGenerator<LogEvent> {
 	const wpDir = resolve(projectDir, 'wordpress');
 
 	yield {
 		kind: 'step',
-		message: `studio site create --path ${wpDir} --name "${siteName}"`,
+		message: `studio site create --path ${wpDir} --name ${JSON.stringify(siteName)}`,
 	};
-	await runStudio([
-		'site',
-		'create',
-		'--path',
-		wpDir,
-		'--name',
-		siteName,
-	]);
+	await runStudio(
+		['site', 'create', '--path', wpDir, '--name', siteName],
+		signal,
+	);
 
 	for (const plugin of REQUIRED_PLUGINS) {
 		yield {
 			kind: 'step',
 			message: `studio wp plugin install ${plugin} --activate`,
 		};
-		await runStudio([
-			'wp',
-			'plugin',
-			'install',
-			plugin,
-			'--activate',
-			'--path',
-			wpDir,
-		]);
+		await runStudio(
+			['wp', 'plugin', 'install', plugin, '--activate', '--path', wpDir],
+			signal,
+		);
 	}
 
 	yield {
 		kind: 'step',
 		message: `studio wp theme activate ${themeSlug}`,
 	};
-	await runStudio(['wp', 'theme', 'activate', themeSlug, '--path', wpDir]);
+	await runStudio(
+		['wp', 'theme', 'activate', themeSlug, '--path', wpDir],
+		signal,
+	);
 
 	yield {kind: 'step', message: `Studio site ready at ${wpDir}`};
 }
 
-function runStudio(args: string[]): Promise<void> {
+function runStudio(args: string[], signal?: AbortSignal): Promise<void> {
 	return new Promise((res, rej) => {
 		const child = spawn('studio', args, {
 			stdio: ['ignore', 'pipe', 'pipe'],
 		});
+		trackChild(child);
+		attachAbortSignal(child, signal);
 
 		let stdout = '';
 		let stderr = '';
@@ -79,15 +81,22 @@ function runStudio(args: string[]): Promise<void> {
 			rej(err);
 		});
 
-		child.on('close', code => {
+		child.on('close', (code, sig) => {
 			if (code === 0) {
 				res();
 				return;
 			}
-			const detail = (stderr.trim() || stdout.trim()) || '(no output)';
+			if (signal?.aborted) {
+				rej(new Error(`studio ${args[0] ?? ''} aborted.`));
+				return;
+			}
+			const detail =
+				stripAnsi((stderr.trim() || stdout.trim()) || '(no output)');
 			rej(
 				new Error(
-					`studio ${args.join(' ')} exited with code ${code ?? 'null'}: ${detail}`,
+					`studio ${args.join(' ')} exited with code ${
+						code ?? `signal ${sig}`
+					}: ${detail}`,
 				),
 			);
 		});

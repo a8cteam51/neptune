@@ -11,8 +11,13 @@ import {Buffer} from 'node:buffer';
 import {readFile} from 'node:fs/promises';
 import {homedir} from 'node:os';
 import {resolve} from 'node:path';
+import {
+	attachAbortSignal,
+	trackChild,
+} from '../../lib/process-tracker.js';
 
 const PROTOCOL_VERSION = '2025-06-18';
+const REQUEST_TIMEOUT_MS = 60_000;
 
 type JsonRpcRequest = {
 	jsonrpc: '2.0';
@@ -36,29 +41,49 @@ export type StudioSession = {
 	close: () => void;
 };
 
-export async function openStudioSession(): Promise<StudioSession> {
+export async function openStudioSession(
+	signal?: AbortSignal,
+): Promise<StudioSession> {
 	let child: ChildProcessWithoutNullStreams;
 	try {
 		child = spawn('studio', ['mcp'], {stdio: ['pipe', 'pipe', 'pipe']});
 	} catch (err) {
 		throw wrapSpawnError(err);
 	}
+	trackChild(child);
+	attachAbortSignal(child, signal);
 
 	let nextId = 1;
 	let buf = '';
-	const pending = new Map<number, (resp: JsonRpcResponse) => void>();
+	const pending = new Map<
+		number,
+		{
+			resolve: (resp: JsonRpcResponse) => void;
+			reject: (err: Error) => void;
+			timer: NodeJS.Timeout;
+		}
+	>();
 	let closed = false;
 	let spawnErr: Error | null = null;
 
-	child.on('error', err => {
-		spawnErr = wrapSpawnError(err);
-		for (const resolve of pending.values()) {
-			resolve({
-				jsonrpc: '2.0',
-				error: {code: -32000, message: spawnErr.message},
-			});
+	const failAll = (err: Error) => {
+		for (const entry of pending.values()) {
+			clearTimeout(entry.timer);
+			entry.reject(err);
 		}
 		pending.clear();
+	};
+
+	child.on('error', err => {
+		spawnErr = wrapSpawnError(err);
+		failAll(spawnErr);
+	});
+
+	child.on('exit', () => {
+		if (!closed) {
+			closed = true;
+			failAll(new Error('studio mcp process exited unexpectedly'));
+		}
 	});
 
 	child.stdout.on('data', (chunk: Buffer) => {
@@ -71,10 +96,11 @@ export async function openStudioSession(): Promise<StudioSession> {
 			try {
 				const msg = JSON.parse(line) as JsonRpcResponse;
 				if (typeof msg.id === 'number') {
-					const resolve = pending.get(msg.id);
-					if (resolve) {
+					const entry = pending.get(msg.id);
+					if (entry) {
+						clearTimeout(entry.timer);
 						pending.delete(msg.id);
-						resolve(msg);
+						entry.resolve(msg);
 					}
 				}
 			} catch {
@@ -93,16 +119,34 @@ export async function openStudioSession(): Promise<StudioSession> {
 				reject(spawnErr);
 				return;
 			}
-			if (req.id !== undefined) {
-				pending.set(req.id, resolve);
+			const isRequest = req.id !== undefined;
+			if (isRequest) {
+				const id = req.id!;
+				const timer = setTimeout(() => {
+					if (pending.delete(id)) {
+						reject(
+							new Error(
+								`studio mcp request ${req.method} timed out after ${REQUEST_TIMEOUT_MS}ms`,
+							),
+						);
+					}
+				}, REQUEST_TIMEOUT_MS);
+				timer.unref();
+				pending.set(id, {resolve, reject, timer});
 			}
 			child.stdin.write(JSON.stringify(req) + '\n', err => {
 				if (err) {
-					if (req.id !== undefined) pending.delete(req.id);
+					if (isRequest) {
+						const entry = pending.get(req.id!);
+						if (entry) {
+							clearTimeout(entry.timer);
+							pending.delete(req.id!);
+						}
+					}
 					reject(err);
 				}
 			});
-			if (req.id === undefined) {
+			if (!isRequest) {
 				resolve({jsonrpc: '2.0'});
 			}
 		});
@@ -118,7 +162,7 @@ export async function openStudioSession(): Promise<StudioSession> {
 		},
 	});
 	if (initResp.error) {
-		child.kill();
+		killChild(child);
 		throw new Error(
 			`studio mcp initialize failed: ${initResp.error.message}`,
 		);
@@ -136,9 +180,27 @@ export async function openStudioSession(): Promise<StudioSession> {
 		close: () => {
 			if (closed) return;
 			closed = true;
-			child.kill();
+			failAll(new Error('studio mcp session closed by caller'));
+			killChild(child);
 		},
 	};
+}
+
+function killChild(child: ChildProcessWithoutNullStreams) {
+	try {
+		child.kill('SIGTERM');
+		setTimeout(() => {
+			if (child.exitCode === null && child.signalCode === null) {
+				try {
+					child.kill('SIGKILL');
+				} catch {
+					/* best effort */
+				}
+			}
+		}, 2000).unref();
+	} catch {
+		/* best effort */
+	}
 }
 
 export type ValidationResult =
@@ -241,9 +303,7 @@ export async function getSiteUrlFromStudioConfig(
 
 	const wpDir = resolve(projectDir, 'wordpress');
 	const match = sites.find(
-		s =>
-			typeof s.path === 'string' &&
-			resolve(s.path).toLowerCase() === wpDir.toLowerCase(),
+		s => typeof s.path === 'string' && resolve(s.path) === wpDir,
 	);
 	if (!match || typeof match.port !== 'number') return null;
 	return `http://localhost:${match.port}`;

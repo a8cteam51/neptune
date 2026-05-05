@@ -14,12 +14,13 @@ import {
 	stripLlmInstructions,
 	type McpSession,
 } from './mcp.js';
-import type {DevNote} from '../../commands/setup-project/types.js';
+import type {DevNote} from '../../lib/types.js';
 
 export async function fetchDevNoteTexts(
 	session: McpSession,
 	ids: string[],
 	onEvent?: (ev: LogEvent) => void,
+	signal?: AbortSignal,
 ): Promise<DevNote[]> {
 	if (ids.length === 0) return [];
 
@@ -33,6 +34,7 @@ export async function fetchDevNoteTexts(
 	const notes: DevNote[] = [];
 
 	for (const [index, id] of ids.entries()) {
+		if (signal?.aborted) throw new Error('Dev note fetch aborted.');
 		onEvent?.({
 			kind: 'step',
 			message: `Dev note ${index + 1}/${ids.length} (${id})`,

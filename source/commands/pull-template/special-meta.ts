@@ -1,7 +1,7 @@
 // Specials are fixed-purpose pulls that gate access to the rest of the
 // flow. Pulling all three (Dev Handoff, Style Guide, Templates) opens
 // the picker and free-form pulls.
-import type {SpecialPullKind} from '../setup-project/types.js';
+import type {SpecialPullKind} from '../../lib/types.js';
 
 export const SPECIAL_META: Record<
 	SpecialPullKind,

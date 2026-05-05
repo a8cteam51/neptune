@@ -2,7 +2,11 @@
 // with success or error. Three setup steps and (in spirit) the build
 // flows all follow this shape — keeping the runner state machine in one
 // place so step files just describe what to run, not how to render it.
-import React, {useEffect, useState} from 'react';
+//
+// `start` receives an AbortSignal; honouring it lets unmount actually
+// stop in-flight fetches/child processes (and Agent SDK calls) instead of
+// orphaning them.
+import React, {useEffect, useRef, useState} from 'react';
 import {Box, Text, useInput} from 'ink';
 import EventList, {type LogEvent} from './event-list.js';
 
@@ -15,20 +19,22 @@ export default function EventStep({
 	onAbort,
 }: {
 	title: string;
-	start: () => Promise<AsyncIterable<LogEvent>>;
+	start: (signal: AbortSignal) => Promise<AsyncIterable<LogEvent>>;
 	onSuccess: () => void;
 	onAbort: (message: string) => void;
 }) {
 	const [events, setEvents] = useState<LogEvent[]>([]);
 	const [status, setStatus] = useState<Status>('running');
 	const [error, setError] = useState('');
+	const errorRef = useRef('');
 
 	useEffect(() => {
+		const controller = new AbortController();
 		let cancelled = false;
 
 		(async () => {
 			try {
-				const gen = await start();
+				const gen = await start(controller.signal);
 				for await (const ev of gen) {
 					if (cancelled) return;
 					setEvents(prev => [...prev, ev]);
@@ -38,20 +44,22 @@ export default function EventStep({
 					onSuccess();
 				}
 			} catch (err) {
-				if (!cancelled) {
-					setStatus('error');
-					setError(err instanceof Error ? err.message : String(err));
-				}
+				if (cancelled) return;
+				setStatus('error');
+				const message = err instanceof Error ? err.message : String(err);
+				errorRef.current = message;
+				setError(message);
 			}
 		})();
 
 		return () => {
 			cancelled = true;
+			controller.abort();
 		};
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, []);
 
-	useInput(() => onAbort(error), {isActive: status === 'error'});
+	useInput(() => onAbort(errorRef.current), {isActive: status === 'error'});
 
 	return (
 		<Box flexDirection="column">

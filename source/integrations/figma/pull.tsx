@@ -3,7 +3,7 @@
 // work (asset download, dev-note fetch, scaffolding) reuses it instead
 // of opening a fresh one. Each session = 2 MCP requests (init + notify),
 // so reuse matters for the rate-limit budget.
-import React, {useEffect, useState} from 'react';
+import React, {useEffect, useRef, useState} from 'react';
 import {Box, Text, useInput} from 'ink';
 import EventList, {type LogEvent} from '../../lib/event-list.js';
 import {
@@ -19,6 +19,7 @@ type Props = {
 	onSuccess?: (
 		emit: (ev: LogEvent) => void,
 		session: McpSession,
+		signal: AbortSignal,
 	) => Promise<void> | void;
 	onDone: () => void;
 };
@@ -35,62 +36,55 @@ export default function FigmaPull({
 	const [events, setEvents] = useState<LogEvent[]>([]);
 	const [status, setStatus] = useState<Status>('running');
 	const [error, setError] = useState<string | undefined>();
+	const cancelledRef = useRef(false);
 
 	useEffect(() => {
-		let cancelled = false;
+		cancelledRef.current = false;
+		const controller = new AbortController();
 
 		(async () => {
+			let session: McpSession | undefined;
 			try {
 				setEvents(prev => [
 					...prev,
 					{kind: 'step', message: 'Opening MCP session…'},
 				]);
-				const session = await openMcpSession();
+				session = await openMcpSession(controller.signal);
 
 				for await (const ev of pullFromFigma(session, {
 					pageName,
 					nodeRef,
 					outRoot,
+					signal: controller.signal,
 				})) {
-					if (cancelled) return;
+					if (cancelledRef.current) return;
 					setEvents(prev => [...prev, ev]);
 				}
 
-				if (cancelled) return;
+				if (cancelledRef.current) return;
 
 				if (onSuccess) {
 					const emit = (ev: LogEvent) => {
-						if (!cancelled) setEvents(prev => [...prev, ev]);
+						if (!cancelledRef.current) setEvents(prev => [...prev, ev]);
 					};
-					try {
-						await onSuccess(emit, session);
-					} catch (err) {
-						if (cancelled) return;
-						setEvents(prev => [
-							...prev,
-							{
-								kind: 'warn',
-								message: `Could not record pull: ${
-									err instanceof Error ? err.message : String(err)
-								}`,
-							},
-						]);
-					}
+					await onSuccess(emit, session, controller.signal);
 				}
 
-				if (!cancelled) {
+				if (!cancelledRef.current) {
 					setStatus('success');
 				}
 			} catch (err) {
-				if (!cancelled) {
-					setStatus('error');
-					setError(err instanceof Error ? err.message : String(err));
-				}
+				if (cancelledRef.current) return;
+				setStatus('error');
+				setError(err instanceof Error ? err.message : String(err));
+			} finally {
+				session?.close();
 			}
 		})();
 
 		return () => {
-			cancelled = true;
+			cancelledRef.current = true;
+			controller.abort();
 		};
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [pageName, nodeRef, outRoot]);

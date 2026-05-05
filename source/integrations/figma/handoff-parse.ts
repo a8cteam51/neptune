@@ -1,6 +1,6 @@
 // Pure XML/JSX parsers for the artifacts pullFromFigma writes. All regex-
 // based; no XML parser dep. Limits documented per-function.
-import type {TitleCardRef} from '../../commands/setup-project/types.js';
+import type {TitleCardRef} from '../../lib/types.js';
 
 // Loose substring match: any <instance> whose name contains "dev note"
 // (case-insensitive) counts. Catches "Dev Note", "💬 Dev Note",

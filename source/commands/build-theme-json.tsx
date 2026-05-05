@@ -1,18 +1,19 @@
 // First merges design/*/variables.json into variables/all-variables.json,
 // then feeds that to the Claude Agent SDK with the neptune-tools plugin
-// (which exposes a theme.json skill) and writes the result to
+// (which exposes a theme-json skill) and writes the result to
 // wp-content/themes/<theme>/theme.json. Streams progress events throughout.
 //
 // If theme.json already exists, gates the run behind a confirmation prompt
 // so the user doesn't accidentally pay for the Claude call to overwrite a
 // file they want to keep.
-import React, {useEffect, useState} from 'react';
+import React, {useEffect, useRef, useState} from 'react';
 import {Box, Text, useInput} from 'ink';
 import SelectInput from 'ink-select-input';
-import {access, readFile, mkdir, writeFile} from 'node:fs/promises';
+import {access, readFile, mkdir} from 'node:fs/promises';
 import {dirname, join, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {runAgent} from '../lib/agent-stream.js';
+import {writeFileAtomic} from '../lib/atomic-write.js';
+import {AgentAbortedError, runAgent} from '../lib/agent-stream.js';
 import {buildVariables} from '../lib/build-variables.js';
 import EventList, {type LogEvent} from '../lib/event-list.js';
 import {markVariablesBuilt} from './setup-project/config.js';
@@ -37,13 +38,14 @@ const PLUGIN_PATH = resolve(moduleDir, '..', '..', 'plugins', 'neptune-tools');
 export default function BuildThemeJson({activeProject, onDone}: Props) {
 	const [phase, setPhase] = useState<Phase>({kind: 'checking'});
 	const [events, setEvents] = useState<LogEvent[]>([]);
+	const runControllerRef = useRef<AbortController | null>(null);
 
 	useEffect(() => {
-		let cancelled = false;
+		const controller = new AbortController();
 		(async () => {
 			const themeSlug = activeProject.config.themeSlug;
 			if (!themeSlug) {
-				if (!cancelled) {
+				if (!controller.signal.aborted) {
 					setPhase({
 						kind: 'error',
 						error: 'themeSlug missing from neptune-config.',
@@ -53,33 +55,47 @@ export default function BuildThemeJson({activeProject, onDone}: Props) {
 			}
 			const targetPath = themeJsonPath(activeProject.dir, themeSlug);
 			if (await fileExists(targetPath)) {
-				if (!cancelled) setPhase({kind: 'confirm', targetPath});
+				if (!controller.signal.aborted) setPhase({kind: 'confirm', targetPath});
 			} else {
-				if (!cancelled) startBuild();
+				if (!controller.signal.aborted) startBuild();
 			}
 		})();
-		return () => {
-			cancelled = true;
-		};
+		return () => controller.abort();
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, []);
 
+	useEffect(
+		() => () => {
+			runControllerRef.current?.abort();
+		},
+		[],
+	);
+
 	const startBuild = () => {
 		setPhase({kind: 'running'});
-		let cancelled = false;
+		const controller = new AbortController();
+		runControllerRef.current?.abort();
+		runControllerRef.current = controller;
 		(async () => {
 			try {
-				const result = await buildThemeJson(activeProject, ev => {
-					if (!cancelled) setEvents(prev => [...prev, ev]);
-				});
-				if (!cancelled) setPhase({kind: 'success', resultPath: result.path});
+				const result = await buildThemeJson(
+					activeProject,
+					controller.signal,
+					ev => {
+						if (!controller.signal.aborted) {
+							setEvents(prev => [...prev, ev]);
+						}
+					},
+				);
+				if (controller.signal.aborted) return;
+				setPhase({kind: 'success', resultPath: result.path});
 			} catch (err) {
-				if (!cancelled) {
-					setPhase({
-						kind: 'error',
-						error: err instanceof Error ? err.message : String(err),
-					});
-				}
+				if (controller.signal.aborted) return;
+				if (err instanceof AgentAbortedError) return;
+				setPhase({
+					kind: 'error',
+					error: err instanceof Error ? err.message : String(err),
+				});
 			}
 		})();
 	};
@@ -217,6 +233,7 @@ async function fileExists(p: string): Promise<boolean> {
 
 async function buildThemeJson(
 	loaded: Loaded,
+	signal: AbortSignal,
 	onEvent: (ev: LogEvent) => void,
 ): Promise<{path: string; size: number}> {
 	const themeSlug = loaded.config.themeSlug;
@@ -226,9 +243,10 @@ async function buildThemeJson(
 
 	onEvent({kind: 'step', message: 'Building variables…'});
 	for await (const ev of buildVariables(loaded.dir)) {
+		if (signal.aborted) throw new AgentAbortedError();
 		onEvent(ev);
 	}
-	await markVariablesBuilt(loaded.configPath);
+	await markVariablesBuilt(loaded);
 
 	const variablesPath = join(loaded.dir, 'variables', 'all-variables.json');
 	const variablesText = await readFile(variablesPath, 'utf8');
@@ -237,20 +255,18 @@ async function buildThemeJson(
 		message: `Loaded variables/all-variables.json (${variablesText.length} bytes)`,
 	});
 
-	onEvent({
-		kind: 'step',
-		message: `Loading plugin from ${PLUGIN_PATH}`,
-	});
-
-	const prompt =
-		`Build a theme.json from these design variables:\n\n` +
-		`${variablesText}`;
-
 	onEvent({kind: 'step', message: 'Invoking Claude Agent SDK…'});
+
+	// Lead sentence carries the trigger words from the theme-json skill's
+	// description so the SDK auto-invokes it; the skill body owns the
+	// mapping rules.
+	const prompt =
+		`Build a WordPress theme.json (block theme, schema version 3) from this flat JSON object of design tokens. Use the theme-json skill.\n\n` +
+		variablesText;
 
 	const cleaned = await runAgent(
 		prompt,
-		{cwd: loaded.dir, pluginPath: PLUGIN_PATH},
+		{cwd: loaded.dir, pluginPath: PLUGIN_PATH, signal},
 		onEvent,
 	);
 
@@ -264,11 +280,16 @@ async function buildThemeJson(
 			}\n\nFirst 500 chars: ${cleaned.slice(0, 500)}`,
 		);
 	}
+	if (!isValidThemeJson(parsed)) {
+		throw new Error(
+			'Response did not contain a valid theme.json (need version 3 + settings).',
+		);
+	}
 
 	const target = themeJsonPath(loaded.dir, themeSlug);
 	await mkdir(dirname(target), {recursive: true});
 	const formatted = JSON.stringify(parsed, null, 2) + '\n';
-	await writeFile(target, formatted);
+	await writeFileAtomic(target, formatted);
 
 	onEvent({
 		kind: 'step',
@@ -276,4 +297,12 @@ async function buildThemeJson(
 	});
 
 	return {path: target, size: formatted.length};
+}
+
+function isValidThemeJson(parsed: unknown): boolean {
+	if (typeof parsed !== 'object' || parsed === null) return false;
+	const o = parsed as Record<string, unknown>;
+	if (o['version'] !== 3) return false;
+	if (typeof o['settings'] !== 'object' || o['settings'] === null) return false;
+	return true;
 }

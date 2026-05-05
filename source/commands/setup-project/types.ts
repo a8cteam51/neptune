@@ -1,6 +1,6 @@
-// Shared types for project state. Two layers:
-//   - NeptuneConfig: project-level, persisted in neptune-config.json
-//   - PullMeta: per-pull, persisted in design/<slug>/meta.json
+// Project-config types live here; pull-level types (PullMeta, DevNote,
+// TitleCardRef, SpecialPullKind) live in lib/types.ts so the lib layer
+// doesn't depend on commands/.
 export const CONFIG_FILENAME = 'neptune-config.json';
 
 export type StepKey =
@@ -13,41 +13,12 @@ export type StepKey =
 
 export type Steps = {
 	initialized: boolean;
-	projectNamed?: boolean;
-	gitRepoConfigured?: boolean;
-	themeConfigured?: boolean;
-	wordpressInstalled?: boolean;
-	wpContentCloned?: boolean;
-	studioSiteCreated?: boolean;
-};
-
-export type SpecialPullKind = 'devHandoff' | 'styleGuide' | 'templates';
-
-export type TitleCardRef = {
-	id: string;
-	name: string;
-};
-
-export type DevNote = {
-	id: string;
-	text?: string;
-};
-
-export type PullMeta = {
-	pageName: string;
-	slug: string;
-	selectionName?: string;
-	x?: number;
-	y?: number;
-	templateFile?: string;
-	themeSlug?: string;
-	scaffolded?: boolean;
-	special?: SpecialPullKind;
-	pulledAt: string;
-	devNotes?: DevNote[];
-	titleCards?: TitleCardRef[];
-	expectedWidth?: number;
-	expectedHeight?: number;
+	projectNamed: boolean;
+	gitRepoConfigured: boolean;
+	themeConfigured: boolean;
+	wordpressInstalled: boolean;
+	wpContentCloned: boolean;
+	studioSiteCreated: boolean;
 };
 
 export type NeptuneConfig = {
@@ -68,3 +39,11 @@ export type Loaded = {
 	config: NeptuneConfig;
 	mode: 'created' | 'continued';
 };
+
+// Re-exports for backwards-compatibility — preferred import is lib/types.js.
+export type {
+	DevNote,
+	PullMeta,
+	SpecialPullKind,
+	TitleCardRef,
+} from '../../lib/types.js';

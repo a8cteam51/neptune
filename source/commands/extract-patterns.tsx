@@ -4,8 +4,9 @@
 // skipped — first-seen wins.
 import React, {useEffect, useState} from 'react';
 import {Box, Text, useInput} from 'ink';
-import {mkdir, readdir, readFile, writeFile} from 'node:fs/promises';
+import {mkdir, readdir, readFile} from 'node:fs/promises';
 import {join} from 'node:path';
+import {writeFileAtomic} from '../lib/atomic-write.js';
 import {listPulls} from '../lib/design-walk.js';
 import EventList, {type LogEvent} from '../lib/event-list.js';
 import {parseTopLevelFunctions} from './extract-patterns-parse.js';
@@ -24,26 +25,27 @@ export default function ExtractPatterns({activeProject, onDone}: Props) {
 	const [error, setError] = useState('');
 
 	useEffect(() => {
-		let cancelled = false;
+		const controller = new AbortController();
 
 		(async () => {
 			try {
-				for await (const ev of extractPatterns(activeProject.dir)) {
-					if (cancelled) return;
+				for await (const ev of extractPatterns(
+					activeProject.dir,
+					controller.signal,
+				)) {
+					if (controller.signal.aborted) return;
 					setEvents(prev => [...prev, ev]);
 				}
-				if (!cancelled) setStatus('success');
+				if (!controller.signal.aborted) setStatus('success');
 			} catch (err) {
-				if (!cancelled) {
+				if (!controller.signal.aborted) {
 					setStatus('error');
 					setError(err instanceof Error ? err.message : String(err));
 				}
 			}
 		})();
 
-		return () => {
-			cancelled = true;
-		};
+		return () => controller.abort();
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, []);
 
@@ -79,6 +81,7 @@ export default function ExtractPatterns({activeProject, onDone}: Props) {
 
 async function* extractPatterns(
 	projectDir: string,
+	signal: AbortSignal,
 ): AsyncGenerator<LogEvent> {
 	const pulls = await listPulls(projectDir);
 	const regular = pulls.filter(p => p.special === undefined);
@@ -112,6 +115,7 @@ async function* extractPatterns(
 	let totalSkipped = 0;
 
 	for (const pull of regular) {
+		if (signal.aborted) return;
 		const codePath = join(projectDir, 'design', pull.slug, 'code.tsx');
 		let code: string;
 		try {
@@ -148,7 +152,7 @@ async function* extractPatterns(
 			seen.add(fn.name);
 			const out = join(patternsDir, `${fn.name}.tsx`);
 			const body = code.slice(fn.start, fn.end + 1).trimEnd() + '\n';
-			await writeFile(out, body);
+			await writeFileAtomic(out, body);
 			written++;
 		}
 

@@ -17,7 +17,7 @@ export default function StudioSiteStep({
 	return (
 		<EventStep
 			title="Step 6 — Spin up Studio site"
-			start={async () => {
+			start={async signal => {
 				if (!config.projectName) {
 					throw new Error(
 						'Project name missing from config; cannot name Studio site.',
@@ -32,6 +32,7 @@ export default function StudioSiteStep({
 					projectDir,
 					config.projectName,
 					config.themeSlug,
+					signal,
 				);
 			}}
 			onSuccess={() =>

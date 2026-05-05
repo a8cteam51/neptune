@@ -22,6 +22,7 @@ import Spinner from 'ink-spinner';
 import {readFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import {
+	findPullBySlug,
 	findSpecialPull,
 	getSpecialPullsStatus,
 	writePullMeta,
@@ -37,10 +38,10 @@ import FigmaPull from '../../integrations/figma/pull.js';
 import {scaffoldTemplate} from '../../lib/template-scaffold.js';
 import type {
 	DevNote,
-	Loaded,
 	SpecialPullKind,
 	TitleCardRef,
-} from '../setup-project/types.js';
+} from '../../lib/types.js';
+import type {Loaded} from '../setup-project/types.js';
 import ConfigureView from './configure-view.js';
 import GateView from './gate-view.js';
 import PickerView from './picker-view.js';
@@ -93,16 +94,16 @@ export default function PullTemplate({activeProject, onDone}: Props) {
 	};
 
 	useEffect(() => {
-		let cancelled = false;
+		const controller = new AbortController();
 
 		(async () => {
 			try {
 				const [selResult, status, templatesPull] = await Promise.all([
-					getSelectionMetadata(),
+					getSelectionMetadata(controller.signal),
 					getSpecialPullsStatus(activeProject.dir),
 					findSpecialPull(activeProject.dir, 'templates'),
 				]);
-				if (cancelled) return;
+				if (controller.signal.aborted) return;
 				const sel = selResult.ok ? selResult.selection : null;
 				const selectionError = selResult.ok ? null : selResult.error;
 				const gateOpen =
@@ -127,7 +128,7 @@ export default function PullTemplate({activeProject, onDone}: Props) {
 					});
 				}
 			} catch (err) {
-				if (cancelled) return;
+				if (controller.signal.aborted) return;
 				setPhase({
 					kind: 'message',
 					title: 'Could not load pull status.',
@@ -137,7 +138,7 @@ export default function PullTemplate({activeProject, onDone}: Props) {
 		})();
 
 		return () => {
-			cancelled = true;
+			controller.abort();
 		};
 	}, [activeProject.dir, loadKey]);
 
@@ -147,6 +148,27 @@ export default function PullTemplate({activeProject, onDone}: Props) {
 		},
 		{isActive: phase.kind === 'message'},
 	);
+
+	const beginPull = async (
+		next: Extract<Phase, {kind: 'pulling'}>,
+	): Promise<void> => {
+		// Block re-pulls that would clobber an existing pull tagged with a
+		// different `special` kind. Allow re-pulling the same kind.
+		const existing = await findPullBySlug(activeProject.dir, next.slug);
+		if (existing && existing.special !== next.special) {
+			setPhase({
+				kind: 'message',
+				title: `Slug "${next.slug}" already exists with different metadata.`,
+				subtitle:
+					`Existing pull is special=${
+						existing.special ?? 'none'
+					}, requested special=${next.special ?? 'none'}. ` +
+					'Pick a different page name, or remove the existing design folder.',
+			});
+			return;
+		}
+		setPhase(next);
+	};
 
 	if (phase.kind === 'loading') {
 		return (
@@ -185,7 +207,7 @@ export default function PullTemplate({activeProject, onDone}: Props) {
 				hasTemplates={phase.hasTemplates}
 				onSelect={kind => {
 					const meta = SPECIAL_META[kind];
-					setPhase({
+					void beginPull({
 						kind: 'pulling',
 						pageName: meta.pageName,
 						slug: meta.slug,
@@ -234,7 +256,7 @@ export default function PullTemplate({activeProject, onDone}: Props) {
 				selection={phase.selection}
 				prefilledPageName={phase.prefilledPageName}
 				onSubmit={(pageName, slug, templateFile) =>
-					setPhase({
+					void beginPull({
 						kind: 'pulling',
 						pageName,
 						slug,
@@ -262,89 +284,70 @@ export default function PullTemplate({activeProject, onDone}: Props) {
 			pageName={phase.slug}
 			nodeRef=""
 			outRoot={join(activeProject.dir, 'design')}
-			onSuccess={async (emit, session) => {
+			onSuccess={async (emit, session, signal) => {
 				const pullDir = join(activeProject.dir, 'design', phase.slug);
-				try {
-					await downloadCodeAssets(pullDir, emit);
-				} catch (err) {
-					emit({
-						kind: 'warn',
-						message: `Asset download failed: ${
-							err instanceof Error ? err.message : String(err)
-						}`,
-					});
-				}
+
+				// Asset download is part of the pull's correctness contract;
+				// failure here means the pull is incomplete, so escalate.
+				await downloadCodeAssets(pullDir, emit, signal);
 
 				let scaffolded = false;
-				let scaffoldError: string | undefined;
-				if (!isSpecial && themeSlug && phase.templateFile) {
-					try {
-						const result = await scaffoldTemplate(
-							activeProject.dir,
-							themeSlug,
-							phase.templateFile,
+				if (!isSpecial) {
+					if (!themeSlug) {
+						throw new Error(
+							'themeSlug missing from config; template not scaffolded.',
 						);
-						scaffolded = result.created;
-					} catch (err) {
-						scaffoldError =
-							err instanceof Error ? err.message : String(err);
 					}
+					if (!phase.templateFile) {
+						throw new Error('templateFile missing for non-special pull.');
+					}
+					const result = await scaffoldTemplate(
+						activeProject.dir,
+						themeSlug,
+						phase.templateFile,
+					);
+					scaffolded = result.created;
 				}
 
 				let devNotes: DevNote[] | undefined;
 				let titleCards: TitleCardRef[] | undefined;
-				let parseError: string | undefined;
 				if (phase.special === 'devHandoff') {
-					try {
-						emit({
-							kind: 'step',
-							message: 'Parsing dev handoff metadata…',
-						});
-						const xmlPath = join(
-							activeProject.dir,
-							'design',
-							phase.slug,
-							'metadata.xml',
-						);
-						const xml = await readFile(xmlPath, 'utf8');
-						const ids = parseDevNoteIds(xml);
-						emit({
-							kind: 'step',
-							message: `Found ${ids.length} dev note${
-								ids.length === 1 ? '' : 's'
-							}`,
-						});
-						devNotes = await fetchDevNoteTexts(session, ids, emit);
-					} catch (err) {
-						parseError =
-							err instanceof Error ? err.message : String(err);
-					}
+					emit({kind: 'step', message: 'Parsing dev handoff metadata…'});
+					const xmlPath = join(
+						activeProject.dir,
+						'design',
+						phase.slug,
+						'metadata.xml',
+					);
+					const xml = await readFile(xmlPath, 'utf8');
+					const ids = parseDevNoteIds(xml);
+					emit({
+						kind: 'step',
+						message: `Found ${ids.length} dev note${
+							ids.length === 1 ? '' : 's'
+						}`,
+					});
+					devNotes = await fetchDevNoteTexts(session, ids, emit, signal);
 				} else if (phase.special === 'templates') {
-					try {
-						emit({
-							kind: 'step',
-							message: 'Parsing templates metadata…',
-						});
-						const xmlPath = join(
-							activeProject.dir,
-							'design',
-							phase.slug,
-							'metadata.xml',
-						);
-						const xml = await readFile(xmlPath, 'utf8');
-						titleCards = parseTitleCards(xml);
-						emit({
-							kind: 'step',
-							message: `Found ${titleCards.length} title card${
-								titleCards.length === 1 ? '' : 's'
-							}`,
-						});
-					} catch (err) {
-						parseError =
-							err instanceof Error ? err.message : String(err);
-					}
+					emit({kind: 'step', message: 'Parsing templates metadata…'});
+					const xmlPath = join(
+						activeProject.dir,
+						'design',
+						phase.slug,
+						'metadata.xml',
+					);
+					const xml = await readFile(xmlPath, 'utf8');
+					titleCards = parseTitleCards(xml);
+					emit({
+						kind: 'step',
+						message: `Found ${titleCards.length} title card${
+							titleCards.length === 1 ? '' : 's'
+						}`,
+					});
 				}
 
+				// Write meta only after every other piece succeeded so a
+				// partial pull doesn't leave a meta.json claiming success.
 				await writePullMeta(activeProject.dir, phase.slug, {
 					pageName: phase.pageName,
 					slug: phase.slug,
@@ -359,18 +362,6 @@ export default function PullTemplate({activeProject, onDone}: Props) {
 					devNotes,
 					titleCards,
 				});
-
-				if (scaffoldError) {
-					throw new Error(`scaffold: ${scaffoldError}`);
-				}
-				if (parseError) {
-					throw new Error(`metadata parse: ${parseError}`);
-				}
-				if (!isSpecial && !themeSlug) {
-					throw new Error(
-						'themeSlug missing from config; template not scaffolded.',
-					);
-				}
 			}}
 			onDone={onDone}
 		/>

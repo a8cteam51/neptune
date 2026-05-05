@@ -6,8 +6,9 @@
 // Older configs may carry orphan keys (pulls, devHandoffPulledAt, etc.)
 // from before the move to disk-as-truth. normalizeConfig drops them on
 // read; the next write through applyUpdate strips them from the file.
-import {mkdir, readdir, readFile, writeFile, stat} from 'node:fs/promises';
+import {mkdir, readdir, readFile, stat} from 'node:fs/promises';
 import {resolve} from 'node:path';
+import {writeFileAtomic} from '../../lib/atomic-write.js';
 import {
 	CONFIG_FILENAME,
 	type Loaded,
@@ -84,13 +85,8 @@ function normalizeConfig(parsed: Partial<NeptuneConfig>): NeptuneConfig {
 	};
 }
 
-export async function markVariablesBuilt(configPath: string): Promise<void> {
-	const raw = await readFile(configPath, 'utf8');
-	const current = JSON.parse(raw) as Partial<NeptuneConfig>;
-	const now = new Date().toISOString();
-	current.variablesBuiltAt = now;
-	current.updatedAt = now;
-	await writeFile(configPath, JSON.stringify(current, null, 2) + '\n');
+export async function markVariablesBuilt(loaded: Loaded): Promise<Loaded> {
+	return applyUpdate(loaded, {variablesBuiltAt: new Date().toISOString()});
 }
 
 function newConfig(): NeptuneConfig {
@@ -113,7 +109,7 @@ function newConfig(): NeptuneConfig {
 }
 
 async function writeConfig(configPath: string, config: NeptuneConfig) {
-	await writeFile(configPath, JSON.stringify(config, null, 2) + '\n');
+	await writeFileAtomic(configPath, JSON.stringify(config, null, 2) + '\n');
 }
 
 async function ensureEmptyDir(dest: string): Promise<void> {

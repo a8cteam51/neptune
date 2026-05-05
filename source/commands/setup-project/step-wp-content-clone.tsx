@@ -17,13 +17,13 @@ export default function WpContentCloneStep({
 	return (
 		<EventStep
 			title="Step 5 — Clone wp-content from repo"
-			start={async () => {
+			start={async signal => {
 				if (!config.gitRepo) {
 					throw new Error(
 						'Git repo missing from config; cannot clone wp-content.',
 					);
 				}
-				return cloneWpContent(projectDir, config.gitRepo);
+				return cloneWpContent(projectDir, config.gitRepo, signal);
 			}}
 			onSuccess={() =>
 				onComplete({

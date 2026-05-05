@@ -1,25 +1,15 @@
 import React from 'react';
 import {Box, Text} from 'ink';
+import {STEP_LABELS} from './steps-meta.js';
 import type {NeptuneConfig} from './types.js';
 
 export default function StepProgress({config}: {config: NeptuneConfig}) {
 	const rows: Array<{label: string; done: boolean}> = [
 		{label: 'Project initialized', done: config.steps.initialized},
-		{label: 'Project named', done: config.steps.projectNamed === true},
-		{label: 'Git repo configured', done: config.steps.gitRepoConfigured === true},
-		{label: 'Theme slug configured', done: config.steps.themeConfigured === true},
-		{
-			label: 'WordPress installed',
-			done: config.steps.wordpressInstalled === true,
-		},
-		{
-			label: 'wp-content cloned from repo',
-			done: config.steps.wpContentCloned === true,
-		},
-		{
-			label: 'Studio site created',
-			done: config.steps.studioSiteCreated === true,
-		},
+		...STEP_LABELS.map(({key, label}) => ({
+			label,
+			done: config.steps[key],
+		})),
 	];
 	return (
 		<Box flexDirection="column">

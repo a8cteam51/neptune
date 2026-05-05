@@ -59,10 +59,11 @@ The input is a flat JSON object of design tokens, map them to the appropriate se
 ## Rules
 
 - Slugs must be kebab-case, lowercase, alphanumeric + hyphens.
-- Keep color slugs simple, e.g. `primary`, `secondary`, `background`, `foreground`, `contrast`. Don't include the color value in the slug, e.g. `primary-500` or `primary-blue` is not ideal. Multiples of the same slug should be differentiated with a number, e.g. `primary-1`, `primary-2` or `primary`, `primary-2`.
 - Output JSON must be valid and parseable. No trailing commas. No comments.
 - When using CSS variables generate by WordPress, include a single dash between letters and numbers, e.g. `var(--wp--preset--font-size--h-2)` not `var(--wp--preset--font-size--h2)`.
 - Obvious Desktop and Mobile values should not be mapped separately, instead use CSS clamp() and set them both as the same value, e.g. `clamp(1.5rem, 2vw, 2rem)`. This is support by WordPress and allows for fluid typography and spacing.
+- Try to keep slugs similar to the original token names for easier traceability, but convert to kebab-case and remove redundant words like "font" or "color" if possible. For example, `primary-color` can just be `primary`, and `h1-font-size` can just be `h-1`.
+- Keep color slugs simple, e.g. `primary`, `secondary`, `background`, `foreground`, `contrast`. Don't include the color value in the slug, e.g. `primary-500` or `primary-blue` is not ideal. Multiples of the same slug should be differentiated with a number, e.g. `primary-1`, `primary-2` or `primary`, `primary-2`.
 
 ## Output format
 

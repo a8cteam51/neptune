@@ -23,26 +23,27 @@ export default function VerifyScreenshots({activeProject, onDone}: Props) {
 	const [error, setError] = useState('');
 
 	useEffect(() => {
-		let cancelled = false;
+		const controller = new AbortController();
 
 		(async () => {
 			try {
-				for await (const ev of verifyScreenshots(activeProject.dir)) {
-					if (cancelled) return;
+				for await (const ev of verifyScreenshots(
+					activeProject.dir,
+					controller.signal,
+				)) {
+					if (controller.signal.aborted) return;
 					setEvents(prev => [...prev, ev]);
 				}
-				if (!cancelled) setStatus('success');
+				if (!controller.signal.aborted) setStatus('success');
 			} catch (err) {
-				if (!cancelled) {
+				if (!controller.signal.aborted) {
 					setStatus('error');
 					setError(err instanceof Error ? err.message : String(err));
 				}
 			}
 		})();
 
-		return () => {
-			cancelled = true;
-		};
+		return () => controller.abort();
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, []);
 
@@ -78,6 +79,7 @@ export default function VerifyScreenshots({activeProject, onDone}: Props) {
 
 async function* verifyScreenshots(
 	projectDir: string,
+	signal: AbortSignal,
 ): AsyncGenerator<LogEvent> {
 	const pulls = await listPulls(projectDir);
 	const regular = pulls.filter(p => p.special === undefined);
@@ -99,6 +101,7 @@ async function* verifyScreenshots(
 	let mismatched = 0;
 
 	for (const pull of regular) {
+		if (signal.aborted) return;
 		const pullDir = join(projectDir, 'design', pull.slug);
 		const xmlPath = join(pullDir, 'metadata.xml');
 		const pngPath = join(pullDir, 'screenshot.png');

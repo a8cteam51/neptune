@@ -6,13 +6,15 @@
 // Modeled on build-theme-json.tsx: confirm-overwrite gate when the
 // destination is non-empty so the user doesn't lose hand edits and doesn't
 // pay for a regen they didn't intend.
-import React, {useEffect, useState} from 'react';
+import React, {useEffect, useRef, useState} from 'react';
 import {Box, Text, useInput} from 'ink';
 import SelectInput from 'ink-select-input';
-import {access, mkdir, readFile, stat, writeFile} from 'node:fs/promises';
+import {access, mkdir, readFile, stat} from 'node:fs/promises';
 import {dirname, join, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {writeFileAtomic} from '../lib/atomic-write.js';
 import {
+	AgentAbortedError,
 	runAgent,
 	type ContentBlock,
 	type ImageBlock,
@@ -21,7 +23,8 @@ import {
 import {listPulls} from '../lib/design-walk.js';
 import EventList, {type LogEvent} from '../lib/event-list.js';
 import {templateRole, templateSubdir, type TemplateRole} from '../lib/template-scaffold.js';
-import type {Loaded, PullMeta} from './setup-project/types.js';
+import type {Loaded} from './setup-project/types.js';
+import type {PullMeta} from '../lib/types.js';
 
 type Props = {
 	activeProject: Loaded;
@@ -45,13 +48,14 @@ const PLUGIN_PATH = resolve(moduleDir, '..', '..', 'plugins', 'neptune-tools');
 export default function BuildTemplate({activeProject, onDone}: Props) {
 	const [phase, setPhase] = useState<Phase>({kind: 'loading'});
 	const [events, setEvents] = useState<LogEvent[]>([]);
+	const runControllerRef = useRef<AbortController | null>(null);
 
 	useEffect(() => {
-		let cancelled = false;
+		const controller = new AbortController();
 		(async () => {
 			try {
 				const pulls = await listPulls(activeProject.dir);
-				if (cancelled) return;
+				if (controller.signal.aborted) return;
 				const pickable = pulls.filter(
 					(p): p is PickablePull =>
 						p.special === undefined &&
@@ -69,7 +73,7 @@ export default function BuildTemplate({activeProject, onDone}: Props) {
 				}
 				setPhase({kind: 'picking', pulls: pickable});
 			} catch (err) {
-				if (cancelled) return;
+				if (controller.signal.aborted) return;
 				setPhase({
 					kind: 'message',
 					title: 'Could not load pulls.',
@@ -77,25 +81,43 @@ export default function BuildTemplate({activeProject, onDone}: Props) {
 				});
 			}
 		})();
-		return () => {
-			cancelled = true;
-		};
+		return () => controller.abort();
 	}, [activeProject.dir]);
+
+	useEffect(
+		() => () => {
+			runControllerRef.current?.abort();
+		},
+		[],
+	);
 
 	const beginRun = (pull: PickablePull) => {
 		setPhase({kind: 'running', pull});
 		setEvents([]);
+		const controller = new AbortController();
+		runControllerRef.current?.abort();
+		runControllerRef.current = controller;
 		(async () => {
 			try {
-				const result = await runBuild(activeProject, pull, ev =>
-					setEvents(prev => [...prev, ev]),
+				const result = await runBuild(
+					activeProject,
+					pull,
+					controller.signal,
+					ev => {
+						if (!controller.signal.aborted) {
+							setEvents(prev => [...prev, ev]);
+						}
+					},
 				);
+				if (controller.signal.aborted) return;
 				setPhase({
 					kind: 'success',
 					resultPath: result.path,
 					size: result.size,
 				});
 			} catch (err) {
+				if (controller.signal.aborted) return;
+				if (err instanceof AgentAbortedError) return;
 				setPhase({
 					kind: 'error',
 					error: err instanceof Error ? err.message : String(err),
@@ -301,6 +323,7 @@ function ConfirmOverwrite({
 async function runBuild(
 	loaded: Loaded,
 	pull: PickablePull,
+	signal: AbortSignal,
 	onEvent: (ev: LogEvent) => void,
 ): Promise<{path: string; size: number}> {
 	const themeSlug = loaded.config.themeSlug!;
@@ -383,12 +406,12 @@ async function runBuild(
 
 	onEvent({kind: 'step', message: 'Invoking Claude Agent SDK…'});
 
-	const markup = await generateMarkup(loaded.dir, userContent, onEvent);
+	const markup = await generateMarkup(loaded.dir, userContent, signal, onEvent);
 
 	const target = templatePath(loaded.dir, themeSlug, pull.templateFile);
 	await mkdir(dirname(target), {recursive: true});
 	const out = markup.endsWith('\n') ? markup : markup + '\n';
-	await writeFile(target, out);
+	await writeFileAtomic(target, out);
 
 	onEvent({
 		kind: 'success',
@@ -400,6 +423,11 @@ async function runBuild(
 
 type UserContent = Array<TextBlock | ImageBlock>;
 
+// We rely on the tsx-to-blocks skill to know HOW to convert. The lead
+// sentence keeps the trigger words from the skill's description so the
+// SDK auto-invokes it; the skill body owns the conversion rules. The
+// per-call dynamic context is the template's role (header/footer/page),
+// which the skill cannot infer from code.tsx alone.
 function buildUserContent(
 	templateFile: string,
 	baseContext: string,
@@ -410,7 +438,8 @@ function buildUserContent(
 
 	content.push({
 		type: 'text',
-		text: scopeInstruction(role, templateFile),
+		text:
+			`Convert this Figma-generated React + Tailwind component (code.tsx) to Gutenberg block markup for the WordPress block theme template ${templateFile} (role: ${role}). Use the tsx-to-blocks skill. ${roleScopeNote(role)}`,
 	});
 
 	if (screenshotBase64) {
@@ -433,33 +462,23 @@ function buildUserContent(
 	return content;
 }
 
-function scopeInstruction(role: TemplateRole, templateFile: string): string {
-	const base = `Convert this React + Tailwind component into Gutenberg block markup for the template file ${templateFile}. Output raw block markup only, per the tsx-to-blocks skill.`;
+function roleScopeNote(role: TemplateRole): string {
 	if (role === 'header') {
-		return `${base}\n\nScope: this is a HEADER template part (parts/header.html). The code.tsx is a full page that typically contains header, main content, and footer. Extract ONLY the header region (e.g. site title, primary navigation, top bar) and convert that. Ignore the main content and footer entirely.`;
+		return 'Convert ONLY the header region of the source page (site title, primary nav, top bar). Ignore main content and footer.';
 	}
 	if (role === 'footer') {
-		return `${base}\n\nScope: this is a FOOTER template part (parts/footer.html). The code.tsx is a full page that typically contains header, main content, and footer. Extract ONLY the footer region (e.g. site info, secondary nav, copyright) and convert that. Ignore the header and main content entirely.`;
+		return 'Convert ONLY the footer region of the source page (site info, secondary nav, copyright). Ignore header and main content.';
 	}
-	return `${base}\n\nScope: this is a PAGE-level template (templates/${templateFile}). The code.tsx is a full page that typically contains header, main content, and footer. The header and footer are rendered separately by parts/header.html and parts/footer.html, so SKIP them here and convert ONLY the main content region between them.`;
+	return 'Convert ONLY the main content region of the source page. Header and footer are rendered separately by parts/header.html and parts/footer.html — skip them.';
 }
 
 async function generateMarkup(
 	cwd: string,
 	userContent: ContentBlock[],
+	signal: AbortSignal,
 	onEvent: (ev: LogEvent) => void,
 ): Promise<string> {
-	const cleaned = await runAgent(
-		userContent,
-		{cwd, pluginPath: PLUGIN_PATH},
-		onEvent,
-	);
-	if (!cleaned.trimStart().startsWith('<!--')) {
-		throw new Error(
-			`Response does not start with block markup. First 200 chars:\n${cleaned.slice(0, 200)}`,
-		);
-	}
-	return cleaned;
+	return runAgent(userContent, {cwd, pluginPath: PLUGIN_PATH, signal}, onEvent);
 }
 
 function templatePath(

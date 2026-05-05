@@ -1,8 +1,9 @@
 // Walks design/<slug>/variables.json across all pulls and merges them
 // into a single variables/all-variables.json. First-write-wins on key
 // conflicts; later pulls' clashing values are dropped with a warning.
-import {mkdir, readdir, readFile, writeFile} from 'node:fs/promises';
+import {mkdir, readdir, readFile} from 'node:fs/promises';
 import {join} from 'node:path';
+import {writeFileAtomic} from './atomic-write.js';
 import type {LogEvent} from './event-list.js';
 
 export async function* buildVariables(
@@ -75,7 +76,7 @@ export async function* buildVariables(
 			if (!(k in merged)) {
 				merged[k] = v;
 				added++;
-			} else if (JSON.stringify(merged[k]) === JSON.stringify(v)) {
+			} else if (deepEqual(merged[k], v)) {
 				exactDupes++;
 			} else {
 				conflicts++;
@@ -104,10 +105,39 @@ export async function* buildVariables(
 	const outDir = join(projectDir, 'variables');
 	await mkdir(outDir, {recursive: true});
 	const outPath = join(outDir, 'all-variables.json');
-	await writeFile(outPath, JSON.stringify(merged, null, 2) + '\n');
+	await writeFileAtomic(outPath, JSON.stringify(merged, null, 2) + '\n');
 
 	yield {
 		kind: 'step',
 		message: `Wrote ${Object.keys(merged).length} unique variables to ${outPath}`,
 	};
+}
+
+// Order-insensitive structural equality. Avoids JSON.stringify's
+// key-order sensitivity, which produced spurious "conflicts" for
+// objects merely defined with keys in different order.
+function deepEqual(a: unknown, b: unknown): boolean {
+	if (a === b) return true;
+	if (a === null || b === null) return false;
+	if (typeof a !== typeof b) return false;
+	if (Array.isArray(a)) {
+		if (!Array.isArray(b) || a.length !== b.length) return false;
+		for (let i = 0; i < a.length; i++) {
+			if (!deepEqual(a[i], b[i])) return false;
+		}
+		return true;
+	}
+	if (typeof a === 'object') {
+		const aKeys = Object.keys(a as object);
+		const bKeys = Object.keys(b as object);
+		if (aKeys.length !== bKeys.length) return false;
+		const bObj = b as Record<string, unknown>;
+		const aObj = a as Record<string, unknown>;
+		for (const k of aKeys) {
+			if (!(k in bObj)) return false;
+			if (!deepEqual(aObj[k], bObj[k])) return false;
+		}
+		return true;
+	}
+	return false;
 }

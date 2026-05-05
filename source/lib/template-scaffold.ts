@@ -2,8 +2,9 @@
 // wp-content/themes/<theme>/{templates,parts}/<file>.html if it doesn't
 // already exist. parts/ is reserved for header.html and footer.html;
 // everything else goes under templates/.
-import {access, mkdir, writeFile} from 'node:fs/promises';
+import {access, mkdir} from 'node:fs/promises';
 import {dirname, resolve} from 'node:path';
+import {writeFileAtomic} from './atomic-write.js';
 
 export type ScaffoldResult = {
 	path: string;
@@ -40,7 +41,7 @@ export async function scaffoldTemplate(
 	}
 
 	await mkdir(dirname(target), {recursive: true});
-	await writeFile(target, '');
+	await writeFileAtomic(target, '');
 	return {path: target, created: true};
 }
 

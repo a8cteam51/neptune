@@ -1,8 +1,6 @@
 {
-  "permissions": {
-    "allow": [
-      "Bash(npm --version)",
-      "Bash(npx tsc *)"
-    ]
-  }
+	"permissions": {
+		"allow": ["Bash(npm --version)", "Bash(npx tsc *)"],
+		"deny": ["Read(./old)"]
+	}
 }

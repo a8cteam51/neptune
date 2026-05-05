@@ -7,18 +7,21 @@
 // Note: the local Dev Mode server is a different runtime from Figma's
 // public REST API, so its 429 response shape may not match the documented
 // headers — FigmaRateLimitError captures whatever it emits.
-import {mkdir, writeFile} from 'node:fs/promises';
+import {mkdir} from 'node:fs/promises';
 import {join} from 'node:path';
 import {Buffer} from 'node:buffer';
+import {writeFileAtomic} from '../../lib/atomic-write.js';
 import type {LogEvent} from '../../lib/event-list.js';
 
 const MCP_URL = process.env['FIGMA_MCP_URL'] ?? 'http://127.0.0.1:3845/mcp';
 const PROTOCOL_VERSION = '2025-06-18';
+const MCP_REQUEST_TIMEOUT_MS = 60_000;
 
 export type PullOptions = {
 	pageName: string;
 	nodeRef: string;
 	outRoot?: string;
+	signal?: AbortSignal;
 };
 
 type JsonRpcRequest = {
@@ -91,36 +94,29 @@ export type SelectionResult =
 	| {ok: true; selection: SelectionMetadata | null}
 	| {ok: false; error: Error};
 
-export async function getSelectionMetadata(): Promise<SelectionResult> {
+export async function getSelectionMetadata(
+	signal?: AbortSignal,
+): Promise<SelectionResult> {
 	try {
-		const sessionId = await initializeSession();
-		const resp = await mcpCall(sessionId, {
-			jsonrpc: '2.0',
-			id: 99,
-			method: 'tools/call',
-			params: {name: 'get_metadata', arguments: {}},
-		});
+		const session = await openMcpSession(signal);
+		try {
+			const resp = await session.call('get_metadata', {});
+			if (resp?.error) {
+				return {
+					ok: false,
+					error: new Error(`MCP error ${resp.error.code}: ${resp.error.message}`),
+				};
+			}
+			if (resp?.result?.isError === true) {
+				return {ok: false, error: new Error('MCP returned isError=true')};
+			}
 
-		if (resp?.error) {
-			return {
-				ok: false,
-				error: new Error(`MCP error ${resp.error.code}: ${resp.error.message}`),
-			};
+			const text = joinTextContent(resp).trim();
+			if (text === '') return {ok: true, selection: null};
+			return {ok: true, selection: parseSelectionMetadata(text)};
+		} finally {
+			session.close();
 		}
-		if (resp?.result?.isError === true) {
-			return {ok: false, error: new Error('MCP returned isError=true')};
-		}
-
-		const content: Array<{type: string; text?: string}> =
-			resp?.result?.content ?? [];
-		const text = content
-			.filter(c => c.type === 'text' && typeof c.text === 'string')
-			.map(c => c.text)
-			.join('\n')
-			.trim();
-
-		if (text === '') return {ok: true, selection: null};
-		return {ok: true, selection: parseSelectionMetadata(text)};
 	} catch (err) {
 		return {
 			ok: false,
@@ -157,7 +153,7 @@ export async function* pullFromFigma(
 	session: McpSession,
 	opts: PullOptions,
 ): AsyncGenerator<LogEvent> {
-	const {pageName, nodeRef, outRoot = './design/pages'} = opts;
+	const {pageName, nodeRef, outRoot = './design/pages', signal} = opts;
 	const outDir = join(outRoot, pageName);
 	await mkdir(outDir, {recursive: true});
 
@@ -174,28 +170,28 @@ export async function* pullFromFigma(
 	];
 
 	for (const [tool, file] of textTools) {
+		if (signal?.aborted) throw new Error('Pull aborted');
 		yield {kind: 'step', message: `${tool} -> ${file}`};
 		const resp = await session.call(tool, args);
-		const content: Array<{type: string; text?: string}> =
-			resp?.result?.content ?? [];
-		const text = content
-			.filter(c => c.type === 'text' && typeof c.text === 'string')
-			.map(c => c.text)
-			.join('\n');
+		const text = joinTextContent(resp);
 		const cleaned = stripLlmInstructions(file, text);
-		await writeFile(
-			join(outDir, file),
-			cleaned === '' ? JSON.stringify(resp, null, 2) : cleaned,
-		);
+		if (cleaned === '') {
+			throw new Error(
+				`Figma MCP returned no usable ${file} content. ` +
+					'Make sure a frame is selected in Figma and try again.',
+			);
+		}
+		await writeFileAtomic(join(outDir, file), cleaned);
 	}
 
+	if (signal?.aborted) throw new Error('Pull aborted');
 	yield {kind: 'step', message: 'get_screenshot -> screenshot.png'};
 	const shotResp = await session.call('get_screenshot', args);
 	const shotContent: Array<{type: string; data?: string}> =
 		shotResp?.result?.content ?? [];
 	const imageBlock = shotContent.find(c => c.type === 'image');
 	if (imageBlock?.data) {
-		await writeFile(
+		await writeFileAtomic(
 			join(outDir, 'screenshot.png'),
 			Buffer.from(imageBlock.data, 'base64'),
 		);
@@ -233,19 +229,32 @@ export type McpSession = {
 		name: string,
 		args: Record<string, string>,
 	) => Promise<JsonRpcResponse | undefined>;
+	close: () => void;
 };
 
-export async function openMcpSession(): Promise<McpSession> {
-	const sessionId = await initializeSession();
+export async function openMcpSession(
+	signal?: AbortSignal,
+): Promise<McpSession> {
+	const sessionId = await initializeSession(signal);
 	let nextId = 1000;
+	let closed = false;
 	return {
-		call: (name, args) =>
-			mcpCall(sessionId, {
-				jsonrpc: '2.0',
-				id: nextId++,
-				method: 'tools/call',
-				params: {name, arguments: args},
-			}),
+		call: async (name, args) => {
+			if (closed) throw new Error('Figma MCP session is closed.');
+			return mcpCall(
+				sessionId,
+				{
+					jsonrpc: '2.0',
+					id: nextId++,
+					method: 'tools/call',
+					params: {name, arguments: args},
+				},
+				signal,
+			);
+		},
+		close: () => {
+			closed = true;
+		},
 	};
 }
 
@@ -258,8 +267,8 @@ export function joinTextContent(resp: JsonRpcResponse | undefined): string {
 		.join('\n');
 }
 
-async function initializeSession(): Promise<string> {
-	const initResp = await fetch(MCP_URL, {
+async function initializeSession(signal?: AbortSignal): Promise<string> {
+	const initResp = await fetchWithTimeout(MCP_URL, {
 		method: 'POST',
 		headers: {
 			'Content-Type': 'application/json',
@@ -276,7 +285,7 @@ async function initializeSession(): Promise<string> {
 				clientInfo: {name: 'neptune-figma-pull', version: '0.1'},
 			},
 		} satisfies JsonRpcRequest),
-	});
+	}, signal);
 
 	if (initResp.status === 429) {
 		const body = await initResp.text();
@@ -291,10 +300,14 @@ async function initializeSession(): Promise<string> {
 		);
 	}
 
-	await mcpCall(sessionId, {
-		jsonrpc: '2.0',
-		method: 'notifications/initialized',
-	});
+	await mcpCall(
+		sessionId,
+		{
+			jsonrpc: '2.0',
+			method: 'notifications/initialized',
+		},
+		signal,
+	);
 
 	return sessionId;
 }
@@ -306,8 +319,9 @@ async function initializeSession(): Promise<string> {
 async function mcpCall(
 	sessionId: string,
 	payload: JsonRpcRequest,
+	signal: AbortSignal | undefined,
 ): Promise<JsonRpcResponse | undefined> {
-	const resp = await fetch(MCP_URL, {
+	const resp = await fetchWithTimeout(MCP_URL, {
 		method: 'POST',
 		headers: {
 			'Content-Type': 'application/json',
@@ -316,7 +330,7 @@ async function mcpCall(
 			'MCP-Protocol-Version': PROTOCOL_VERSION,
 		},
 		body: JSON.stringify(payload),
-	});
+	}, signal);
 
 	if (resp.status === 429) {
 		const body = await resp.text();
@@ -339,4 +353,28 @@ async function mcpCall(
 	}
 
 	return JSON.parse(text) as JsonRpcResponse;
+}
+
+async function fetchWithTimeout(
+	url: string,
+	init: RequestInit,
+	signal?: AbortSignal,
+): Promise<Response> {
+	const controller = new AbortController();
+	const onUserAbort = () => controller.abort();
+	if (signal) {
+		if (signal.aborted) controller.abort();
+		else signal.addEventListener('abort', onUserAbort, {once: true});
+	}
+	const timer = setTimeout(() => {
+		controller.abort(
+			new Error(`Figma MCP request timed out after ${MCP_REQUEST_TIMEOUT_MS}ms`),
+		);
+	}, MCP_REQUEST_TIMEOUT_MS);
+	try {
+		return await fetch(url, {...init, signal: controller.signal});
+	} finally {
+		clearTimeout(timer);
+		if (signal) signal.removeEventListener('abort', onUserAbort);
+	}
 }

@@ -1,12 +1,12 @@
 import test from 'ava';
-import {extractAssetUrls} from './dist/integrations/figma/assets-fetch.js';
+import {extractAssetUrls} from '../source/integrations/figma/assets-fetch.js';
 import {
 	extractJsxText,
 	parseDevNoteIds,
 	parseTitleCards,
-} from './dist/integrations/figma/handoff-parse.js';
-import {stripLlmInstructions} from './dist/integrations/figma/mcp.js';
-import {slugify} from './dist/commands/pull-template/special-meta.js';
+} from '../source/integrations/figma/handoff-parse.js';
+import {stripLlmInstructions} from '../source/integrations/figma/mcp.js';
+import {slugify} from '../source/commands/pull-template/special-meta.js';
 
 test('extractAssetUrls dedupes by URL', t => {
 	const code = `
