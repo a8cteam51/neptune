@@ -22,10 +22,10 @@ Each item is marked with a level:
 
 | ID  | Assumption                                                                                                                       | Level | Designer response |
 | --- | ---                                                                                                                              | ---   | ---               |
-| 1.1 | A single Figma file page exists that is the "dev handoff" — the source of truth for templates, styles, and notes.                | R     |                   |
-| 1.2 | The user can right-click the **page tab** (not the canvas) and "Copy link to selection" to get a URL with a `node-id` parameter. | R     |                   |
-| 1.3 | The official Figma MCP (`mcp__figma__*`) is connected in the Claude Code session; the file is addressable by `figmaFileId` + node ID. | R     |                   |
-| 1.4 | If multiple dated dev-handoff pages exist (e.g. "Dev Handoff — Nov 10, 2025"), the user picks one URL — Neptune doesn't auto-resolve "latest". | r |                   |
+| 1.1 | A single Figma file page exists that is the "dev handoff" — the source of truth for templates, styles, and notes.                | R     |     OK              |
+| 1.2 | The user can right-click the **page tab** (not the canvas) and "Copy link to selection" to get a URL with a `node-id` parameter. | R     |       OK            |
+| 1.3 | The official Figma MCP (`mcp__figma__*`) is connected in the Claude Code session; the file is addressable by `figmaFileId` + node ID. | R     |     OK              |
+| 1.4 | If multiple dated dev-handoff pages exist (e.g. "Dev Handoff — Nov 10, 2025"), the user picks one URL — Neptune doesn't auto-resolve "latest". | r |    OK              |
 
 ---
 
