@@ -1,49 +1,13 @@
-// Creates an empty WordPress theme template file at
-// wp-content/themes/<theme>/{templates,parts}/<file>.html if it doesn't
-// already exist. parts/ is reserved for header.html and footer.html;
-// everything else goes under templates/.
-import {access, mkdir} from 'node:fs/promises';
-import {dirname, resolve} from 'node:path';
-import {writeFileAtomic} from './atomic-write.js';
-
-export type ScaffoldResult = {
-	path: string;
-	created: boolean;
-};
-
+// Pure helpers that map a template filename to its block-theme role
+// (header / footer / page) and on-disk subdirectory (parts / templates).
+// Used by build-template and refine-template to scope agent prompts and
+// to compute fallback paths when the database hasn't yet got a row for
+// a given template.
+//
+// The actual scaffold (creating an empty wp_template / wp_template_part
+// post for a freshly-pulled template) lives in lib/wp-templates.ts —
+// see ensureTemplate.
 const PARTS_FILES = new Set(['header.html', 'footer.html']);
-
-export async function scaffoldTemplate(
-	projectDir: string,
-	themeSlug: string,
-	templateFile: string,
-): Promise<ScaffoldResult> {
-	if (!templateFile.toLowerCase().endsWith('.html')) {
-		throw new Error(
-			`Template file must be .html (got "${templateFile}")`,
-		);
-	}
-
-	const themeRoot = resolve(
-		projectDir,
-		'wordpress',
-		'wp-content',
-		'themes',
-		themeSlug,
-	);
-	const subdir = PARTS_FILES.has(templateFile.toLowerCase())
-		? 'parts'
-		: 'templates';
-	const target = resolve(themeRoot, subdir, templateFile);
-
-	if (await fileExists(target)) {
-		return {path: target, created: false};
-	}
-
-	await mkdir(dirname(target), {recursive: true});
-	await writeFileAtomic(target, '');
-	return {path: target, created: true};
-}
 
 export function templateSubdir(templateFile: string): 'parts' | 'templates' {
 	return PARTS_FILES.has(templateFile.toLowerCase()) ? 'parts' : 'templates';
@@ -56,13 +20,4 @@ export function templateRole(templateFile: string): TemplateRole {
 	if (f === 'header.html') return 'header';
 	if (f === 'footer.html') return 'footer';
 	return 'page';
-}
-
-async function fileExists(p: string): Promise<boolean> {
-	try {
-		await access(p);
-		return true;
-	} catch {
-		return false;
-	}
 }

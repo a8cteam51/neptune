@@ -21,7 +21,7 @@
 import React, {useEffect, useRef, useState} from 'react';
 import {Box, Text, useInput} from 'ink';
 import SelectInput from 'ink-select-input';
-import {access, mkdir, mkdtemp, readFile, rm} from 'node:fs/promises';
+import {access, mkdtemp, readFile, rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {dirname, join, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -49,10 +49,18 @@ import MultiSelect from '../lib/multi-select.js';
 import {diffImages} from '../lib/odiff-runner.js';
 import {padToMatch} from '../lib/png-pad.js';
 import {
-	getSiteUrlFromStudioConfig,
 	openStudioSession,
+	type StudioSession,
 } from '../integrations/studio/mcp.js';
+import {getSiteUrl} from '../integrations/studio/site.js';
 import {templateRole, templateSubdir} from '../lib/template-scaffold.js';
+import {
+	readTemplate,
+	targetLabel,
+	templateTargetFor,
+	writeTemplate,
+	type TemplateTarget,
+} from '../lib/wp-templates.js';
 import type {Loaded} from './setup-project/types.js';
 import type {PullMeta} from '../lib/types.js';
 import {readPngSize} from './verify-screenshots.js';
@@ -93,7 +101,7 @@ type Phase =
 			pull: PickablePull;
 			report: DiffReport;
 			currentTemplate: string;
-			target: string;
+			target: TemplateTarget;
 			themeJsonText: string | null;
 			variablesText: string | null;
 	  }
@@ -399,7 +407,7 @@ type DiagnoseResult =
 			kind: 'report';
 			report: DiffReport;
 			currentTemplate: string;
-			target: string;
+			target: TemplateTarget;
 			themeJsonText: string | null;
 			variablesText: string | null;
 	  };
@@ -421,18 +429,17 @@ export async function runDiagnose(
 		);
 	}
 
-	const target = templatePath(loaded.dir, themeSlug, pull.templateFile);
-	const currentTemplate = await readFile(target, 'utf8').catch(err => {
-		if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-			throw new Error(
-				`Template ${target} doesn't exist yet. Run Build template first.`,
-			);
-		}
-		throw err;
-	});
+	const target = templateTargetFor(pull.templateFile, pull.pageName);
+	const wpRoot = resolve(loaded.dir, 'wordpress');
+	const filePath = templatePath(loaded.dir, themeSlug, pull.templateFile);
+	const currentTemplate = await loadCurrentTemplate(
+		wpRoot,
+		target,
+		filePath,
+	);
 	if (!currentTemplate.trim()) {
 		throw new Error(
-			`Template ${target} is empty. Run Build template first.`,
+			`No template content found for ${targetLabel(target)}. Run Build template first.`,
 		);
 	}
 	onEvent({
@@ -454,7 +461,7 @@ export async function runDiagnose(
 		message: `Design screenshot ${designSize.width}×${designSize.height}`,
 	});
 
-	const siteUrl = await getSiteUrlFromStudioConfig(loaded.dir);
+	const siteUrl = await getSiteUrl(loaded.dir);
 	if (!siteUrl) {
 		throw new Error(
 			'Could not resolve the running site URL from ~/.studio/cli.json. Is the site registered with Studio?',
@@ -641,7 +648,7 @@ export async function runApply(
 	reviewPhase: {
 		pull: PickablePull;
 		currentTemplate: string;
-		target: string;
+		target: TemplateTarget;
 		themeJsonText: string | null;
 		variablesText: string | null;
 	},
@@ -680,7 +687,7 @@ export async function runApply(
 			{type: 'text', text: sections.join('\n')},
 		],
 		{
-			cwd: dirname(reviewPhase.target),
+			cwd: loaded.dir,
 			pluginPath: PLUGIN_PATH,
 			signal,
 		},
@@ -689,22 +696,34 @@ export async function runApply(
 
 	const envelope = parseApplyEnvelope(responseText);
 
-	if (envelope.block_styles.length > 0) {
-		await persistBlockStyles(loaded, envelope.block_styles, signal, onEvent);
-	}
-
-	await mkdir(dirname(reviewPhase.target), {recursive: true});
 	const out = envelope.template_html.endsWith('\n')
 		? envelope.template_html
 		: envelope.template_html + '\n';
-	await writeFileAtomic(reviewPhase.target, out);
+
+	const wpRoot = resolve(loaded.dir, 'wordpress');
+	const session = await openStudioSession({signal});
+	try {
+		if (envelope.block_styles.length > 0) {
+			await persistBlockStylesInSession(
+				session,
+				wpRoot,
+				envelope.block_styles,
+				onEvent,
+			);
+		}
+		await writeTemplate(session, wpRoot, reviewPhase.target, out);
+	} finally {
+		session.close();
+	}
+
+	const label = targetLabel(reviewPhase.target);
 	onEvent({
 		kind: 'success',
-		message: `Wrote ${out.length} bytes to ${reviewPhase.target}`,
+		message: `Wrote ${out.length} bytes to ${label}`,
 	});
 
 	return {
-		path: reviewPhase.target,
+		path: label,
 		size: out.length,
 		appliedStyles: envelope.block_styles.length,
 	};
@@ -755,59 +774,82 @@ export function parseApplyEnvelope(input: string): ApplyEnvelope {
 }
 
 // Routes the agent's block-style edits to wp-config (constant) and
-// Customizer custom_css (theme mod) via Studio's wp_cli MCP tool. The
-// constant carries metadata (block/name/label) for the theme to read at
-// boot; the custom_css carries the actual CSS, sectionally-marked so a
-// future build script can extract sections back to per-block files.
-async function persistBlockStyles(
-	loaded: Loaded,
+// Customizer custom_css (theme mod) via Studio's wp_cli MCP tool.
+// Operates inside a caller-owned session so the runApply flow can
+// also write the template post in the same session without paying
+// the studio-mcp spawn cost twice.
+async function persistBlockStylesInSession(
+	session: StudioSession,
+	nameOrPath: string,
 	entries: ApplyEnvelope['block_styles'],
-	signal: AbortSignal,
 	onEvent: (ev: LogEvent) => void,
 ): Promise<void> {
-	const nameOrPath = resolve(loaded.dir, 'wordpress');
-	const session = await openStudioSession({signal});
+	onEvent({
+		kind: 'step',
+		message: `Persisting ${entries.length} block style${
+			entries.length === 1 ? '' : 's'
+		} via wp-cli…`,
+	});
+
+	// 1) Block-style metadata → NEPTUNE_BLOCK_STYLES constant.
+	let constantArr = await readBlockStyles(session, nameOrPath);
+	for (const entry of entries) {
+		constantArr = upsertBlockStyle(constantArr, {
+			block: entry.block,
+			name: entry.name,
+			label: entry.label,
+		});
+	}
+	await writeBlockStyles(session, nameOrPath, constantArr);
+	onEvent({
+		kind: 'step',
+		message: `Updated NEPTUNE_BLOCK_STYLES (${constantArr.length} entries).`,
+	});
+
+	// 2) CSS → Customizer additional CSS, section-marked per style.
+	const currentCss = await readCustomCss(session, nameOrPath);
+	let parsed = parseCustomCss(currentCss);
+	for (const entry of entries) {
+		parsed = upsertSection(parsed, {
+			block: entry.block,
+			style: entry.name,
+			css: entry.css,
+		});
+	}
+	const nextCss = serializeCustomCss(parsed);
+	await writeCustomCss(session, nameOrPath, nextCss);
+	onEvent({
+		kind: 'step',
+		message: `Updated Customizer custom_css (${parsed.sections.size} sections).`,
+	});
+}
+
+// Loads the current template content from the database first (where
+// Site Editor and Neptune both write); falls back to the theme's
+// shipped file if there's no DB row yet.
+async function loadCurrentTemplate(
+	wpRoot: string,
+	target: TemplateTarget,
+	filePath: string,
+): Promise<string> {
+	const session = await openStudioSession();
+	let dbContent: string | null;
 	try {
-		onEvent({
-			kind: 'step',
-			message: `Persisting ${entries.length} block style${
-				entries.length === 1 ? '' : 's'
-			} via wp-cli…`,
-		});
-
-		// 1) Block-style metadata → NEPTUNE_BLOCK_STYLES constant.
-		let constantArr = await readBlockStyles(session, nameOrPath);
-		for (const entry of entries) {
-			constantArr = upsertBlockStyle(constantArr, {
-				block: entry.block,
-				name: entry.name,
-				label: entry.label,
-			});
-		}
-		await writeBlockStyles(session, nameOrPath, constantArr);
-		onEvent({
-			kind: 'step',
-			message: `Updated NEPTUNE_BLOCK_STYLES (${constantArr.length} entries).`,
-		});
-
-		// 2) CSS → Customizer additional CSS, section-marked per style.
-		const currentCss = await readCustomCss(session, nameOrPath);
-		let parsed = parseCustomCss(currentCss);
-		for (const entry of entries) {
-			parsed = upsertSection(parsed, {
-				block: entry.block,
-				style: entry.name,
-				css: entry.css,
-			});
-		}
-		const nextCss = serializeCustomCss(parsed);
-		await writeCustomCss(session, nameOrPath, nextCss);
-		onEvent({
-			kind: 'step',
-			message: `Updated Customizer custom_css (${parsed.sections.size} sections).`,
-		});
+		dbContent = await readTemplate(session, wpRoot, target);
 	} finally {
 		session.close();
+	}
+	if (dbContent !== null) return dbContent;
+
+	try {
+		return await readFile(filePath, 'utf8');
+	} catch (err) {
+		if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+			throw new Error(
+				`Template ${targetLabel(target)} doesn't exist yet (no DB row, no file at ${filePath}). Run Build template first.`,
+			);
+		}
+		throw err;
 	}
 }
 

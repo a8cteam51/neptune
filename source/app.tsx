@@ -18,6 +18,10 @@ import SetupProject, {type Loaded} from './commands/setup-project.js';
 import {loadOrInit} from './commands/setup-project/config.js';
 import {listPulls} from './lib/design-walk.js';
 import {acquireProjectLock, type ProjectLock} from './lib/lockfile.js';
+import {
+	getStudioSiteStatus,
+	type SiteStatus,
+} from './integrations/studio/site.js';
 
 type Props = {
 	name?: string;
@@ -46,6 +50,9 @@ export default function App({name, startCwd}: Props) {
 	const [hasNonSpecialPulls, setHasNonSpecialPulls] = useState(false);
 	const [autoLoadError, setAutoLoadError] = useState<string | null>(null);
 	const [autoLoaded, setAutoLoaded] = useState(false);
+	const [siteStatus, setSiteStatus] = useState<
+		'pending' | SiteStatus | null
+	>(null);
 	const hasTheme = Boolean(activeProject?.config.themeSlug);
 
 	useEffect(() => {
@@ -84,6 +91,25 @@ export default function App({name, startCwd}: Props) {
 		return () => {
 			cancelled = true;
 		};
+	}, [activeProject, projectVersion]);
+
+	useEffect(() => {
+		if (!activeProject) {
+			setSiteStatus(null);
+			return;
+		}
+		setSiteStatus('pending');
+		const controller = new AbortController();
+		getStudioSiteStatus(activeProject.dir, {signal: controller.signal})
+			.then(status => {
+				if (!controller.signal.aborted) setSiteStatus(status);
+			})
+			.catch(() => {
+				if (!controller.signal.aborted) {
+					setSiteStatus({state: 'unknown', reason: 'probe failed'});
+				}
+			});
+		return () => controller.abort();
 	}, [activeProject, projectVersion]);
 
 	useEffect(() => {
@@ -193,6 +219,7 @@ export default function App({name, startCwd}: Props) {
 						No active project — run Setup / Load Project.
 					</Text>
 				)}
+				{activeProject ? <SiteStatusLine status={siteStatus} /> : null}
 				{autoLoadError ? (
 					<Text color="yellow">{autoLoadError}</Text>
 				) : null}
@@ -205,6 +232,43 @@ export default function App({name, startCwd}: Props) {
 				</Box>
 			</Box>
 		</Box>
+	);
+}
+
+function SiteStatusLine({
+	status,
+}: {
+	status: 'pending' | SiteStatus | null;
+}) {
+	if (status === null || status === 'pending') {
+		return <Text dimColor>Studio site: checking…</Text>;
+	}
+	if (status.state === 'running') {
+		return (
+			<Text>
+				Studio site:{' '}
+				<Text color="green" bold>● running</Text>{' '}
+				<Text dimColor>({status.url})</Text>
+			</Text>
+		);
+	}
+	if (status.state === 'stopped') {
+		return (
+			<Text>
+				Studio site:{' '}
+				<Text color="yellow" bold>● stopped</Text>{' '}
+				<Text dimColor>
+					({status.url}). Start it in Studio to use Pull / Build / Refine.
+				</Text>
+			</Text>
+		);
+	}
+	return (
+		<Text>
+			Studio site:{' '}
+			<Text color="yellow" bold>● unknown</Text>{' '}
+			<Text dimColor>{status.reason}</Text>
+		</Text>
 	);
 }
 

@@ -36,7 +36,9 @@ import {
 } from '../../integrations/figma/mcp.js';
 import FigmaPull from '../../integrations/figma/pull.js';
 import {realClock} from '../../lib/clock.js';
-import {scaffoldTemplate} from '../../lib/template-scaffold.js';
+import {openStudioSession} from '../../integrations/studio/mcp.js';
+import {ensureTemplate, templateTargetFor} from '../../lib/wp-templates.js';
+import {resolve} from 'node:path';
 import type {
 	DevNote,
 	SpecialPullKind,
@@ -304,12 +306,18 @@ export default function PullTemplate({activeProject, onDone}: Props) {
 					if (!phase.templateFile) {
 						throw new Error('templateFile missing for non-special pull.');
 					}
-					const result = await scaffoldTemplate(
-						activeProject.dir,
-						themeSlug,
+					const target = templateTargetFor(
 						phase.templateFile,
+						phase.pageName,
 					);
-					scaffolded = result.created;
+					const wpRoot = resolve(activeProject.dir, 'wordpress');
+					const studio = await openStudioSession({signal});
+					try {
+						const result = await ensureTemplate(studio, wpRoot, target);
+						scaffolded = result.created;
+					} finally {
+						studio.close();
+					}
 				}
 
 				let devNotes: DevNote[] | undefined;

@@ -8,9 +8,6 @@
 // Both require the named site to be running.
 import {type ChildProcess} from 'node:child_process';
 import {Buffer} from 'node:buffer';
-import {readFile} from 'node:fs/promises';
-import {homedir} from 'node:os';
-import {resolve} from 'node:path';
 import {
 	attachAbortSignal,
 	trackChild,
@@ -305,40 +302,6 @@ export async function takeScreenshot(
 		);
 	}
 	return Buffer.from(img.data, 'base64');
-}
-
-// Studio's `~/.studio/cli.json` lists every registered site with its
-// path + assigned port. We map the project's wordpress/ dir to a port,
-// returning the running URL. Used because `studio mcp`'s `site_info`
-// tool currently hangs in some Studio versions; reading the file is
-// fast and stable.
-export async function getSiteUrlFromStudioConfig(
-	projectDir: string,
-	configPath?: string,
-): Promise<string | null> {
-	const cliConfigPath = configPath ?? resolve(homedir(), '.studio', 'cli.json');
-	let raw: string;
-	try {
-		raw = await readFile(cliConfigPath, 'utf8');
-	} catch {
-		return null;
-	}
-	let parsed: unknown;
-	try {
-		parsed = JSON.parse(raw);
-	} catch {
-		return null;
-	}
-	const sites = (parsed as {sites?: Array<{path?: string; port?: number}>})
-		.sites;
-	if (!Array.isArray(sites)) return null;
-
-	const wpDir = resolve(projectDir, 'wordpress');
-	const match = sites.find(
-		s => typeof s.path === 'string' && resolve(s.path) === wpDir,
-	);
-	if (!match || typeof match.port !== 'number') return null;
-	return `http://localhost:${match.port}`;
 }
 
 function joinTextContent(resp: JsonRpcResponse): string {

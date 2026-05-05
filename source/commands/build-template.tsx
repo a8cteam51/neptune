@@ -1,18 +1,18 @@
 // Picks one non-special pull, feeds its design/<slug>/code.tsx (plus the
 // theme's theme.json and variables/all-variables.json when present) to the
 // Claude Agent SDK with the tsx-to-blocks skill, and writes the resulting
-// Gutenberg block markup to the pull's templateFile in the WordPress theme.
+// Gutenberg block markup to the pull's wp_template / wp_template_part
+// post in the WordPress database via Studio's wp_cli.
 //
-// Modeled on build-theme-json.tsx: confirm-overwrite gate when the
-// destination is non-empty so the user doesn't lose hand edits and doesn't
-// pay for a regen they didn't intend.
+// Modeled on build-theme-json.tsx: confirm-overwrite gate when a DB row
+// already exists so the user doesn't lose hand edits (Site Editor or
+// previous Neptune runs) and doesn't pay for a regen they didn't intend.
 import React, {useEffect, useRef, useState} from 'react';
 import {Box, Text, useInput} from 'ink';
 import SelectInput from 'ink-select-input';
-import {access, mkdir, readFile, stat} from 'node:fs/promises';
+import {access, readFile} from 'node:fs/promises';
 import {dirname, join, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {writeFileAtomic} from '../lib/atomic-write.js';
 import {
 	AgentAbortedError,
 	runAgent,
@@ -21,7 +21,14 @@ import {
 } from '../lib/agent-stream.js';
 import {listPulls} from '../lib/design-walk.js';
 import EventList, {type LogEvent} from '../lib/event-list.js';
-import {templateRole, templateSubdir, type TemplateRole} from '../lib/template-scaffold.js';
+import {templateRole, type TemplateRole} from '../lib/template-scaffold.js';
+import {
+	readTemplate,
+	targetLabel,
+	templateTargetFor,
+	writeTemplate,
+} from '../lib/wp-templates.js';
+import {openStudioSession} from '../integrations/studio/mcp.js';
 import type {Loaded} from './setup-project/types.js';
 import type {PullMeta} from '../lib/types.js';
 
@@ -35,7 +42,7 @@ type PickablePull = PullMeta & {templateFile: string};
 type Phase =
 	| {kind: 'loading'}
 	| {kind: 'picking'; pulls: PickablePull[]}
-	| {kind: 'confirm'; pull: PickablePull; targetPath: string}
+	| {kind: 'confirm'; pull: PickablePull; targetLabel: string}
 	| {kind: 'running'; pull: PickablePull}
 	| {kind: 'success'; resultPath: string; size: number}
 	| {kind: 'error'; error: string}
@@ -135,13 +142,26 @@ export default function BuildTemplate({activeProject, onDone}: Props) {
 			});
 			return;
 		}
-		const targetPath = templatePath(
-			activeProject.dir,
-			themeSlug,
-			pull.templateFile,
-		);
-		if (await fileHasContent(targetPath)) {
-			setPhase({kind: 'confirm', pull, targetPath});
+		const target = templateTargetFor(pull.templateFile, pull.pageName);
+		const wpRoot = resolve(activeProject.dir, 'wordpress');
+		let exists = false;
+		try {
+			const session = await openStudioSession();
+			try {
+				exists = (await readTemplate(session, wpRoot, target)) !== null;
+			} finally {
+				session.close();
+			}
+		} catch (err) {
+			setPhase({
+				kind: 'message',
+				title: 'Could not check existing template in the database.',
+				subtitle: err instanceof Error ? err.message : String(err),
+			});
+			return;
+		}
+		if (exists) {
+			setPhase({kind: 'confirm', pull, targetLabel: targetLabel(target)});
 		} else {
 			beginRun(pull);
 		}
@@ -222,7 +242,7 @@ export default function BuildTemplate({activeProject, onDone}: Props) {
 	if (phase.kind === 'confirm') {
 		return (
 			<ConfirmOverwrite
-				targetPath={phase.targetPath}
+				targetLabel={phase.targetLabel}
 				onProceed={() => beginRun(phase.pull)}
 				onCancel={onDone}
 			/>
@@ -263,11 +283,11 @@ export default function BuildTemplate({activeProject, onDone}: Props) {
 }
 
 function ConfirmOverwrite({
-	targetPath,
+	targetLabel,
 	onProceed,
 	onCancel,
 }: {
-	targetPath: string;
+	targetLabel: string;
 	onProceed: () => void;
 	onCancel: () => void;
 }) {
@@ -293,13 +313,13 @@ function ConfirmOverwrite({
 			<Text bold color="cyan">Build template</Text>
 			<Box marginTop={1} flexDirection="column">
 				<Text color="yellow" bold>
-					Template file already exists.
+					A template post already exists in the database.
 				</Text>
-				<Text dimColor>{targetPath}</Text>
+				<Text dimColor>{targetLabel}</Text>
 				<Box marginTop={1}>
 					<Text>
-						Running the build will overwrite this file and consume a paid
-						Claude Agent SDK call.
+						Running the build will overwrite the existing post (revision
+						history is preserved) and consume a paid Claude Agent SDK call.
 					</Text>
 				</Box>
 			</Box>
@@ -417,17 +437,24 @@ export async function runBuild(
 		onEvent,
 	);
 
-	const target = templatePath(loaded.dir, themeSlug, pull.templateFile);
-	await mkdir(dirname(target), {recursive: true});
+	const target = templateTargetFor(pull.templateFile, pull.pageName);
 	const out = markup.endsWith('\n') ? markup : markup + '\n';
-	await writeFileAtomic(target, out);
 
+	const wpRoot = resolve(loaded.dir, 'wordpress');
+	const session = await openStudioSession({signal});
+	try {
+		await writeTemplate(session, wpRoot, target, out);
+	} finally {
+		session.close();
+	}
+
+	const label = targetLabel(target);
 	onEvent({
 		kind: 'success',
-		message: `Wrote ${out.length} bytes to ${target}`,
+		message: `Wrote ${out.length} bytes to ${label}`,
 	});
 
-	return {path: target, size: out.length};
+	return {path: label, size: out.length};
 }
 
 type UserContent = Array<TextBlock | ImageBlock>;
@@ -479,31 +506,6 @@ export function roleScopeNote(role: TemplateRole): string {
 		return 'Convert ONLY the footer region of the source page (site info, secondary nav, copyright). Ignore header and main content.';
 	}
 	return 'Convert ONLY the main content region of the source page. Header and footer are rendered separately by parts/header.html and parts/footer.html — skip them.';
-}
-
-function templatePath(
-	projectDir: string,
-	themeSlug: string,
-	templateFile: string,
-): string {
-	return resolve(
-		projectDir,
-		'wordpress',
-		'wp-content',
-		'themes',
-		themeSlug,
-		templateSubdir(templateFile),
-		templateFile,
-	);
-}
-
-async function fileHasContent(p: string): Promise<boolean> {
-	try {
-		const s = await stat(p);
-		return s.isFile() && s.size > 0;
-	} catch {
-		return false;
-	}
 }
 
 async function readBufferIfExists(p: string): Promise<Buffer | null> {
