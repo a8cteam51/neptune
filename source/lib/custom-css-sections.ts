@@ -125,16 +125,26 @@ export async function readCustomCss(
 	session: StudioSession,
 	nameOrPath: string,
 ): Promise<string> {
-	// PHP code uses double quotes around the base64 string so the
-	// outer shell single quotes nest without escape-tricks.
+	// Bracket the echoed base64 with sentinels so any wp-cli prefix
+	// (deprecation notices, site-load banners, ANSI cruft) doesn't
+	// pollute the bytes we decode. PHP uses double quotes around the
+	// payload so the outer shell single quotes nest cleanly.
 	const out = await wpCli(
 		session,
 		nameOrPath,
-		`eval 'echo base64_encode( wp_get_custom_css() );'`,
+		`eval 'echo "@@NEPTUNE_OPEN@@" . base64_encode( wp_get_custom_css() ) . "@@NEPTUNE_CLOSE@@";'`,
 	);
-	const trimmed = out.trim();
-	if (trimmed === '') return '';
-	return Buffer.from(trimmed, 'base64').toString('utf8');
+	const match = /@@NEPTUNE_OPEN@@([A-Za-z0-9+/=]*)@@NEPTUNE_CLOSE@@/.exec(out);
+	if (!match) {
+		throw new Error(
+			`readCustomCss got unexpected wp_cli output. First 200 chars: ${out
+				.slice(0, 200)
+				.trim()}`,
+		);
+	}
+	const payload = match[1] ?? '';
+	if (payload === '') return '';
+	return Buffer.from(payload, 'base64').toString('utf8');
 }
 
 // Updates Customizer custom_css. The CSS body is base64-encoded so

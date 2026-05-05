@@ -10,6 +10,15 @@
 // so the outer shell-single-quote wrapping needs no escape trick. The
 // content body is base64-encoded to side-step any in-PHP escaping
 // concerns (CSS / HTML / JSON in templates).
+//
+// Read paths bracket the echoed payload with @@NEPTUNE@@ sentinels so
+// any wp-cli/Studio prefix or trailing chatter (deprecation notices,
+// site-load banners, ANSI cruft) doesn't end up in our base64 input.
+//
+// Write paths call kses_remove_filters() before wp_update_post /
+// wp_insert_post: wp-cli runs unauthenticated, so the default kses
+// filtering would otherwise strip parts of block markup that the
+// "unfiltered_html" capability normally permits.
 import {Buffer} from 'node:buffer';
 import {shellSingleQuote, wpCli} from './wp-cli.js';
 import type {StudioSession} from '../integrations/studio/mcp.js';
@@ -24,6 +33,10 @@ export type TemplateTarget = {
 };
 
 const SLUG_RE = /^[a-z][a-z0-9-]*$/;
+const SENTINEL_OPEN = '@@NEPTUNE_OPEN@@';
+const SENTINEL_CLOSE = '@@NEPTUNE_CLOSE@@';
+const SENTINEL_RE =
+	/@@NEPTUNE_OPEN@@([A-Za-z0-9+/=]*)@@NEPTUNE_CLOSE@@/;
 
 export function templateTargetFor(
 	templateFile: string,
@@ -53,6 +66,15 @@ export function defaultTitleFromSlug(slug: string): string {
 		.join(' ');
 }
 
+// Extracts the base64 payload bracketed by Neptune sentinels in
+// arbitrary wp-cli stdout. Returns null when the sentinel pair isn't
+// present (e.g. the PHP `exit()`d before echoing — no post found).
+function extractSentinelPayload(out: string): string | null {
+	const match = SENTINEL_RE.exec(out);
+	if (!match) return null;
+	return match[1] ?? '';
+}
+
 export async function readTemplate(
 	session: StudioSession,
 	nameOrPath: string,
@@ -71,23 +93,22 @@ export async function readTemplate(
 		'  )),',
 		'));',
 		'if (empty($posts)) { exit; }',
-		'echo base64_encode($posts[0]->post_content);',
+		`echo "${SENTINEL_OPEN}" . base64_encode($posts[0]->post_content) . "${SENTINEL_CLOSE}";`,
 	].join('\n');
 	const out = await wpCli(
 		session,
 		nameOrPath,
 		`eval ${shellSingleQuote(phpCode)}`,
 	);
-	const trimmed = out.trim();
-	if (trimmed === '') return null;
-	return Buffer.from(trimmed, 'base64').toString('utf8');
+	const payload = extractSentinelPayload(out);
+	if (payload === null) return null;
+	if (payload === '') return '';
+	return Buffer.from(payload, 'base64').toString('utf8');
 }
 
 // Idempotent scaffold: creates an empty wp_template / wp_template_part
 // post for the given slug + active theme if one doesn't already exist.
 // Returns whether a post was created (true) or already existed (false).
-// Single wp-cli call — combines the existence check and the insert in
-// one PHP snippet so we don't pay the Studio MCP round-trip twice.
 export async function ensureTemplate(
 	session: StudioSession,
 	nameOrPath: string,
@@ -107,7 +128,8 @@ export async function ensureTemplate(
 		'    "terms" => get_stylesheet(),',
 		'  )),',
 		'));',
-		'if (!empty($posts)) { echo "exists"; exit; }',
+		`if (!empty($posts)) { echo "${SENTINEL_OPEN}exists${SENTINEL_CLOSE}"; exit; }`,
+		'kses_remove_filters();',
 		'$post_id = wp_insert_post(array(',
 		`  "post_type" => "${target.type}",`,
 		'  "post_status" => "publish",',
@@ -117,14 +139,23 @@ export async function ensureTemplate(
 		'), true);',
 		'if (is_wp_error($post_id) || !$post_id) { exit(1); }',
 		'wp_set_object_terms($post_id, get_stylesheet(), "wp_theme", false);',
-		'echo "created";',
+		`echo "${SENTINEL_OPEN}created${SENTINEL_CLOSE}";`,
 	].join('\n');
 	const out = await wpCli(
 		session,
 		nameOrPath,
 		`eval ${shellSingleQuote(phpCode)}`,
 	);
-	return {created: out.trim().endsWith('created')};
+	const m =
+		/@@NEPTUNE_OPEN@@(exists|created)@@NEPTUNE_CLOSE@@/.exec(out);
+	if (!m) {
+		throw new Error(
+			`ensureTemplate: unexpected wp_cli output. First 200 chars: ${out
+				.slice(0, 200)
+				.trim()}`,
+		);
+	}
+	return {created: m[1] === 'created'};
 }
 
 export async function writeTemplate(
@@ -138,6 +169,7 @@ export async function writeTemplate(
 	const phpCode = [
 		`$content = base64_decode("${encodedContent}");`,
 		`$title = base64_decode("${encodedTitle}");`,
+		'kses_remove_filters();',
 		'$posts = get_posts(array(',
 		`  "post_type" => "${target.type}",`,
 		'  "post_status" => "publish",',
