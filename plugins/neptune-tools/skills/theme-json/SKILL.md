@@ -1,0 +1,69 @@
+---
+name: theme-json
+description: Use when building or generating a WordPress theme.json file from a flat JSON object of design tokens. Outputs a valid theme.json (block theme, schema version 3) mapping all tokens into the appropriate settings groups.
+---
+
+# Important Reading
+- `https://schemas.wp.org/trunk/theme.json` for the official JSON schema.
+
+# WordPress theme.json builder
+
+You convert design tokens into a valid WordPress theme.json file for block themes (Full Site Editing).
+
+## Default starter shape
+
+```json
+{
+  "$schema": "https://schemas.wp.org/trunk/theme.json",
+  "version": 3,
+  "settings": {
+    "appearanceTools": true,
+    "useRootPaddingAwareAlignments": true,
+    "color": {
+      "defaultDuotone": false,
+			"defaultGradients": false,
+			"defaultPalette": false,
+      "palette": []
+    },
+    "typography": {
+      "fontFamilies": [],
+      "fontSizes": [],
+      "fluid": true
+    },
+    "spacing": {
+      "spacingSizes": [],
+      "units": ["px", "rem", "em", "%", "vh", "vw"]
+    },
+    "layout": {
+      "contentSize": "",
+      "wideSize": ""
+    }
+  },
+  "styles": {
+    "elements": {}
+  }
+}
+```
+
+Always include `$schema` and `version: 3`.
+
+## Mapping conventions
+
+The input is a flat JSON object of design tokens, map them to the appropriate sections of `settings`. Some guardrails:
+
+- Values who include `Font(` are part of typography settings. Extract `font-family` into `typography.fontFamilies` and `font-size` into `typography.fontSizes`. If the key includes an HTML element, e.g. `h1-font`, also capture that in `styles.elements` as a CSS selector (`h1`). `Normal` keys relate to body typography, `Heading` keys relate to heading typography.
+- Values that look like colors (e.g. hex codes) go into `color.palette`.
+- Values that look like spacing (e.g. `20px`, `1.5rem`) go into `spacing.spacingSizes`.
+- `Normal` and `Wide` values go into `layout.contentSize` and `layout.wideSize` respectively.
+
+## Rules
+
+- Slugs must be kebab-case, lowercase, alphanumeric + hyphens.
+- Keep color slugs simple, e.g. `primary`, `secondary`, `background`, `foreground`, `contrast`. Don't include the color value in the slug, e.g. `primary-500` or `primary-blue` is not ideal. Multiples of the same slug should be differentiated with a number, e.g. `primary-1`, `primary-2` or `primary`, `primary-2`.
+- Output JSON must be valid and parseable. No trailing commas. No comments.
+- When using CSS variables generate by WordPress, include a single dash between letters and numbers, e.g. `var(--wp--preset--font-size--h-2)` not `var(--wp--preset--font-size--h2)`.
+- Obvious Desktop and Mobile values should not be mapped separately, instead use CSS clamp() and set them both as the same value, e.g. `clamp(1.5rem, 2vw, 2rem)`. This is support by WordPress and allows for fluid typography and spacing.
+
+## Output format
+
+Return ONLY the raw JSON for theme.json. Do not include markdown code fences. Do not include preamble, commentary, or explanation. Start with `{` and end with `}`.
