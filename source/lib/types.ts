@@ -19,6 +19,7 @@ export type PullMeta = {
 	x?: number;
 	y?: number;
 	templateFile?: string;
+	previewPath?: string;
 	themeSlug?: string;
 	scaffolded?: boolean;
 	special?: SpecialPullKind;

@@ -1,0 +1,173 @@
+import test from 'ava';
+import {
+	parseApplyEnvelope,
+	parseDiffReport,
+} from '../../source/commands/refine-template.js';
+
+test('parses a valid report', t => {
+	const input = JSON.stringify({
+		summary: 'Hero heading wrong block, footer spacing too tight',
+		matches_design: false,
+		diffs: [
+			{
+				id: 'hero-heading-level',
+				region: 'Hero',
+				severity: 'high',
+				description: 'Heading is wp:paragraph; design is h1',
+				block_change: 'wp:paragraph → wp:heading level=1',
+				affects_layout: false,
+			},
+			{
+				id: 'footer-spacing',
+				region: 'Footer',
+				severity: 'low',
+				description: 'Padding too tight',
+				style_change: 'spacing/sm → spacing/md',
+				affects_layout: true,
+			},
+		],
+	});
+	const r = parseDiffReport(input);
+	t.is(r.summary, 'Hero heading wrong block, footer spacing too tight');
+	t.false(r.matches_design);
+	t.is(r.diffs.length, 2);
+	t.is(r.diffs[0]!.id, 'hero-heading-level');
+	t.is(r.diffs[0]!.severity, 'high');
+	t.is(r.diffs[1]!.style_change, 'spacing/sm → spacing/md');
+});
+
+test('matches_design true returns empty diffs even if some were sent', t => {
+	const input = JSON.stringify({
+		summary: 'all good',
+		matches_design: true,
+		diffs: [
+			{
+				id: 'x',
+				region: 'y',
+				severity: 'low',
+				description: 'z',
+				affects_layout: false,
+			},
+		],
+	});
+	const r = parseDiffReport(input);
+	t.true(r.matches_design);
+	t.is(r.diffs.length, 0);
+});
+
+test('skips entries missing required fields', t => {
+	const input = JSON.stringify({
+		summary: '',
+		matches_design: false,
+		diffs: [
+			{id: 'ok', region: 'r', severity: 'high', description: 'd', affects_layout: true},
+			{id: 'no-region', severity: 'high', description: 'd', affects_layout: true},
+			{id: 'bad-severity', region: 'r', severity: 'extreme', description: 'd', affects_layout: true},
+			{id: 'no-affects', region: 'r', severity: 'low', description: 'd'},
+			'not even an object',
+			null,
+		],
+	});
+	const r = parseDiffReport(input);
+	t.is(r.diffs.length, 1);
+	t.is(r.diffs[0]!.id, 'ok');
+});
+
+test('dedupes duplicate ids; first wins', t => {
+	const input = JSON.stringify({
+		summary: '',
+		matches_design: false,
+		diffs: [
+			{id: 'dup', region: 'a', severity: 'high', description: 'first', affects_layout: false},
+			{id: 'dup', region: 'b', severity: 'low', description: 'second', affects_layout: true},
+		],
+	});
+	const r = parseDiffReport(input);
+	t.is(r.diffs.length, 1);
+	t.is(r.diffs[0]!.region, 'a');
+});
+
+test('throws on non-JSON', t => {
+	t.throws(() => parseDiffReport('not json'), {
+		message: /not valid JSON/i,
+	});
+});
+
+test('throws on top-level non-object', t => {
+	t.throws(() => parseDiffReport('[]'), {
+		message: /not a JSON object/i,
+	});
+	t.throws(() => parseDiffReport('null'), {
+		message: /not a JSON object/i,
+	});
+});
+
+test('treats missing diffs array as empty', t => {
+	const input = JSON.stringify({summary: 's', matches_design: false});
+	const r = parseDiffReport(input);
+	t.is(r.diffs.length, 0);
+});
+
+test('parseApplyEnvelope: accepts envelope with template + styles', t => {
+	const e = parseApplyEnvelope(
+		JSON.stringify({
+			template_html: '<!-- wp:group -->x<!-- /wp:group -->',
+			block_styles: [
+				{
+					block: 'core/button',
+					name: 'fill-small',
+					label: 'Fill Small',
+					css: '.x { padding: 4px; }',
+				},
+			],
+		}),
+	);
+	t.is(e.template_html, '<!-- wp:group -->x<!-- /wp:group -->');
+	t.is(e.block_styles.length, 1);
+	t.is(e.block_styles[0]!.name, 'fill-small');
+});
+
+test('parseApplyEnvelope: accepts empty block_styles', t => {
+	const e = parseApplyEnvelope(
+		JSON.stringify({
+			template_html: '<!-- wp:p --><!-- /wp:p -->',
+			block_styles: [],
+		}),
+	);
+	t.is(e.block_styles.length, 0);
+});
+
+test('parseApplyEnvelope: drops malformed block-style entries silently', t => {
+	const e = parseApplyEnvelope(
+		JSON.stringify({
+			template_html: '<!-- wp:p --><!-- /wp:p -->',
+			block_styles: [
+				{block: 'core/button', name: 'a', label: 'A', css: '.x{}'},
+				{block: 'core/button', name: 'b'}, // missing fields
+				'not an object',
+				null,
+			],
+		}),
+	);
+	t.is(e.block_styles.length, 1);
+	t.is(e.block_styles[0]!.name, 'a');
+});
+
+test('parseApplyEnvelope: throws on missing template_html', t => {
+	t.throws(
+		() => parseApplyEnvelope(JSON.stringify({block_styles: []})),
+		{message: /missing a non-empty template_html/i},
+	);
+});
+
+test('parseApplyEnvelope: throws on non-JSON', t => {
+	t.throws(() => parseApplyEnvelope('not json'), {
+		message: /not valid JSON/i,
+	});
+});
+
+test('parseApplyEnvelope: throws on top-level non-object', t => {
+	t.throws(() => parseApplyEnvelope('[]'), {
+		message: /not a JSON object/i,
+	});
+});

@@ -82,6 +82,7 @@ type Phase =
 			pageName: string;
 			slug: string;
 			templateFile?: string;
+			previewPath?: string;
 			special?: SpecialPullKind;
 			selection: SelectionMetadata | null;
 	  };
@@ -256,12 +257,13 @@ export default function PullTemplate({activeProject, onDone}: Props) {
 			<ConfigureView
 				selection={phase.selection}
 				prefilledPageName={phase.prefilledPageName}
-				onSubmit={(pageName, slug, templateFile) =>
+				onSubmit={(pageName, slug, templateFile, previewPath) =>
 					void beginPull({
 						kind: 'pulling',
 						pageName,
 						slug,
 						templateFile,
+						previewPath,
 						selection: phase.selection,
 					})
 				}
@@ -356,6 +358,7 @@ export default function PullTemplate({activeProject, onDone}: Props) {
 					x: phase.selection?.x,
 					y: phase.selection?.y,
 					templateFile: phase.templateFile,
+					previewPath: phase.previewPath,
 					themeSlug,
 					scaffolded,
 					special: phase.special,

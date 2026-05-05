@@ -39,7 +39,14 @@ export type StudioSession = {
 		name: string,
 		args: Record<string, unknown>,
 	) => Promise<JsonRpcResponse>;
+	listTools: () => Promise<StudioTool[]>;
 	close: () => void;
+};
+
+export type StudioTool = {
+	name: string;
+	description?: string;
+	inputSchema?: unknown;
 };
 
 export type StudioSessionOptions = {
@@ -189,6 +196,18 @@ export async function openStudioSession(
 				method: 'tools/call',
 				params: {name, arguments: args},
 			}),
+		listTools: async () => {
+			const resp = await send({
+				jsonrpc: '2.0',
+				id: nextId++,
+				method: 'tools/list',
+			});
+			if (resp.error) {
+				throw new Error(`tools/list failed: ${resp.error.message}`);
+			}
+			const tools = (resp.result?.tools ?? []) as StudioTool[];
+			return tools;
+		},
 		close: () => {
 			if (closed) return;
 			closed = true;

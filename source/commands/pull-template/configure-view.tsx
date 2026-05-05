@@ -6,6 +6,8 @@ import {templateSubdir} from '../../lib/template-scaffold.js';
 import SelectionLine from './selection-line.js';
 import {slugify} from './special-meta.js';
 
+type Stage = 'pageName' | 'templateFile' | 'previewPath';
+
 export default function ConfigureView({
 	selection,
 	prefilledPageName,
@@ -14,7 +16,12 @@ export default function ConfigureView({
 }: {
 	selection: SelectionMetadata | null;
 	prefilledPageName?: string;
-	onSubmit: (pageName: string, slug: string, templateFile: string) => void;
+	onSubmit: (
+		pageName: string,
+		slug: string,
+		templateFile: string,
+		previewPath: string,
+	) => void;
 	onBack: () => void;
 }) {
 	// When a title card was picked, prefilledPageName is set and we lock
@@ -25,16 +32,15 @@ export default function ConfigureView({
 	const initialSlug = prefilledPageName ? slugify(prefilledPageName) : '';
 	const isLocked =
 		prefilledPageName !== undefined && initialSlug !== '';
-	const initialStage: 'pageName' | 'templateFile' = isLocked
-		? 'templateFile'
-		: 'pageName';
+	const initialStage: Stage = isLocked ? 'templateFile' : 'pageName';
 
-	const [stage, setStage] = useState<'pageName' | 'templateFile'>(
-		initialStage,
-	);
+	const [stage, setStage] = useState<Stage>(initialStage);
 	const [pageName, setPageName] = useState(initialPageName);
 	const [slug, setSlug] = useState(initialSlug);
 	const [templateFile, setTemplateFile] = useState('index.html');
+	const [previewPath, setPreviewPath] = useState(
+		defaultPreviewPath('index.html'),
+	);
 	const [error, setError] = useState('');
 
 	useInput((_input, key) => {
@@ -71,7 +77,23 @@ export default function ConfigureView({
 			setError('Template file must be a .html file.');
 			return;
 		}
-		onSubmit(pageName.trim(), slug, trimmed);
+		setTemplateFile(trimmed);
+		setPreviewPath(defaultPreviewPath(trimmed));
+		setError('');
+		setStage('previewPath');
+	};
+
+	const submitPreviewPath = (raw: string) => {
+		const trimmed = raw.trim();
+		if (trimmed === '') {
+			setError('Preview path cannot be empty.');
+			return;
+		}
+		if (!trimmed.startsWith('/')) {
+			setError('Preview path must start with /.');
+			return;
+		}
+		onSubmit(pageName.trim(), slug, templateFile, trimmed);
 	};
 
 	const hasCoords =
@@ -118,17 +140,23 @@ export default function ConfigureView({
 				</Text>
 			</Box>
 
-			{stage === 'templateFile' ? (
+			{stage !== 'pageName' ? (
 				<Box marginTop={1} flexDirection="column">
 					<Text bold>WordPress template file</Text>
 					<Box marginTop={1}>
-						<Text color="yellow">› </Text>
-						<TextInput
-							value={templateFile}
-							onChange={setTemplateFile}
-							onSubmit={submitTemplateFile}
-							placeholder="index.html"
-						/>
+						<Text color={stage === 'templateFile' ? 'yellow' : 'gray'}>
+							›{' '}
+						</Text>
+						{stage === 'templateFile' ? (
+							<TextInput
+								value={templateFile}
+								onChange={setTemplateFile}
+								onSubmit={submitTemplateFile}
+								placeholder="index.html"
+							/>
+						) : (
+							<Text dimColor>{templateFile}</Text>
+						)}
 					</Box>
 					<Text dimColor>
 						Scaffolded into: wp-content/themes/&lt;theme&gt;/
@@ -143,10 +171,41 @@ export default function ConfigureView({
 				</Box>
 			) : null}
 
+			{stage === 'previewPath' ? (
+				<Box marginTop={1} flexDirection="column">
+					<Text bold>Preview path (relative URL on the running site)</Text>
+					<Box marginTop={1}>
+						<Text color="yellow">› </Text>
+						<TextInput
+							value={previewPath}
+							onChange={setPreviewPath}
+							onSubmit={submitPreviewPath}
+							placeholder="/"
+						/>
+					</Box>
+					<Text dimColor>
+						Refine captures this URL to compare against the design.
+					</Text>
+				</Box>
+			) : null}
+
 			<Box marginTop={1}>
 				<Text dimColor>Enter to advance. Esc to go back.</Text>
 			</Box>
 			{error === '' ? null : <Text color="red">{error}</Text>}
 		</Box>
 	);
+}
+
+// Sensible default URL for common WordPress template files. The user
+// can override during configure; the chosen value is persisted on the
+// pull's meta.json so refine doesn't have to re-derive it.
+function defaultPreviewPath(templateFile: string): string {
+	const stem = templateFile.replace(/\.html$/i, '').toLowerCase();
+	if (stem === 'front-page' || stem === 'index' || stem === 'home') return '/';
+	if (stem === '404') return '/this-path-should-404';
+	if (stem === 'archive') return '/blog';
+	if (stem === 'single' || stem === 'single-post') return '/?p=1';
+	if (stem === 'page') return '/sample-page';
+	return '/';
 }

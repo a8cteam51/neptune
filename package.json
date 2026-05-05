@@ -12,26 +12,28 @@
 	"scripts": {
 		"build": "tsc",
 		"dev": "tsc --watch",
-		"test": "tsc && ava"
+		"test": "tsc && ava",
+		"postinstall": "playwright install chromium"
 	},
 	"files": [
 		"dist"
 	],
 	"dependencies": {
 		"@anthropic-ai/claude-agent-sdk": "^0.2.126",
-		"@types/pngjs": "^6.0.5",
 		"ink": "^5.2.1",
 		"ink-select-input": "^6.2.0",
 		"ink-spinner": "^5.0.0",
 		"ink-text-input": "^6.0.0",
 		"meow": "^14.1.0",
-		"pixelmatch": "^7.2.0",
+		"odiff-bin": "^4.3.8",
+		"playwright": "^1.59.1",
 		"pngjs": "^7.0.0",
 		"react": "^18.3.1",
 		"tar": "^7.5.13"
 	},
 	"devDependencies": {
 		"@sindresorhus/tsconfig": "^7.0.0",
+		"@types/pngjs": "^6.0.5",
 		"@types/react": "^18.3.12",
 		"@vdemedes/prettier-config": "^2.0.1",
 		"ava": "^6.4.1",
