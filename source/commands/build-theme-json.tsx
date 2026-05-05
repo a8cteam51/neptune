@@ -231,11 +231,17 @@ async function fileExists(p: string): Promise<boolean> {
 	}
 }
 
-async function buildThemeJson(
+export type BuildThemeJsonDeps = {
+	runAgent?: typeof runAgent;
+};
+
+export async function buildThemeJson(
 	loaded: Loaded,
 	signal: AbortSignal,
 	onEvent: (ev: LogEvent) => void,
+	deps: BuildThemeJsonDeps = {},
 ): Promise<{path: string; size: number}> {
+	const agentRunner = deps.runAgent ?? runAgent;
 	const themeSlug = loaded.config.themeSlug;
 	if (!themeSlug) {
 		throw new Error('themeSlug missing from neptune-config.');
@@ -264,7 +270,7 @@ async function buildThemeJson(
 		`Build a WordPress theme.json (block theme, schema version 3) from this flat JSON object of design tokens. Use the theme-json skill.\n\n` +
 		variablesText;
 
-	const cleaned = await runAgent(
+	const cleaned = await agentRunner(
 		prompt,
 		{cwd: loaded.dir, pluginPath: PLUGIN_PATH, signal},
 		onEvent,

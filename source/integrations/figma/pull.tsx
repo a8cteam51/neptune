@@ -49,7 +49,7 @@ export default function FigmaPull({
 					...prev,
 					{kind: 'step', message: 'Opening MCP session…'},
 				]);
-				session = await openMcpSession(controller.signal);
+				session = await openMcpSession({signal: controller.signal});
 
 				for await (const ev of pullFromFigma(session, {
 					pageName,

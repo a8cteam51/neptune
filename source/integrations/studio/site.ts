@@ -2,22 +2,28 @@
 // project's wordpress/ directory, install required plugins, and activate
 // the configured theme. Requires `studio` on PATH.
 import {resolve} from 'node:path';
-import {spawn} from 'node:child_process';
 import {
 	attachAbortSignal,
 	trackChild,
 } from '../../lib/process-tracker.js';
+import {defaultSpawn, type Spawn} from '../../lib/spawn.js';
 import {stripAnsi} from '../../lib/strip-ansi.js';
 import type {LogEvent} from '../../lib/event-list.js';
 
 const REQUIRED_PLUGINS = ['create-block-theme', 'safe-svg'];
 
+export type StudioSiteOptions = {
+	signal?: AbortSignal;
+	spawn?: Spawn;
+};
+
 export async function* createStudioSite(
 	projectDir: string,
 	siteName: string,
 	themeSlug: string,
-	signal?: AbortSignal,
+	options: StudioSiteOptions = {},
 ): AsyncGenerator<LogEvent> {
+	const {signal, spawn = defaultSpawn} = options;
 	const wpDir = resolve(projectDir, 'wordpress');
 
 	yield {
@@ -27,6 +33,7 @@ export async function* createStudioSite(
 	await runStudio(
 		['site', 'create', '--path', wpDir, '--name', siteName],
 		signal,
+		spawn,
 	);
 
 	for (const plugin of REQUIRED_PLUGINS) {
@@ -37,6 +44,7 @@ export async function* createStudioSite(
 		await runStudio(
 			['wp', 'plugin', 'install', plugin, '--activate', '--path', wpDir],
 			signal,
+			spawn,
 		);
 	}
 
@@ -47,12 +55,17 @@ export async function* createStudioSite(
 	await runStudio(
 		['wp', 'theme', 'activate', themeSlug, '--path', wpDir],
 		signal,
+		spawn,
 	);
 
 	yield {kind: 'step', message: `Studio site ready at ${wpDir}`};
 }
 
-function runStudio(args: string[], signal?: AbortSignal): Promise<void> {
+function runStudio(
+	args: string[],
+	signal: AbortSignal | undefined,
+	spawn: Spawn,
+): Promise<void> {
 	return new Promise((res, rej) => {
 		const child = spawn('studio', args, {
 			stdio: ['ignore', 'pipe', 'pipe'],
@@ -62,10 +75,10 @@ function runStudio(args: string[], signal?: AbortSignal): Promise<void> {
 
 		let stdout = '';
 		let stderr = '';
-		child.stdout.on('data', chunk => {
+		child.stdout?.on('data', chunk => {
 			stdout += String(chunk);
 		});
-		child.stderr.on('data', chunk => {
+		child.stderr?.on('data', chunk => {
 			stderr += String(chunk);
 		});
 

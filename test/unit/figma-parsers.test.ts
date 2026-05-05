@@ -1,12 +1,12 @@
 import test from 'ava';
-import {extractAssetUrls} from '../source/integrations/figma/assets-fetch.js';
+import {extractAssetUrls} from '../../source/integrations/figma/assets-fetch.js';
 import {
 	extractJsxText,
 	parseDevNoteIds,
 	parseTitleCards,
-} from '../source/integrations/figma/handoff-parse.js';
-import {stripLlmInstructions} from '../source/integrations/figma/mcp.js';
-import {slugify} from '../source/commands/pull-template/special-meta.js';
+} from '../../source/integrations/figma/handoff-parse.js';
+import {stripLlmInstructions} from '../../source/integrations/figma/mcp.js';
+import {slugify} from '../../source/commands/pull-template/special-meta.js';
 
 test('extractAssetUrls dedupes by URL', t => {
 	const code = `
@@ -29,6 +29,18 @@ const imgLocal = "http://localhost:3845/assets/bbb.svg";
 `;
 	t.deepEqual(extractAssetUrls(code), [
 		'http://localhost:3845/assets/bbb.svg',
+	]);
+});
+
+test('extractAssetUrls ignores let/var/inline URLs (anchored to const at line start)', t => {
+	const code = `
+let imgA = "http://localhost:3845/assets/aaa.png";
+var imgB = "http://localhost:3845/assets/bbb.svg";
+const imgC = "http://localhost:3845/assets/ccc.svg";
+const inJsx = <img src="http://localhost:3845/assets/ddd.svg" />;
+`;
+	t.deepEqual(extractAssetUrls(code), [
+		'http://localhost:3845/assets/ccc.svg',
 	]);
 });
 
@@ -104,4 +116,16 @@ test('slugify handles emojis, diacritics, and spaces', t => {
 	t.is(slugify('💬 Notes'), 'notes');
 	t.is(slugify('Café Olé'), 'cafe-ole');
 	t.is(slugify('   '), '');
+});
+
+test('parseDevNoteIds: only matches self-closing instances (documented limit)', t => {
+	const xml = `<frame>
+  <instance id="1:1" name="Dev Note" />
+  <instance id="1:2" name="Dev Note">inner</instance>
+</frame>`;
+	t.deepEqual(parseDevNoteIds(xml), ['1:1']);
+});
+
+test('extractJsxText: documented limit — numeric entities pass through verbatim', t => {
+	t.is(extractJsxText('<p>Don&#39;t panic</p>'), 'Don&#39;t panic');
 });

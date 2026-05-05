@@ -249,12 +249,18 @@ export default function RefineTemplate({activeProject, onDone}: Props) {
 	);
 }
 
-async function runRefine(
+export type RefineDeps = {
+	runAgent?: typeof runAgent;
+};
+
+export async function runRefine(
 	loaded: Loaded,
 	pull: PickablePull,
 	signal: AbortSignal,
 	onEvent: (ev: LogEvent) => void,
+	deps: RefineDeps = {},
 ): Promise<{path: string; size: number}> {
+	const agentRunner = deps.runAgent ?? runAgent;
 	const themeSlug = loaded.config.themeSlug;
 	if (!themeSlug) {
 		throw new Error(
@@ -313,7 +319,7 @@ async function runRefine(
 	const previewUrl = siteUrl + previewPathFor(pull.templateFile);
 	onEvent({kind: 'step', message: `Capturing ${previewUrl}`});
 
-	const studio = await openStudioSession(signal);
+	const studio = await openStudioSession({signal});
 	let renderedBuf: Buffer;
 	try {
 		renderedBuf = await takeScreenshot(studio, previewUrl, 'desktop');
@@ -387,7 +393,7 @@ async function runRefine(
 	});
 
 	onEvent({kind: 'step', message: 'Invoking Claude Agent SDK…'});
-	const refined = await runAgent(
+	const refined = await agentRunner(
 		userContent,
 		{cwd: loaded.dir, pluginPath: PLUGIN_PATH, signal},
 		onEvent,

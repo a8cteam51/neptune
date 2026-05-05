@@ -46,7 +46,10 @@
 	},
 	"ava": {
 		"files": [
-			"test/**/*.test.ts"
+			"test/**/*.test.ts",
+			"test/**/*.test.tsx",
+			"!test/helpers/**",
+			"!test/fixtures/**"
 		],
 		"extensions": {
 			"ts": "module",

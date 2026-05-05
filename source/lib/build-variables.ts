@@ -115,8 +115,9 @@ export async function* buildVariables(
 
 // Order-insensitive structural equality. Avoids JSON.stringify's
 // key-order sensitivity, which produced spurious "conflicts" for
-// objects merely defined with keys in different order.
-function deepEqual(a: unknown, b: unknown): boolean {
+// objects merely defined with keys in different order. Exported for
+// tests; consumers should treat this as an implementation detail.
+export function deepEqual(a: unknown, b: unknown): boolean {
 	if (a === b) return true;
 	if (a === null || b === null) return false;
 	if (typeof a !== typeof b) return false;

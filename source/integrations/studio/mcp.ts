@@ -6,7 +6,7 @@
 // Used for `validate_blocks` (per-block save() validation) and
 // `take_screenshot` (full-page render at the desktop or mobile preset).
 // Both require the named site to be running.
-import {spawn, type ChildProcessWithoutNullStreams} from 'node:child_process';
+import {type ChildProcess} from 'node:child_process';
 import {Buffer} from 'node:buffer';
 import {readFile} from 'node:fs/promises';
 import {homedir} from 'node:os';
@@ -15,6 +15,7 @@ import {
 	attachAbortSignal,
 	trackChild,
 } from '../../lib/process-tracker.js';
+import {defaultSpawn, type Spawn} from '../../lib/spawn.js';
 
 const PROTOCOL_VERSION = '2025-06-18';
 const REQUEST_TIMEOUT_MS = 60_000;
@@ -41,14 +42,25 @@ export type StudioSession = {
 	close: () => void;
 };
 
+export type StudioSessionOptions = {
+	signal?: AbortSignal;
+	spawn?: Spawn;
+};
+
 export async function openStudioSession(
-	signal?: AbortSignal,
+	options: StudioSessionOptions = {},
 ): Promise<StudioSession> {
-	let child: ChildProcessWithoutNullStreams;
+	const {signal, spawn = defaultSpawn} = options;
+	let child: ChildProcess;
 	try {
 		child = spawn('studio', ['mcp'], {stdio: ['pipe', 'pipe', 'pipe']});
 	} catch (err) {
 		throw wrapSpawnError(err);
+	}
+	const stdin = child.stdin;
+	const stdout = child.stdout;
+	if (!stdin || !stdout) {
+		throw new Error('studio mcp child has no stdio pipes');
 	}
 	trackChild(child);
 	attachAbortSignal(child, signal);
@@ -86,7 +98,7 @@ export async function openStudioSession(
 		}
 	});
 
-	child.stdout.on('data', (chunk: Buffer) => {
+	stdout.on('data', (chunk: Buffer) => {
 		buf += chunk.toString('utf8');
 		let nl: number;
 		while ((nl = buf.indexOf('\n')) !== -1) {
@@ -134,7 +146,7 @@ export async function openStudioSession(
 				timer.unref();
 				pending.set(id, {resolve, reject, timer});
 			}
-			child.stdin.write(JSON.stringify(req) + '\n', err => {
+			stdin.write(JSON.stringify(req) + '\n', err => {
 				if (err) {
 					if (isRequest) {
 						const entry = pending.get(req.id!);
@@ -186,7 +198,7 @@ export async function openStudioSession(
 	};
 }
 
-function killChild(child: ChildProcessWithoutNullStreams) {
+function killChild(child: ChildProcess) {
 	try {
 		child.kill('SIGTERM');
 		setTimeout(() => {
@@ -283,8 +295,9 @@ export async function takeScreenshot(
 // fast and stable.
 export async function getSiteUrlFromStudioConfig(
 	projectDir: string,
+	configPath?: string,
 ): Promise<string | null> {
-	const cliConfigPath = resolve(homedir(), '.studio', 'cli.json');
+	const cliConfigPath = configPath ?? resolve(homedir(), '.studio', 'cli.json');
 	let raw: string;
 	try {
 		raw = await readFile(cliConfigPath, 'utf8');

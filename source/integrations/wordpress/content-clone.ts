@@ -8,20 +8,26 @@
 // user's existing content.
 import {mkdir, rename, rm} from 'node:fs/promises';
 import {join, resolve} from 'node:path';
-import {spawn} from 'node:child_process';
 import {randomBytes} from 'node:crypto';
 import {
 	attachAbortSignal,
 	trackChild,
 } from '../../lib/process-tracker.js';
+import {defaultSpawn, type Spawn} from '../../lib/spawn.js';
 import {redactUrlCredentials, stripAnsi} from '../../lib/strip-ansi.js';
 import type {LogEvent} from '../../lib/event-list.js';
+
+export type CloneOptions = {
+	signal?: AbortSignal;
+	spawn?: Spawn;
+};
 
 export async function* cloneWpContent(
 	projectDir: string,
 	gitRepo: string,
-	signal?: AbortSignal,
+	options: CloneOptions = {},
 ): AsyncGenerator<LogEvent> {
+	const {signal, spawn = defaultSpawn} = options;
 	const wpRoot = resolve(projectDir, 'wordpress');
 	const wpContent = join(wpRoot, 'wp-content');
 	const stagingDir = join(
@@ -33,7 +39,7 @@ export async function* cloneWpContent(
 
 	yield {kind: 'step', message: `Cloning ${gitRepo} → ${stagingDir}`};
 	try {
-		await runGitClone(gitRepo, stagingDir, signal);
+		await runGitClone(gitRepo, stagingDir, signal, spawn);
 	} catch (err) {
 		await rm(stagingDir, {recursive: true, force: true});
 		throw err;
@@ -59,6 +65,7 @@ function runGitClone(
 	repo: string,
 	dest: string,
 	signal: AbortSignal | undefined,
+	spawn: Spawn,
 ): Promise<void> {
 	return new Promise((res, rej) => {
 		const child = spawn('git', ['clone', '--', repo, dest], {

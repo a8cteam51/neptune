@@ -32,7 +32,7 @@ export default function StudioSiteStep({
 					projectDir,
 					config.projectName,
 					config.themeSlug,
-					signal,
+					{signal},
 				);
 			}}
 			onSuccess={() =>

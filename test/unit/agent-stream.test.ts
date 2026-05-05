@@ -1,5 +1,5 @@
 import test from 'ava';
-import {stripFences} from '../source/lib/agent-stream.js';
+import {stripFences} from '../../source/lib/agent-stream.js';
 
 test('stripFences leaves text without fences alone', t => {
 	t.is(stripFences('hello world'), 'hello world');

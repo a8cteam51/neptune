@@ -13,9 +13,13 @@ import {Buffer} from 'node:buffer';
 import {writeFileAtomic} from '../../lib/atomic-write.js';
 import type {LogEvent} from '../../lib/event-list.js';
 
-const MCP_URL = process.env['FIGMA_MCP_URL'] ?? 'http://127.0.0.1:3845/mcp';
+const DEFAULT_MCP_URL = 'http://127.0.0.1:3845/mcp';
 const PROTOCOL_VERSION = '2025-06-18';
 const MCP_REQUEST_TIMEOUT_MS = 60_000;
+
+function resolveMcpUrl(override?: string): string {
+	return override ?? process.env['FIGMA_MCP_URL'] ?? DEFAULT_MCP_URL;
+}
 
 export type PullOptions = {
 	pageName: string;
@@ -94,11 +98,16 @@ export type SelectionResult =
 	| {ok: true; selection: SelectionMetadata | null}
 	| {ok: false; error: Error};
 
+export type GetSelectionOptions = {
+	signal?: AbortSignal;
+	url?: string;
+};
+
 export async function getSelectionMetadata(
-	signal?: AbortSignal,
+	options: GetSelectionOptions = {},
 ): Promise<SelectionResult> {
 	try {
-		const session = await openMcpSession(signal);
+		const session = await openMcpSession(options);
 		try {
 			const resp = await session.call('get_metadata', {});
 			if (resp?.error) {
@@ -125,7 +134,7 @@ export async function getSelectionMetadata(
 	}
 }
 
-function parseSelectionMetadata(rawXml: string): SelectionMetadata {
+export function parseSelectionMetadata(rawXml: string): SelectionMetadata {
 	const firstLine =
 		rawXml.split('\n').find(line => line.trim() !== '') ?? '';
 	const meta: SelectionMetadata = {rawXml};
@@ -232,16 +241,24 @@ export type McpSession = {
 	close: () => void;
 };
 
+export type OpenMcpSessionOptions = {
+	signal?: AbortSignal;
+	url?: string;
+};
+
 export async function openMcpSession(
-	signal?: AbortSignal,
+	options: OpenMcpSessionOptions = {},
 ): Promise<McpSession> {
-	const sessionId = await initializeSession(signal);
+	const url = resolveMcpUrl(options.url);
+	const {signal} = options;
+	const sessionId = await initializeSession(url, signal);
 	let nextId = 1000;
 	let closed = false;
 	return {
 		call: async (name, args) => {
 			if (closed) throw new Error('Figma MCP session is closed.');
 			return mcpCall(
+				url,
 				sessionId,
 				{
 					jsonrpc: '2.0',
@@ -267,8 +284,11 @@ export function joinTextContent(resp: JsonRpcResponse | undefined): string {
 		.join('\n');
 }
 
-async function initializeSession(signal?: AbortSignal): Promise<string> {
-	const initResp = await fetchWithTimeout(MCP_URL, {
+async function initializeSession(
+	url: string,
+	signal?: AbortSignal,
+): Promise<string> {
+	const initResp = await fetchWithTimeout(url, {
 		method: 'POST',
 		headers: {
 			'Content-Type': 'application/json',
@@ -301,6 +321,7 @@ async function initializeSession(signal?: AbortSignal): Promise<string> {
 	}
 
 	await mcpCall(
+		url,
 		sessionId,
 		{
 			jsonrpc: '2.0',
@@ -317,11 +338,12 @@ async function initializeSession(signal?: AbortSignal): Promise<string> {
 // assumes one `data: ` line per response — works for current Figma Dev
 // Mode but isn't a general-purpose SSE reader.
 async function mcpCall(
+	url: string,
 	sessionId: string,
 	payload: JsonRpcRequest,
 	signal: AbortSignal | undefined,
 ): Promise<JsonRpcResponse | undefined> {
-	const resp = await fetchWithTimeout(MCP_URL, {
+	const resp = await fetchWithTimeout(url, {
 		method: 'POST',
 		headers: {
 			'Content-Type': 'application/json',

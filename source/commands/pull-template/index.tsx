@@ -35,6 +35,7 @@ import {
 	type SelectionMetadata,
 } from '../../integrations/figma/mcp.js';
 import FigmaPull from '../../integrations/figma/pull.js';
+import {realClock} from '../../lib/clock.js';
 import {scaffoldTemplate} from '../../lib/template-scaffold.js';
 import type {
 	DevNote,
@@ -99,7 +100,7 @@ export default function PullTemplate({activeProject, onDone}: Props) {
 		(async () => {
 			try {
 				const [selResult, status, templatesPull] = await Promise.all([
-					getSelectionMetadata(controller.signal),
+					getSelectionMetadata({signal: controller.signal}),
 					getSpecialPullsStatus(activeProject.dir),
 					findSpecialPull(activeProject.dir, 'templates'),
 				]);
@@ -358,7 +359,7 @@ export default function PullTemplate({activeProject, onDone}: Props) {
 					themeSlug,
 					scaffolded,
 					special: phase.special,
-					pulledAt: new Date().toISOString(),
+					pulledAt: realClock(),
 					devNotes,
 					titleCards,
 				});

@@ -9,22 +9,26 @@
 import {mkdir, readdir, readFile, stat} from 'node:fs/promises';
 import {resolve} from 'node:path';
 import {writeFileAtomic} from '../../lib/atomic-write.js';
+import {realClock, type Clock} from '../../lib/clock.js';
 import {
 	CONFIG_FILENAME,
 	type Loaded,
 	type NeptuneConfig,
 } from './types.js';
 
-export async function loadOrInit(dest: string): Promise<Loaded> {
+export async function loadOrInit(
+	dest: string,
+	now: Clock = realClock,
+): Promise<Loaded> {
 	const configPath = resolve(dest, CONFIG_FILENAME);
 
-	const existing = await tryReadConfig(configPath);
+	const existing = await tryReadConfig(configPath, now);
 	if (existing) {
 		return {dir: dest, configPath, config: existing, mode: 'continued'};
 	}
 
 	await ensureEmptyDir(dest);
-	const config = newConfig();
+	const config = newConfig(now);
 	await writeConfig(configPath, config);
 	return {dir: dest, configPath, config, mode: 'created'};
 }
@@ -32,12 +36,13 @@ export async function loadOrInit(dest: string): Promise<Loaded> {
 export async function applyUpdate(
 	loaded: Loaded,
 	updates: Partial<NeptuneConfig>,
+	now: Clock = realClock,
 ): Promise<Loaded> {
 	const merged: NeptuneConfig = {
 		...loaded.config,
 		...updates,
 		steps: {...loaded.config.steps, ...(updates.steps ?? {})},
-		updatedAt: new Date().toISOString(),
+		updatedAt: now(),
 	};
 	await writeConfig(loaded.configPath, merged);
 	return {...loaded, config: merged};
@@ -45,11 +50,12 @@ export async function applyUpdate(
 
 async function tryReadConfig(
 	configPath: string,
+	now: Clock,
 ): Promise<NeptuneConfig | undefined> {
 	try {
 		const raw = await readFile(configPath, 'utf8');
 		const parsed = JSON.parse(raw) as Partial<NeptuneConfig>;
-		return normalizeConfig(parsed);
+		return normalizeConfig(parsed, now);
 	} catch (err) {
 		if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
 			return undefined;
@@ -62,12 +68,15 @@ async function tryReadConfig(
 	}
 }
 
-function normalizeConfig(parsed: Partial<NeptuneConfig>): NeptuneConfig {
-	const now = new Date().toISOString();
+function normalizeConfig(
+	parsed: Partial<NeptuneConfig>,
+	now: Clock,
+): NeptuneConfig {
+	const ts = now();
 	return {
 		version: 1,
-		createdAt: parsed.createdAt ?? now,
-		updatedAt: parsed.updatedAt ?? now,
+		createdAt: parsed.createdAt ?? ts,
+		updatedAt: parsed.updatedAt ?? ts,
 		projectName: parsed.projectName,
 		gitRepo: parsed.gitRepo,
 		themeSlug: parsed.themeSlug,
@@ -85,16 +94,19 @@ function normalizeConfig(parsed: Partial<NeptuneConfig>): NeptuneConfig {
 	};
 }
 
-export async function markVariablesBuilt(loaded: Loaded): Promise<Loaded> {
-	return applyUpdate(loaded, {variablesBuiltAt: new Date().toISOString()});
+export async function markVariablesBuilt(
+	loaded: Loaded,
+	now: Clock = realClock,
+): Promise<Loaded> {
+	return applyUpdate(loaded, {variablesBuiltAt: now()}, now);
 }
 
-function newConfig(): NeptuneConfig {
-	const now = new Date().toISOString();
+function newConfig(now: Clock): NeptuneConfig {
+	const ts = now();
 	return {
 		version: 1,
-		createdAt: now,
-		updatedAt: now,
+		createdAt: ts,
+		updatedAt: ts,
 		design: {pagesDir: 'design'},
 		steps: {
 			initialized: true,

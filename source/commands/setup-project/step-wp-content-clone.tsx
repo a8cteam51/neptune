@@ -23,7 +23,7 @@ export default function WpContentCloneStep({
 						'Git repo missing from config; cannot clone wp-content.',
 					);
 				}
-				return cloneWpContent(projectDir, config.gitRepo, signal);
+				return cloneWpContent(projectDir, config.gitRepo, {signal});
 			}}
 			onSuccess={() =>
 				onComplete({

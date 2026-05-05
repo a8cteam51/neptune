@@ -16,7 +16,6 @@ import {writeFileAtomic} from '../lib/atomic-write.js';
 import {
 	AgentAbortedError,
 	runAgent,
-	type ContentBlock,
 	type ImageBlock,
 	type TextBlock,
 } from '../lib/agent-stream.js';
@@ -320,12 +319,18 @@ function ConfirmOverwrite({
 	);
 }
 
-async function runBuild(
+export type BuildDeps = {
+	runAgent?: typeof runAgent;
+};
+
+export async function runBuild(
 	loaded: Loaded,
 	pull: PickablePull,
 	signal: AbortSignal,
 	onEvent: (ev: LogEvent) => void,
+	deps: BuildDeps = {},
 ): Promise<{path: string; size: number}> {
+	const agentRunner = deps.runAgent ?? runAgent;
 	const themeSlug = loaded.config.themeSlug!;
 
 	const codePath = join(loaded.dir, 'design', pull.slug, 'code.tsx');
@@ -406,7 +411,11 @@ async function runBuild(
 
 	onEvent({kind: 'step', message: 'Invoking Claude Agent SDK…'});
 
-	const markup = await generateMarkup(loaded.dir, userContent, signal, onEvent);
+	const markup = await agentRunner(
+		userContent,
+		{cwd: loaded.dir, pluginPath: PLUGIN_PATH, signal},
+		onEvent,
+	);
 
 	const target = templatePath(loaded.dir, themeSlug, pull.templateFile);
 	await mkdir(dirname(target), {recursive: true});
@@ -462,7 +471,7 @@ function buildUserContent(
 	return content;
 }
 
-function roleScopeNote(role: TemplateRole): string {
+export function roleScopeNote(role: TemplateRole): string {
 	if (role === 'header') {
 		return 'Convert ONLY the header region of the source page (site title, primary nav, top bar). Ignore main content and footer.';
 	}
@@ -470,15 +479,6 @@ function roleScopeNote(role: TemplateRole): string {
 		return 'Convert ONLY the footer region of the source page (site info, secondary nav, copyright). Ignore header and main content.';
 	}
 	return 'Convert ONLY the main content region of the source page. Header and footer are rendered separately by parts/header.html and parts/footer.html — skip them.';
-}
-
-async function generateMarkup(
-	cwd: string,
-	userContent: ContentBlock[],
-	signal: AbortSignal,
-	onEvent: (ev: LogEvent) => void,
-): Promise<string> {
-	return runAgent(userContent, {cwd, pluginPath: PLUGIN_PATH, signal}, onEvent);
 }
 
 function templatePath(
