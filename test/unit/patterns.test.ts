@@ -2,8 +2,10 @@ import {mkdir, readFile, writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import test from 'ava';
 import {
+	formatRegisteredPatternsContext,
 	kebabFromPascalCase,
 	listPatternSources,
+	listRegisteredPatterns,
 	parsePatternEnvelope,
 	serializePatternPhp,
 	writePatternFile,
@@ -196,21 +198,24 @@ test('listPatternSources: returns [] when patterns/ is missing', async t => {
 	t.deepEqual(await listPatternSources(dir), []);
 });
 
-test('listPatternSources: lists every .tsx in patterns/ alphabetically', async t => {
+test('listPatternSources: lists every patterns/<Name>/code.tsx alphabetically', async t => {
 	const dir = await makeTmpDir(t);
 	const patternsDir = join(dir, 'patterns');
-	await mkdir(patternsDir, {recursive: true});
+	await mkdir(join(patternsDir, 'HeroCallout'), {recursive: true});
 	await writeFile(
-		join(patternsDir, 'HeroCallout.tsx'),
+		join(patternsDir, 'HeroCallout', 'code.tsx'),
 		'export function HeroCallout() {return null}',
 		'utf8',
 	);
+	await mkdir(join(patternsDir, 'CTASection'), {recursive: true});
 	await writeFile(
-		join(patternsDir, 'CTASection.tsx'),
+		join(patternsDir, 'CTASection', 'code.tsx'),
 		'export function CTASection() {return null}',
 		'utf8',
 	);
-	// Non-tsx file is ignored.
+	// Folder without a code.tsx is ignored.
+	await mkdir(join(patternsDir, 'EmptyFolder'), {recursive: true});
+	// Stray file at the root is ignored.
 	await writeFile(join(patternsDir, 'README.md'), 'ignored', 'utf8');
 	const sources = await listPatternSources(dir);
 	t.is(sources.length, 2);
@@ -218,6 +223,7 @@ test('listPatternSources: lists every .tsx in patterns/ alphabetically', async t
 		sources.map(s => s.name),
 		['CTASection', 'HeroCallout'],
 	);
+	t.true(sources[0]!.path.endsWith(join('CTASection', 'code.tsx')));
 });
 
 test('writePatternFile: creates patterns/ and writes atomically', async t => {
@@ -226,4 +232,112 @@ test('writePatternFile: creates patterns/ and writes atomically', async t => {
 	t.is(path, join(themePath, 'patterns', 'hero.php'));
 	const body = await readFile(path, 'utf8');
 	t.is(body, '<?php // hi\n');
+});
+
+// listRegisteredPatterns: returns patterns that have BOTH an on-disk
+// folder under <project>/patterns/<Name>/ AND a built PHP file at
+// wordpress/wp-content/themes/<themeSlug>/patterns/<kebab>.php. Anything
+// satisfying only one half is excluded.
+
+test('listRegisteredPatterns: returns [] when patterns/ is missing', async t => {
+	const dir = await makeTmpDir(t);
+	t.deepEqual(await listRegisteredPatterns(dir, 'neptune-theme'), []);
+});
+
+test('listRegisteredPatterns: returns [] when no PHP files exist', async t => {
+	const dir = await makeTmpDir(t);
+	const patternsDir = join(dir, 'patterns');
+	await mkdir(join(patternsDir, 'HeroCallout'), {recursive: true});
+	await writeFile(
+		join(patternsDir, 'HeroCallout', 'code.tsx'),
+		'export function HeroCallout() {return null}',
+		'utf8',
+	);
+	t.deepEqual(await listRegisteredPatterns(dir, 'neptune-theme'), []);
+});
+
+test('listRegisteredPatterns: returns only patterns with both folder and PHP', async t => {
+	const dir = await makeTmpDir(t);
+	const patternsDir = join(dir, 'patterns');
+	const themePatternsDir = join(
+		dir,
+		'wordpress',
+		'wp-content',
+		'themes',
+		'neptune-theme',
+		'patterns',
+	);
+	await mkdir(join(patternsDir, 'HeroCallout'), {recursive: true});
+	await writeFile(
+		join(patternsDir, 'HeroCallout', 'code.tsx'),
+		'export function HeroCallout() {return null}',
+		'utf8',
+	);
+	await mkdir(join(patternsDir, 'CTASection'), {recursive: true});
+	await writeFile(
+		join(patternsDir, 'CTASection', 'code.tsx'),
+		'export function CTASection() {return null}',
+		'utf8',
+	);
+	await mkdir(join(patternsDir, 'PulledButNotBuilt'), {recursive: true});
+	await mkdir(themePatternsDir, {recursive: true});
+	// HeroCallout is built; CTASection is not.
+	await writeFile(
+		join(themePatternsDir, 'hero-callout.php'),
+		'<?php // hi\n',
+		'utf8',
+	);
+	// Stray PHP without a folder counterpart should NOT appear.
+	await writeFile(
+		join(themePatternsDir, 'orphan-php.php'),
+		'<?php // hi\n',
+		'utf8',
+	);
+	const result = await listRegisteredPatterns(dir, 'neptune-theme');
+	t.is(result.length, 1);
+	t.is(result[0]!.name, 'HeroCallout');
+	t.is(result[0]!.slug, 'neptune-theme/hero-callout');
+});
+
+test('listRegisteredPatterns: ignores dotfiles and non-folders', async t => {
+	const dir = await makeTmpDir(t);
+	const patternsDir = join(dir, 'patterns');
+	const themePatternsDir = join(
+		dir,
+		'wordpress',
+		'wp-content',
+		'themes',
+		'neptune-theme',
+		'patterns',
+	);
+	await mkdir(patternsDir, {recursive: true});
+	await mkdir(themePatternsDir, {recursive: true});
+	// .hidden folder is skipped.
+	await mkdir(join(patternsDir, '.hidden'), {recursive: true});
+	await writeFile(
+		join(themePatternsDir, 'hidden.php'),
+		'<?php // hi\n',
+		'utf8',
+	);
+	// Stray file at the patterns/ root is skipped.
+	await writeFile(join(patternsDir, 'README.md'), 'ignored', 'utf8');
+	const result = await listRegisteredPatterns(dir, 'neptune-theme');
+	t.deepEqual(result, []);
+});
+
+test('formatRegisteredPatternsContext: returns null on empty input', t => {
+	t.is(formatRegisteredPatternsContext([]), null);
+});
+
+test('formatRegisteredPatternsContext: emits compact JSON of name + slug', t => {
+	const out = formatRegisteredPatternsContext([
+		{name: 'HeroCallout', slug: 'neptune-theme/hero-callout'},
+		{name: 'CTASection', slug: 'neptune-theme/cta-section'},
+	]);
+	t.truthy(out);
+	const parsed = JSON.parse(out!);
+	t.deepEqual(parsed, [
+		{name: 'HeroCallout', slug: 'neptune-theme/hero-callout'},
+		{name: 'CTASection', slug: 'neptune-theme/cta-section'},
+	]);
 });

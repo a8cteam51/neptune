@@ -1,10 +1,19 @@
-// Top-level menu. Items are gated by what's been done:
-//   - "Pull template" needs an active project.
-//   - "Verify screenshots" needs at least one non-special pull.
-//   - "Extract patterns" needs at least one non-special pull.
-//   - "Build template" needs at least one non-special pull and a themeSlug.
-//   - "Build theme.json" needs at least one pull on disk and a themeSlug
-//     (it runs the variables merge as a preamble).
+// Top-level menu. Items are gated by what's been done; sections appear
+// in user-flow order: Figma → Styles → Patterns → Content → Templates
+// → End-to-end. A section is omitted entirely when none of its rows
+// pass their gate, so the cursor never lands on an empty group.
+//
+// Gating cheat-sheet:
+//   - Pull template          : active project
+//   - Verify screenshots     : ≥ 1 non-special pull
+//   - Build theme.json       : ≥ 1 pull + themeSlug
+//   - Extract patterns       : ≥ 1 non-special pull
+//   - Pull pattern           : config.patterns has ≥ 1 entry
+//   - Build patterns         : ≥ 1 patterns/<Name>/code.tsx + themeSlug
+//   - Build / Refine content : ≥ 1 usesPostContent pull + themeSlug
+//   - Build / Refine templates, View template diff : ≥ 1 non-special pull + themeSlug
+//   - End-to-end build       : ≥ 1 non-special pull + themeSlug (in-screen
+//     prereq check enforces "every selected pattern is pulled")
 import React, {useEffect, useState} from 'react';
 import {Box, Text, useApp} from 'ink';
 import SectionedMenu, {
@@ -12,13 +21,16 @@ import SectionedMenu, {
 } from './lib/sectioned-menu.js';
 import PullTemplate from './commands/pull-template.js';
 import ExtractPatterns from './commands/extract-patterns.js';
+import PullPattern from './commands/pull-pattern.js';
 import VerifyScreenshots from './commands/verify-screenshots.js';
 import BuildTemplates from './commands/build-templates.js';
-import BuildContent from './commands/build-content.js';
+import BuildContents from './commands/build-contents.js';
 import BuildPatterns from './commands/build-patterns.js';
 import RefineTemplates from './commands/refine-templates.js';
+import RefineContents from './commands/refine-contents.js';
 import ViewTemplateDiff from './commands/view-template-diff.js';
 import BuildThemeJson from './commands/build-theme-json.js';
+import E2E from './commands/e2e.js';
 import SetupProject, {type Loaded} from './commands/setup-project.js';
 import {loadOrInit} from './commands/setup-project/config.js';
 import {listPulls} from './lib/design-walk.js';
@@ -39,13 +51,16 @@ type View =
 	| 'setup'
 	| 'pull'
 	| 'extractPatterns'
+	| 'pullPattern'
 	| 'buildPatterns'
 	| 'verifyScreenshots'
 	| 'buildTemplates'
-	| 'buildContent'
+	| 'buildContents'
+	| 'refineContents'
 	| 'refineTemplates'
 	| 'viewTemplateDiff'
-	| 'buildTheme';
+	| 'buildTheme'
+	| 'e2e';
 
 type MenuValue = View | 'quit';
 
@@ -165,11 +180,15 @@ export default function App({name, startCwd}: Props) {
 		};
 	}, [activeProject]);
 
+	const hasSelectedPatterns =
+		(activeProject?.config.patterns?.length ?? 0) > 0;
+
 	const items = buildMenuItems({
 		hasActive: Boolean(activeProject),
 		hasPulls,
 		hasNonSpecialPulls,
 		hasPostContentPulls,
+		hasSelectedPatterns,
 		hasPatternSources,
 		hasTheme,
 	});
@@ -307,17 +326,18 @@ function SiteStatusLine({
 	);
 }
 
-// Menu items are partitioned into top-level sections (Figma / Styles /
-// Patterns / Templates / Content). The section header itself is
-// non-selectable; arrow keys jump straight from one selectable row to
-// the next. Sections that have no available actions for the current
-// project state are omitted entirely so the cursor never lands on an
-// empty group.
+// Menu items are partitioned into top-level sections in user-flow
+// order: Figma → Styles → Patterns → Content → Templates → End-to-end.
+// The section header itself is non-selectable; arrow keys jump straight
+// from one selectable row to the next. Sections that have no available
+// actions for the current project state are omitted entirely so the
+// cursor never lands on an empty group.
 function buildMenuItems({
 	hasActive,
 	hasPulls,
 	hasNonSpecialPulls,
 	hasPostContentPulls,
+	hasSelectedPatterns,
 	hasPatternSources,
 	hasTheme,
 }: {
@@ -325,6 +345,7 @@ function buildMenuItems({
 	hasPulls: boolean;
 	hasNonSpecialPulls: boolean;
 	hasPostContentPulls: boolean;
+	hasSelectedPatterns: boolean;
 	hasPatternSources: boolean;
 	hasTheme: boolean;
 }): SectionedItem<MenuValue>[] {
@@ -373,6 +394,14 @@ function buildMenuItems({
 			label: 'Extract patterns',
 			value: 'extractPatterns',
 		});
+		if (hasSelectedPatterns) {
+			patternItems.push({
+				kind: 'item',
+				key: 'pullPattern',
+				label: 'Pull pattern',
+				value: 'pullPattern',
+			});
+		}
 		if (hasPatternSources && hasTheme) {
 			patternItems.push({
 				kind: 'item',
@@ -409,17 +438,34 @@ function buildMenuItems({
 	if (hasNonSpecialPulls && hasTheme && hasPostContentPulls) {
 		contentItems.push({
 			kind: 'item',
-			key: 'buildContent',
-			label: 'Build content',
-			value: 'buildContent',
+			key: 'buildContents',
+			label: 'Build contents',
+			value: 'buildContents',
+		});
+		contentItems.push({
+			kind: 'item',
+			key: 'refineContents',
+			label: 'Refine contents',
+			value: 'refineContents',
+		});
+	}
+
+	const e2eItems: SectionedItem<MenuValue>[] = [];
+	if (hasNonSpecialPulls && hasTheme) {
+		e2eItems.push({
+			kind: 'item',
+			key: 'e2e',
+			label: 'End-to-end build',
+			value: 'e2e',
 		});
 	}
 
 	pushSection(items, 'Figma', figmaItems);
 	pushSection(items, 'Styles', stylesItems);
 	pushSection(items, 'Patterns', patternItems);
-	pushSection(items, 'Templates', templateItems);
 	pushSection(items, 'Content', contentItems);
+	pushSection(items, 'Templates', templateItems);
+	pushSection(items, 'End-to-end', e2eItems);
 	pushSection(items, 'Quit', [
 		{kind: 'item', key: 'quit', label: 'Sail away', value: 'quit'},
 	]);
@@ -469,6 +515,13 @@ function renderView(
 					onDone={() => onDone(true)}
 				/>
 			);
+		case 'pullPattern':
+			return (
+				<PullPattern
+					activeProject={activeProject}
+					onDone={() => onDone(true)}
+				/>
+			);
 		case 'buildPatterns':
 			return (
 				<BuildPatterns
@@ -490,9 +543,9 @@ function renderView(
 					onDone={() => onDone(false)}
 				/>
 			);
-		case 'buildContent':
+		case 'buildContents':
 			return (
-				<BuildContent
+				<BuildContents
 					activeProject={activeProject}
 					onDone={() => onDone(false)}
 				/>
@@ -500,6 +553,13 @@ function renderView(
 		case 'refineTemplates':
 			return (
 				<RefineTemplates
+					activeProject={activeProject}
+					onDone={() => onDone(false)}
+				/>
+			);
+		case 'refineContents':
+			return (
+				<RefineContents
 					activeProject={activeProject}
 					onDone={() => onDone(false)}
 				/>
@@ -514,6 +574,13 @@ function renderView(
 		case 'buildTheme':
 			return (
 				<BuildThemeJson
+					activeProject={activeProject}
+					onDone={() => onDone(true)}
+				/>
+			);
+		case 'e2e':
+			return (
+				<E2E
 					activeProject={activeProject}
 					onDone={() => onDone(true)}
 				/>

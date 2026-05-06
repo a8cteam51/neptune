@@ -10,10 +10,25 @@ import React from 'react';
 import {Box, Text} from 'ink';
 import Spinner from 'ink-spinner';
 
-export type LogEvent = {
-	kind: 'step' | 'warn' | 'success';
-	message: string;
-};
+// `usage` carries Claude Agent SDK token + cost numbers from one
+// `runAgent` call. EventList renders it like a step — same dot, same
+// formatted message — but aggregators (e.g. the E2E orchestrator) can
+// pick out the structured numeric fields by checking `kind === 'usage'`.
+// All numeric fields are optional because the SDK may omit cache fields
+// when no caching happened, or the cost when the run failed.
+export type LogEvent =
+	| {kind: 'step'; message: string}
+	| {kind: 'warn'; message: string}
+	| {kind: 'success'; message: string}
+	| {
+			kind: 'usage';
+			message: string;
+			costUsd?: number;
+			inputTokens?: number;
+			outputTokens?: number;
+			cacheReadInputTokens?: number;
+			cacheCreationInputTokens?: number;
+	  };
 
 type Status = 'running' | 'success' | 'error';
 
@@ -21,12 +36,14 @@ const COLOR_BY_KIND = {
 	step: undefined,
 	warn: 'yellow',
 	success: 'green',
+	usage: undefined,
 } as const;
 
 const SYMBOL_BY_KIND = {
 	step: '•',
 	warn: '!',
 	success: '✓',
+	usage: '•',
 } as const;
 
 export default function EventList({

@@ -41,6 +41,11 @@ export type NeptuneConfig = {
 	steps: Steps;
 	variablesBuiltAt?: string;
 	placeholderImage?: PlaceholderImage;
+	// Pattern names (PascalCase, matching the function name in code.tsx)
+	// the user picked in Extract patterns. Source of truth for which
+	// patterns surface in Pull pattern. On-disk folders under
+	// patterns/<Name>/ are written by Pull pattern, not by this list.
+	patterns?: string[];
 };
 
 export type Loaded = {

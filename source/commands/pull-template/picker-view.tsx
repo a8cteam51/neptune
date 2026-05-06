@@ -4,17 +4,18 @@ import Menu from '../../lib/menu.js';
 import type {SelectionMetadata} from '../../integrations/figma/mcp.js';
 import type {TitleCardRef} from '../../lib/types.js';
 import SelectionLine from './selection-line.js';
+import {slugify} from './special-meta.js';
 
 type ItemValue =
 	| {kind: 'titleCard'; titleCard: TitleCardRef}
 	| {kind: 'custom'}
-	| {kind: 'refresh'}
 	| {kind: 'cancel'};
 
 export default function PickerView({
 	selection,
 	selectionError,
 	titleCards,
+	pulledSlugs,
 	onSelectTitleCard,
 	onSelectCustom,
 	onCancel,
@@ -23,20 +24,30 @@ export default function PickerView({
 	selection: SelectionMetadata | null;
 	selectionError: Error | null;
 	titleCards: TitleCardRef[];
+	pulledSlugs: ReadonlySet<string>;
 	onSelectTitleCard: (card: TitleCardRef) => void;
 	onSelectCustom: () => void;
 	onCancel: () => void;
 	onRefresh: () => void;
 }) {
-	useInput((_input, key) => {
-		if (key.escape) onCancel();
+	useInput((input, key) => {
+		if (key.escape) {
+			onCancel();
+			return;
+		}
+		if (input === 'r' || input === 'R') {
+			onRefresh();
+		}
 	});
 
 	const items: Array<{key: string; label: string; value: ItemValue}> = [];
 	titleCards.forEach((card, index) => {
+		const alreadyPulled = pulledSlugs.has(slugify(card.name));
 		items.push({
 			key: `tc:${card.id}:${index}`,
-			label: `Pull ${card.name}`,
+			label: alreadyPulled
+				? `Pull ${card.name} — (pulled)`
+				: `Pull ${card.name}`,
 			value: {kind: 'titleCard', titleCard: card},
 		});
 	});
@@ -44,11 +55,6 @@ export default function PickerView({
 		key: 'custom',
 		label: 'Custom — pull any selection',
 		value: {kind: 'custom'},
-	});
-	items.push({
-		key: 'refresh',
-		label: 'Refresh Figma selection',
-		value: {kind: 'refresh'},
 	});
 	items.push({
 		key: 'cancel',
@@ -98,9 +104,6 @@ export default function PickerView({
 							case 'custom':
 								onSelectCustom();
 								return;
-							case 'refresh':
-								onRefresh();
-								return;
 							case 'cancel':
 								onCancel();
 						}
@@ -109,7 +112,7 @@ export default function PickerView({
 			</Box>
 
 			<Box marginTop={1}>
-				<Text dimColor>Esc to cancel.</Text>
+				<Text dimColor>Esc to cancel · R to refresh Figma selection.</Text>
 			</Box>
 		</Box>
 	);

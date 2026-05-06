@@ -1,5 +1,5 @@
-// Sequentially builds a user-chosen subset of patterns/<Name>.tsx files
-// into WordPress block patterns at <theme>/patterns/<slug>.php. The
+// Sequentially builds a user-chosen subset of patterns/<Name>/code.tsx
+// files into WordPress block patterns at <theme>/patterns/<slug>.php. The
 // picker starts with every pattern checked; the user toggles off the
 // ones they don't want and presses Enter to run. No per-pattern
 // confirm — the picker IS the confirmation.
@@ -13,7 +13,7 @@
 // them.
 import React, {useEffect, useRef, useState} from 'react';
 import {Box, Text, useInput} from 'ink';
-import {access, readFile} from 'node:fs/promises';
+import {access, readFile, stat} from 'node:fs/promises';
 import {dirname, join, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {
@@ -85,7 +85,7 @@ export default function BuildPatterns({activeProject, onDone}: Props) {
 				if (sources.length === 0) {
 					setPhase({
 						kind: 'message',
-						title: 'No patterns/*.tsx found.',
+						title: 'No patterns/*/code.tsx found.',
 						subtitle: 'Run Extract patterns first.',
 					});
 					return;
@@ -299,7 +299,7 @@ export async function runBuildPattern(
 
 	onEvent({
 		kind: 'step',
-		message: `Loaded patterns/${src.name}.tsx (${src.body.length} bytes)`,
+		message: `Loaded patterns/${src.name}/code.tsx (${src.body.length} bytes)`,
 	});
 
 	const wpRoot = resolve(loaded.dir, 'wordpress');
@@ -371,7 +371,29 @@ export async function runBuildPattern(
 	}
 	const baseContext = sections.join('\n');
 
-	const userContent = buildUserContent(src.name, baseContext);
+	const screenshotPath = join(
+		loaded.dir,
+		'patterns',
+		src.name,
+		'screenshot.png',
+	);
+	const screenshotBuf = await readPngIfExists(screenshotPath);
+	if (screenshotBuf) {
+		onEvent({
+			kind: 'step',
+			message: `Loaded screenshot.png (${screenshotBuf.length} bytes)`,
+		});
+	} else {
+		onEvent({
+			kind: 'warn',
+			message: 'No usable screenshot.png — proceeding without visual reference',
+		});
+	}
+	const screenshotBase64 = screenshotBuf
+		? screenshotBuf.toString('base64')
+		: null;
+
+	const userContent = buildUserContent(src.name, baseContext, screenshotBase64);
 
 	onEvent({kind: 'step', message: 'Invoking Claude Agent SDK…'});
 
@@ -443,8 +465,12 @@ type UserContent = Array<TextBlock | ImageBlock>;
 // rules. The per-call dynamic context is the pattern's source name —
 // the agent uses it as the canonical title fallback when the TSX
 // doesn't suggest something better.
-function buildUserContent(name: string, baseContext: string): UserContent {
-	return [
+function buildUserContent(
+	name: string,
+	baseContext: string,
+	screenshotBase64: string | null,
+): UserContent {
+	const content: UserContent = [
 		{
 			type: 'text',
 			text:
@@ -453,8 +479,40 @@ function buildUserContent(name: string, baseContext: string): UserContent {
 				`Return the JSON envelope described in the skill. Neptune wraps the markup in the PHP file header itself; ` +
 				`do NOT emit any \`<?php\` tags or call any tools yourself.`,
 		},
-		{type: 'text', text: baseContext},
 	];
+
+	if (screenshotBase64) {
+		content.push({
+			type: 'text',
+			text: '=== screenshot.png — visual reference for the intended design output ===',
+		});
+		content.push({
+			type: 'image',
+			source: {
+				type: 'base64',
+				media_type: 'image/png',
+				data: screenshotBase64,
+			},
+		});
+	}
+
+	content.push({type: 'text', text: baseContext});
+
+	return content;
+}
+
+// pull-pattern always writes a screenshot.png alongside code.tsx, but
+// extract-patterns under the previous flow may have left zero-byte
+// placeholders behind. A zero-byte file is "exists" but not a usable
+// PNG, so treat it the same as missing.
+async function readPngIfExists(p: string): Promise<Buffer | null> {
+	try {
+		const s = await stat(p);
+		if (!s.isFile() || s.size === 0) return null;
+		return await readFile(p);
+	} catch {
+		return null;
+	}
 }
 
 async function readIfExists(p: string): Promise<string | null> {

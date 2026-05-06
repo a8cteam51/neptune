@@ -7,7 +7,6 @@ import SelectionLine from './selection-line.js';
 
 type ItemValue =
 	| {kind: 'special'; special: SpecialPullKind}
-	| {kind: 'refresh'}
 	| {kind: 'cancel'};
 
 export default function GateView({
@@ -27,8 +26,14 @@ export default function GateView({
 	onCancel: () => void;
 	onRefresh: () => void;
 }) {
-	useInput((_input, key) => {
-		if (key.escape) onCancel();
+	useInput((input, key) => {
+		if (key.escape) {
+			onCancel();
+			return;
+		}
+		if (input === 'r' || input === 'R') {
+			onRefresh();
+		}
 	});
 
 	const items: Array<{key: string; label: string; value: ItemValue}> = [];
@@ -46,11 +51,6 @@ export default function GateView({
 			value: {kind: 'special', special: 'templates'},
 		});
 	}
-	items.push({
-		key: 'refresh',
-		label: 'Refresh Figma selection',
-		value: {kind: 'refresh'},
-	});
 	items.push({
 		key: 'cancel',
 		label: 'Cancel',
@@ -118,9 +118,6 @@ export default function GateView({
 							case 'special':
 								onSelect(item.value.special);
 								return;
-							case 'refresh':
-								onRefresh();
-								return;
 							case 'cancel':
 								onCancel();
 						}
@@ -129,7 +126,7 @@ export default function GateView({
 			</Box>
 
 			<Box marginTop={1}>
-				<Text dimColor>Esc to cancel.</Text>
+				<Text dimColor>Esc to cancel · R to refresh Figma selection.</Text>
 			</Box>
 		</Box>
 	);

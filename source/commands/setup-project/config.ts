@@ -88,6 +88,9 @@ function normalizeConfig(
 		},
 		variablesBuiltAt: parsed.variablesBuiltAt,
 		placeholderImage: parsed.placeholderImage,
+		patterns: Array.isArray(parsed.patterns)
+			? parsed.patterns.filter((n): n is string => typeof n === 'string')
+			: undefined,
 	};
 }
 

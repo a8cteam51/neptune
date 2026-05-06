@@ -77,7 +77,10 @@ export async function runAgent(
 
 	let finalText = '';
 	let cost: number | undefined;
-	let outTokens: number | undefined;
+	let inputTokens: number | undefined;
+	let outputTokens: number | undefined;
+	let cacheReadTokens: number | undefined;
+	let cacheCreationTokens: number | undefined;
 	let partialChars = 0;
 	let lastPartialEmit = 0;
 
@@ -144,14 +147,23 @@ export async function runAgent(
 				}
 			} else if (msg.type === 'result') {
 				cost = msg.total_cost_usd;
-				outTokens = msg.usage?.output_tokens;
+				inputTokens = msg.usage?.input_tokens;
+				outputTokens = msg.usage?.output_tokens;
+				cacheReadTokens = msg.usage?.cache_read_input_tokens;
+				cacheCreationTokens = msg.usage?.cache_creation_input_tokens;
 				if (msg.subtype === 'success') {
 					if (typeof msg.result === 'string' && msg.result.length > 0) {
 						finalText = msg.result;
 					}
 					break;
 				}
-				emitTally(onEvent, outTokens, cost);
+				emitTally(onEvent, {
+					cost,
+					inputTokens,
+					outputTokens,
+					cacheReadTokens,
+					cacheCreationTokens,
+				});
 				throw new Error(
 					`Agent SDK returned non-success result: ${msg.subtype}`,
 				);
@@ -172,24 +184,44 @@ export async function runAgent(
 
 	if (!finalText) throw new Error('Empty response from Claude.');
 
-	emitTally(onEvent, outTokens, cost);
+	emitTally(onEvent, {
+		cost,
+		inputTokens,
+		outputTokens,
+		cacheReadTokens,
+		cacheCreationTokens,
+	});
 	return stripFences(finalText);
 }
 
-function emitTally(
-	onEvent: (ev: LogEvent) => void,
-	outTokens: number | undefined,
-	cost: number | undefined,
-) {
-	const tally: string[] = [];
-	if (outTokens !== undefined) tally.push(`${outTokens} output tokens`);
-	if (cost !== undefined) tally.push(`$${cost.toFixed(4)}`);
+type Tally = {
+	cost: number | undefined;
+	inputTokens: number | undefined;
+	outputTokens: number | undefined;
+	cacheReadTokens: number | undefined;
+	cacheCreationTokens: number | undefined;
+};
+
+// Emits a single 'usage' event carrying the SDK's reported tokens + cost.
+// EventList renders it as a normal step row; aggregators (E2E) pick out
+// the structured fields. The message preserves the previous human-
+// readable form so single-call screens look the same as before.
+function emitTally(onEvent: (ev: LogEvent) => void, tally: Tally) {
+	const parts: string[] = [];
+	if (tally.outputTokens !== undefined)
+		parts.push(`${tally.outputTokens} output tokens`);
+	if (tally.cost !== undefined) parts.push(`$${tally.cost.toFixed(4)}`);
 	onEvent({
-		kind: 'step',
+		kind: 'usage',
 		message:
-			tally.length > 0
-				? `Response complete (${tally.join(', ')})`
+			parts.length > 0
+				? `Response complete (${parts.join(', ')})`
 				: 'Response complete',
+		costUsd: tally.cost,
+		inputTokens: tally.inputTokens,
+		outputTokens: tally.outputTokens,
+		cacheReadInputTokens: tally.cacheReadTokens,
+		cacheCreationInputTokens: tally.cacheCreationTokens,
 	});
 }
 

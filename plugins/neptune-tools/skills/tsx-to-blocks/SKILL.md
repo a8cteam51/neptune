@@ -14,6 +14,7 @@ You convert a single React + Tailwind component (the output of Figma's code gene
 - Optionally `theme.json` — the active theme's settings. When present, ALWAYS use its preset slugs in preference to inlined raw values. The theme.json you receive is the single source of truth for what's already registered project-wide.
 - Optionally `variables.json` — the flat token map originally scraped from Figma. Useful when a Tailwind class references a CSS variable that you need to resolve back to a preset.
 - Optionally `=== existing block style variations ===` — a JSON array of variations already registered for this theme (slug, title, blockTypes, styles). When one of these matches what you need, REUSE it by applying the existing `is-style-<slug>` class to the relevant block — do NOT redeclare it in `block_style_variations[]`. Only emit a new entry when no existing variation fits.
+- Optionally `=== registered patterns ===` — a JSON array of block patterns already registered in the theme (`name`, `slug`). When code.tsx invokes a function whose PascalCase name exactly matches a `name` entry, emit `<!-- wp:pattern {"slug":"<slug>"} /-->` for that JSX element instead of inlining the function body. See "Registered patterns" below.
 - Optionally a screenshot of the intended design, to help disambiguate unclear pieces of TSX. Do not describe the screenshot in your response.
 - Optionally a `=== dev annotations ===` section. These are non-binding designer notes attached to specific TSX nodes (originally `data-development-annotations` in code.tsx). Treat them as designer intent that explains a region's purpose or behavior — they may clarify which content is placeholder vs. final, why a state looks the way it does, or how a region is expected to render once filled in. Use them to inform conversion decisions, not as user-facing text.
 
@@ -50,6 +51,26 @@ If the scope says you are building the post-content body:
 - Do NOT emit `wp:template-part` (header/footer are in the wrapper).
 - Do NOT emit `wp:post-content` (your output IS the post content).
 - Do NOT emit `wp:post-title`, `wp:post-date`, etc. — those belong to the wrapper.
+
+## Registered patterns
+
+When the user supplies a `=== registered patterns ===` section, every entry is a block pattern already registered in the theme. The shape is `[{name, slug}, …]`. The `name` matches the PascalCase function name of the pattern in code.tsx; the `slug` is the WordPress-registered slug (`<theme>/<kebab>`).
+
+If code.tsx contains a JSX element whose tag name matches an entry's `name` exactly (case-sensitive), emit one block in its place:
+
+```
+<!-- wp:pattern {"slug":"<slug>"} /-->
+```
+
+Use the `slug` field verbatim — do NOT recompute it from the name. The `wp:pattern` block is self-closing; it has no children and no other attributes.
+
+Rules:
+
+- Match by JSX tag name only. `<HeroCallout />` and `<HeroCallout variant="dark" />` both match the registered name `HeroCallout`. Props are ignored — `wp:pattern` is a static reference, not a component invocation.
+- The function is usually defined as a top-level sibling in the same code.tsx file. **Ignore that function's body** when emitting the pattern reference — the registered pattern is canonical, even if the inline function differs slightly.
+- Do not emit `wp:pattern` for a name that's not in the inventory. If a function call has no matching entry, inline its body the normal way.
+- When converting the inline body of a function that IS in the inventory (i.e. you're walking into it because the JSX is the function definition itself rather than a JSX call to it), still emit `wp:pattern` for outer JSX calls to it elsewhere — but do not recursively rewrite the definition itself.
+- The pattern reference replaces the entire JSX element subtree the call expands to. Don't keep wrapping divs that exist only to host the call.
 
 ## Output format
 
@@ -115,6 +136,7 @@ When a value isn't a preset and is reused across multiple blocks (e.g. a recurri
 
 | TSX shape | Use this block |
 | --- | --- |
+| JSX call whose tag name is in `=== registered patterns ===` | `wp:pattern` with the matching `slug` — see "Registered patterns" |
 | Top-level layout `<div>` wrapping a section | `wp:group` with an appropriate `layout` (constrained / flex / grid) |
 | `<h1>`…`<h6>` | `wp:heading` with `level` attribute |
 | `<p>` / span text runs | `wp:paragraph` |
@@ -161,4 +183,5 @@ When a class uses a CSS variable like `var(--eureka/contrast-1,#21201c)`, resolv
 5. If `block_style_variations` is present, every entry's slug starts with `neptune-` AND its `is-style-<slug>` class appears on at least one block in `template_html`.
 6. Every `is-style-neptune-<slug>` class on a block in `template_html` is backed EITHER by an entry in the existing-variations inventory OR by a new entry in `block_style_variations[]` — never both. Do not redeclare a slug that's already registered.
 7. CSS only used when no pre-exposed structured property could express the rule.
-8. No `function`, `import`, `const imgFoo`, or TypeScript syntax remains.
+8. Every JSX call whose tag matches a `=== registered patterns ===` `name` was emitted as `<!-- wp:pattern {"slug":"<slug>"} /-->`, not inlined. Slug used verbatim.
+9. No `function`, `import`, `const imgFoo`, or TypeScript syntax remains.

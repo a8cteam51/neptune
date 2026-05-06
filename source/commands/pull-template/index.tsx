@@ -23,8 +23,7 @@ import {readFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import {
 	findPullBySlug,
-	findSpecialPull,
-	getSpecialPullsStatus,
+	listPulls,
 	writePullMeta,
 } from '../../lib/design-walk.js';
 import {downloadCodeAssets} from '../../integrations/figma/assets-fetch.js';
@@ -70,12 +69,14 @@ type Phase =
 			selection: SelectionMetadata | null;
 			selectionError: Error | null;
 			titleCards: TitleCardRef[];
+			pulledSlugs: ReadonlySet<string>;
 	  }
 	| {
 			kind: 'configuring';
 			selection: SelectionMetadata | null;
 			selectionError: Error | null;
 			titleCards: TitleCardRef[];
+			pulledSlugs: ReadonlySet<string>;
 			prefilledPageName?: string;
 	  }
 	| {
@@ -104,29 +105,38 @@ export default function PullTemplate({activeProject, onDone}: Props) {
 
 		(async () => {
 			try {
-				const [selResult, status, templatesPull] = await Promise.all([
+				const [selResult, allPulls] = await Promise.all([
 					getSelectionMetadata({signal: controller.signal}),
-					getSpecialPullsStatus(activeProject.dir),
-					findSpecialPull(activeProject.dir, 'templates'),
+					listPulls(activeProject.dir),
 				]);
 				if (controller.signal.aborted) return;
 				const sel = selResult.ok ? selResult.selection : null;
 				const selectionError = selResult.ok ? null : selResult.error;
-				const gateOpen = status.hasStyleGuide && status.hasTemplates;
+				const hasStyleGuide = allPulls.some(
+					p => p.special === 'styleGuide',
+				);
+				const hasTemplates = allPulls.some(p => p.special === 'templates');
+				const templatesPull =
+					allPulls.find(p => p.special === 'templates') ?? null;
+				const pulledSlugs = new Set(
+					allPulls.filter(p => p.special === undefined).map(p => p.slug),
+				);
+				const gateOpen = hasStyleGuide && hasTemplates;
 				if (gateOpen) {
 					setPhase({
 						kind: 'picking',
 						selection: sel,
 						selectionError,
 						titleCards: templatesPull?.titleCards ?? [],
+						pulledSlugs,
 					});
 				} else {
 					setPhase({
 						kind: 'gate',
 						selection: sel,
 						selectionError,
-						hasStyleGuide: status.hasStyleGuide,
-						hasTemplates: status.hasTemplates,
+						hasStyleGuide,
+						hasTemplates,
 					});
 				}
 			} catch (err) {
@@ -228,12 +238,14 @@ export default function PullTemplate({activeProject, onDone}: Props) {
 				selection={phase.selection}
 				selectionError={phase.selectionError}
 				titleCards={phase.titleCards}
+				pulledSlugs={phase.pulledSlugs}
 				onSelectTitleCard={card =>
 					setPhase({
 						kind: 'configuring',
 						selection: phase.selection,
 						selectionError: phase.selectionError,
 						titleCards: phase.titleCards,
+						pulledSlugs: phase.pulledSlugs,
 						prefilledPageName: card.name,
 					})
 				}
@@ -243,6 +255,7 @@ export default function PullTemplate({activeProject, onDone}: Props) {
 						selection: phase.selection,
 						selectionError: phase.selectionError,
 						titleCards: phase.titleCards,
+						pulledSlugs: phase.pulledSlugs,
 					})
 				}
 				onCancel={onDone}
@@ -276,6 +289,7 @@ export default function PullTemplate({activeProject, onDone}: Props) {
 						selection: phase.selection,
 						selectionError: phase.selectionError,
 						titleCards: phase.titleCards,
+						pulledSlugs: phase.pulledSlugs,
 					})
 				}
 			/>

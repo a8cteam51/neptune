@@ -2,7 +2,7 @@
 // interleaved with selectable items. Arrow keys jump over headers, so
 // the cursor only ever lands on something the user can act on. Used
 // for the top-level app menu where commands are grouped under
-// category labels (Figma / Styles / Patterns / Templates / Content).
+// category labels (Figma / Styles / Patterns / Content / Templates).
 //
 // Kept separate from lib/menu.tsx (a thin ink-select-input wrapper)
 // because ink-select-input doesn't model unselectable rows. Keyboard

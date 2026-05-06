@@ -29,6 +29,10 @@ import {
 	readBlockStyleVariations,
 } from '../lib/theme-json-patch.js';
 import {parseBuildEnvelope} from '../lib/build-envelope.js';
+import {
+	formatRegisteredPatternsContext,
+	listRegisteredPatterns,
+} from '../lib/patterns.js';
 import type {LogEvent} from '../lib/event-list.js';
 import {templateRole, type TemplateRole} from '../lib/template-scaffold.js';
 import {
@@ -114,6 +118,18 @@ export async function runBuild(
 		});
 	}
 
+	const registeredPatterns = await listRegisteredPatterns(
+		loaded.dir,
+		themeSlug,
+	);
+	const patternsContext = formatRegisteredPatternsContext(registeredPatterns);
+	if (patternsContext) {
+		onEvent({
+			kind: 'step',
+			message: `Loaded ${registeredPatterns.length} registered pattern${registeredPatterns.length === 1 ? '' : 's'} for reuse context`,
+		});
+	}
+
 	const baseSections: string[] = ['=== code.tsx ===', code];
 	if (themeJsonText) {
 		baseSections.push('', '=== theme.json ===', themeJsonText);
@@ -127,6 +143,14 @@ export async function runBuild(
 			'=== existing block style variations ===',
 			'These variations are already registered. Reuse them by adding the matching `is-style-<slug>` class to a block instead of redefining them. Only emit a new entry in `block_style_variations[]` when none of these fits.',
 			variationsContext,
+		);
+	}
+	if (patternsContext) {
+		baseSections.push(
+			'',
+			'=== registered patterns ===',
+			'These block patterns are already registered in the theme. When code.tsx invokes a function whose PascalCase name matches one of these `name` entries, emit `<!-- wp:pattern {"slug":"<slug>"} /-->` for that JSX element instead of inlining the function body. Use the `slug` field verbatim. Match is case-sensitive and exact on the function name.',
+			patternsContext,
 		);
 	}
 	const devAnnotations = extractDevAnnotations(code);

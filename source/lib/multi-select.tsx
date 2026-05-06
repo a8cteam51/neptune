@@ -3,7 +3,11 @@
 // agent — every item starts selected; user toggles off the ones they
 // don't want and presses Enter to submit, or Esc to bail.
 //
-// Controls: ↑/↓ move cursor; Space toggles; A toggles all; Enter
+// `initialSelectedKeys` overrides the all-selected default with a
+// specific subset — used by extract-patterns to pre-check the names
+// already saved in neptune-config.
+//
+// Controls: ↑/↓ move cursor; Space toggles; A toggle-all; Enter
 // submits selected items; Esc cancels.
 import React, {useState} from 'react';
 import {Box, Text, useInput} from 'ink';
@@ -19,17 +23,25 @@ export type MultiSelectProps<T> = {
 	items: ReadonlyArray<MultiSelectItem<T>>;
 	onSubmit: (selected: T[]) => void;
 	onCancel: () => void;
+	initialSelectedKeys?: ReadonlyArray<string>;
 };
 
 export default function MultiSelect<T>({
 	items,
 	onSubmit,
 	onCancel,
+	initialSelectedKeys,
 }: MultiSelectProps<T>) {
 	const [cursor, setCursor] = useState(0);
-	const [selected, setSelected] = useState<Set<string>>(
-		() => new Set(items.map(i => i.key)),
-	);
+	const [selected, setSelected] = useState<Set<string>>(() => {
+		if (initialSelectedKeys) {
+			const allowed = new Set(items.map(i => i.key));
+			return new Set(
+				initialSelectedKeys.filter(k => allowed.has(k)),
+			);
+		}
+		return new Set(items.map(i => i.key));
+	});
 
 	useInput((input, key) => {
 		if (key.escape) {
