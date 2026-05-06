@@ -11,6 +11,7 @@ export const STEP_LABELS: ReadonlyArray<{key: StepKey; label: string}> = [
 	{key: 'wordpressInstalled', label: 'WordPress installed'},
 	{key: 'wpContentCloned', label: 'wp-content cloned from repo'},
 	{key: 'studioSiteCreated', label: 'Studio site created'},
+	{key: 'placeholderUploaded', label: 'Placeholder image uploaded'},
 ];
 
 export const ORDERED_STEPS: StepKey[] = STEP_LABELS.map(s => s.key);

@@ -2,6 +2,7 @@
 // StudioSession once (via openStudioSession) and run multiple commands
 // against it — each call is one wp-cli invocation against the named
 // site. Returns the wp-cli stdout text; throws on non-zero/MCP error.
+import {isToolError, joinToolText} from '../integrations/studio/mcp.js';
 import type {StudioSession} from '../integrations/studio/mcp.js';
 
 export async function wpCli(
@@ -13,8 +14,8 @@ export async function wpCli(
 	if (resp.error) {
 		throw new Error(`wp_cli error: ${resp.error.message}`);
 	}
-	const text = joinTextContent(resp);
-	if (resp.result?.isError === true) {
+	const text = joinToolText(resp);
+	if (isToolError(resp)) {
 		throw new Error(`wp_cli failed: ${text}`);
 	}
 	return text;
@@ -26,14 +27,4 @@ export async function wpCli(
 // strings.
 export function shellSingleQuote(value: string): string {
 	return "'" + value.replace(/'/g, "'\\''") + "'";
-}
-
-function joinTextContent(resp: {
-	result?: {content?: Array<{type: string; text?: string}>};
-}): string {
-	const content = resp.result?.content ?? [];
-	return content
-		.filter(c => c.type === 'text' && typeof c.text === 'string')
-		.map(c => c.text)
-		.join('\n');
 }

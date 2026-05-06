@@ -13,6 +13,7 @@ import ExtractPatterns from './commands/extract-patterns.js';
 import VerifyScreenshots from './commands/verify-screenshots.js';
 import BuildTemplate from './commands/build-template.js';
 import RefineTemplate from './commands/refine-template.js';
+import ViewTemplateDiff from './commands/view-template-diff.js';
 import BuildThemeJson from './commands/build-theme-json.js';
 import SetupProject, {type Loaded} from './commands/setup-project.js';
 import {loadOrInit} from './commands/setup-project/config.js';
@@ -36,6 +37,7 @@ type View =
 	| 'verifyScreenshots'
 	| 'buildTemplate'
 	| 'refineTemplate'
+	| 'viewTemplateDiff'
 	| 'buildTheme';
 
 type MenuValue = View | 'quit';
@@ -299,6 +301,10 @@ function buildMenuItems({
 		if (hasNonSpecialPulls && hasTheme) {
 			items.push({label: 'Build template', value: 'buildTemplate'});
 			items.push({label: 'Refine template', value: 'refineTemplate'});
+			items.push({
+				label: '  ↳ View template diff',
+				value: 'viewTemplateDiff',
+			});
 		}
 		if (hasPulls && hasTheme) {
 			items.push({label: 'Build theme.json', value: 'buildTheme'});
@@ -357,6 +363,13 @@ function renderView(
 		case 'refineTemplate':
 			return (
 				<RefineTemplate
+					activeProject={activeProject}
+					onDone={() => onDone(false)}
+				/>
+			);
+		case 'viewTemplateDiff':
+			return (
+				<ViewTemplateDiff
 					activeProject={activeProject}
 					onDone={() => onDone(false)}
 				/>

@@ -61,11 +61,15 @@ export async function* createStudioSite(
 	yield {kind: 'step', message: `Studio site ready at ${wpDir}`};
 }
 
-function runStudio(
+// Run a `studio ...` command and return the captured stdout/stderr on
+// success. Throws on non-zero exit, missing binary, or abort. The CLI
+// mixes ANSI spinner cruft with eventual JSON; we keep raw bytes here
+// and let callers feed them through parseStudioJson.
+function runStudioCommand(
 	args: string[],
 	signal: AbortSignal | undefined,
 	spawn: Spawn,
-): Promise<void> {
+): Promise<{stdout: string; stderr: string}> {
 	return new Promise((res, rej) => {
 		const child = spawn('studio', args, {
 			stdio: ['ignore', 'pipe', 'pipe'],
@@ -96,7 +100,7 @@ function runStudio(
 
 		child.on('close', (code, sig) => {
 			if (code === 0) {
-				res();
+				res({stdout, stderr});
 				return;
 			}
 			if (signal?.aborted) {
@@ -116,62 +120,21 @@ function runStudio(
 	});
 }
 
-// Captures stdout from a `studio ...` invocation. The CLI mixes ANSI
-// spinner cruft with the eventual JSON; we keep the raw bytes here and
-// let callers feed them through parseStudioJson.
-function runStudioCapture(
+async function runStudio(
+	args: string[],
+	signal: AbortSignal | undefined,
+	spawn: Spawn,
+): Promise<void> {
+	await runStudioCommand(args, signal, spawn);
+}
+
+async function runStudioCapture(
 	args: string[],
 	signal: AbortSignal | undefined,
 	spawn: Spawn,
 ): Promise<string> {
-	return new Promise((res, rej) => {
-		const child = spawn('studio', args, {
-			stdio: ['ignore', 'pipe', 'pipe'],
-		});
-		trackChild(child);
-		attachAbortSignal(child, signal);
-
-		let stdout = '';
-		let stderr = '';
-		child.stdout?.on('data', chunk => {
-			stdout += String(chunk);
-		});
-		child.stderr?.on('data', chunk => {
-			stderr += String(chunk);
-		});
-
-		child.on('error', err => {
-			if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-				rej(
-					new Error(
-						"`studio` CLI not found on PATH. Install WordPress Studio's CLI first.",
-					),
-				);
-				return;
-			}
-			rej(err);
-		});
-
-		child.on('close', (code, sig) => {
-			if (code === 0) {
-				res(stdout);
-				return;
-			}
-			if (signal?.aborted) {
-				rej(new Error(`studio ${args[0] ?? ''} aborted.`));
-				return;
-			}
-			const detail =
-				stripAnsi((stderr.trim() || stdout.trim()) || '(no output)');
-			rej(
-				new Error(
-					`studio ${args.join(' ')} exited with code ${
-						code ?? `signal ${sig}`
-					}: ${detail}`,
-				),
-			);
-		});
-	});
+	const {stdout} = await runStudioCommand(args, signal, spawn);
+	return stdout;
 }
 
 // Studio's CLI prints ANSI spinner output on stdout before the

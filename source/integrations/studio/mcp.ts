@@ -24,12 +24,46 @@ type JsonRpcRequest = {
 	params?: unknown;
 };
 
-type JsonRpcResponse = {
+// `result` shape varies per MCP method (tools/call returns content
+// blocks; tools/list returns {tools: [...]}). We keep it `unknown` and
+// expose narrowing helpers (extractToolContent / isToolError) so each
+// consumer lands on a typed view at the boundary.
+export type JsonRpcResponse = {
 	jsonrpc: '2.0';
 	id?: number;
-	result?: any;
+	result?: unknown;
 	error?: {code: number; message: string};
 };
+
+export type McpContentBlock = {
+	type: string;
+	text?: string;
+	data?: string;
+	mimeType?: string;
+};
+
+export function extractToolContent(
+	resp: JsonRpcResponse | undefined,
+): McpContentBlock[] {
+	const result = resp?.result;
+	if (typeof result !== 'object' || result === null) return [];
+	const content = (result as {content?: unknown}).content;
+	if (!Array.isArray(content)) return [];
+	return content as McpContentBlock[];
+}
+
+export function isToolError(resp: JsonRpcResponse | undefined): boolean {
+	const result = resp?.result;
+	if (typeof result !== 'object' || result === null) return false;
+	return (result as {isError?: unknown}).isError === true;
+}
+
+export function joinToolText(resp: JsonRpcResponse | undefined): string {
+	return extractToolContent(resp)
+		.filter(c => c.type === 'text' && typeof c.text === 'string')
+		.map(c => c.text!)
+		.join('\n');
+}
 
 export type StudioSession = {
 	call: (
@@ -202,8 +236,10 @@ export async function openStudioSession(
 			if (resp.error) {
 				throw new Error(`tools/list failed: ${resp.error.message}`);
 			}
-			const tools = (resp.result?.tools ?? []) as StudioTool[];
-			return tools;
+			const result = resp.result;
+			if (typeof result !== 'object' || result === null) return [];
+			const tools = (result as {tools?: unknown}).tools;
+			return Array.isArray(tools) ? (tools as StudioTool[]) : [];
 		},
 		close: () => {
 			if (closed) return;
@@ -250,8 +286,8 @@ export async function validateBlocks(
 	if (resp.error) {
 		throw new Error(`validate_blocks error: ${resp.error.message}`);
 	}
-	const text = joinTextContent(resp);
-	if (resp.result?.isError === true) {
+	const text = joinToolText(resp);
+	if (isToolError(resp)) {
 		throw new Error(
 			`validate_blocks returned isError. Is the site running?\n${text}`,
 		);
@@ -284,33 +320,18 @@ export async function takeScreenshot(
 	if (resp.error) {
 		throw new Error(`take_screenshot error: ${resp.error.message}`);
 	}
-	if (resp.result?.isError === true) {
+	if (isToolError(resp)) {
 		throw new Error(
-			`take_screenshot returned isError. Is the site running?\n${joinTextContent(resp)}`,
+			`take_screenshot returned isError. Is the site running?\n${joinToolText(resp)}`,
 		);
 	}
-	const content: Array<{
-		type: string;
-		data?: string;
-		mimeType?: string;
-		text?: string;
-	}> = resp.result?.content ?? [];
-	const img = content.find(c => c.type === 'image' && c.data);
+	const img = extractToolContent(resp).find(c => c.type === 'image' && c.data);
 	if (!img?.data) {
 		throw new Error(
-			`take_screenshot returned no image block:\n${joinTextContent(resp)}`,
+			`take_screenshot returned no image block:\n${joinToolText(resp)}`,
 		);
 	}
 	return Buffer.from(img.data, 'base64');
-}
-
-function joinTextContent(resp: JsonRpcResponse): string {
-	const content: Array<{type: string; text?: string}> =
-		resp?.result?.content ?? [];
-	return content
-		.filter(c => c.type === 'text' && typeof c.text === 'string')
-		.map(c => c.text)
-		.join('\n');
 }
 
 function wrapSpawnError(err: unknown): Error {

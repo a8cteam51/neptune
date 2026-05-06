@@ -31,6 +31,13 @@ test('templateTargetFor: kebab-case stays in slug', t => {
 	t.is(t1.type, 'wp_template');
 });
 
+test('templateTargetFor: 404.html is a valid template slug', t => {
+	const t1 = templateTargetFor('404.html', 'Not Found');
+	t.is(t1.slug, '404');
+	t.is(t1.type, 'wp_template');
+	t.is(t1.title, 'Not Found');
+});
+
 test('templateTargetFor: empty pageName falls back to slug-derived title', t => {
 	const t1 = templateTargetFor('single-product.html', '');
 	t.is(t1.title, 'Single Product');

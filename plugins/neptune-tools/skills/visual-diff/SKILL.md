@@ -35,8 +35,8 @@ Return ONLY a single JSON object, no markdown fences, no commentary. The shape:
       "region": "Hero | Primary nav | Footer | Card #2 — short human label of where on the page",
       "severity": "high | medium | low",
       "description": "What is different. Reference what the design shows vs what live shows.",
-      "block_change": "Optional. e.g. 'wp:paragraph → wp:heading level=2' or null",
-      "style_change": "Optional. e.g. 'fontSize → preset:large' or 'spacing.padding.top → preset:lg' or null",
+      "block_change": "REQUIRED when the diff involves a block-type swap or attribute change (e.g. 'wp:paragraph → wp:heading level=2'). null only when the change is purely stylistic.",
+      "style_change": "REQUIRED when the diff involves a theme.json preset, a font size, a colour, or a measurable style value (e.g. 'fontSize → preset:large', 'padding.top → preset:lg'). null only when the change is purely structural.",
       "affects_layout": true
     }
   ]
@@ -54,6 +54,9 @@ Set `matches_design: true` ONLY when the live and design are visually equivalent
   - `low` — minor padding/margin tweak, subtle colour drift, near-invisible difference.
 - `region` is a human label, not a CSS selector. Make it specific enough that a developer can find the affected block in `current.html`.
 - `block_change` and `style_change` reference Gutenberg block names (e.g. `wp:heading`) and theme.json preset slugs when present in the supplied `theme.json`. If no theme.json was provided, use the literal value (e.g. `padding.top → 24px`).
+- Populate `block_change` whenever the diff implies a block-type swap, attribute change, or addition/removal — without it the fix agent has only a free-form description and is far more likely to skip the diff.
+- Populate `style_change` whenever the diff implies a font size / colour / spacing / typographic change — same reason.
+- A diff with neither `block_change` nor `style_change` is acceptable only when the change is genuinely free-form (e.g. content rewording).
 - `affects_layout` is `true` when the change moves siblings or alters element box size; `false` for in-place colour/typography swaps.
 - Order entries from highest to lowest severity, then by reading order on the page.
 - Do NOT propose changes the diff doesn't justify. Refinement, not rewrite.

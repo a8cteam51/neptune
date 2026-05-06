@@ -61,7 +61,7 @@ When a class uses a CSS variable like `var(--eureka/contrast-1,#21201c)`, resolv
 - JSON in block comment attributes must be valid: no trailing commas, no comments, double-quoted keys.
 - Strip Figma's `data-node-id` and `data-name` attributes — they have no value in WordPress.
 - Slugs are kebab-case, lowercase, alphanumeric + hyphens.
-- Replace local asset URLs (`http://localhost:3845/...`) with `""` for `src` — do not invent file paths.
+- For `wp:image` blocks: if the user supplies a `=== placeholder image ===` section with an attachment id and URL, use those values for every image block (`"id":<id>` in attrs, `<img src="<url>" class="wp-image-<id>">`). If no placeholder is supplied, leave `src=""` and omit the id. Never use Figma's local asset URLs (`http://localhost:3845/...`) and never invent file paths.
 - Never wrap the response in markdown code fences.
 
 ## Self-check before responding

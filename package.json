@@ -16,7 +16,8 @@
 		"postinstall": "playwright install chromium"
 	},
 	"files": [
-		"dist"
+		"dist",
+		"placeholder.jpg"
 	],
 	"dependencies": {
 		"@anthropic-ai/claude-agent-sdk": "^0.2.126",

@@ -21,8 +21,7 @@
 import React, {useEffect, useRef, useState} from 'react';
 import {Box, Text, useInput} from 'ink';
 import SelectInput from 'ink-select-input';
-import {access, mkdtemp, readFile, rm} from 'node:fs/promises';
-import {tmpdir} from 'node:os';
+import {access, readFile} from 'node:fs/promises';
 import {dirname, join, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {writeFileAtomic} from '../lib/atomic-write.js';
@@ -30,7 +29,12 @@ import {
 	AgentAbortedError,
 	runAgent,
 } from '../lib/agent-stream.js';
-import {captureAtSize, selectorForRole} from '../lib/browser-capture.js';
+import {captureAtSize} from '../lib/browser-capture.js';
+import {
+	captureAndDiffPull,
+	CaptureAbortedError,
+	type DiffPull,
+} from '../lib/template-diff.js';
 import {
 	readBlockStyles,
 	upsertBlockStyle,
@@ -46,14 +50,22 @@ import {
 import {listPulls} from '../lib/design-walk.js';
 import EventList, {type LogEvent} from '../lib/event-list.js';
 import MultiSelect from '../lib/multi-select.js';
-import {diffImages} from '../lib/odiff-runner.js';
-import {padToMatch} from '../lib/png-pad.js';
 import {
 	openStudioSession,
 	type StudioSession,
 } from '../integrations/studio/mcp.js';
-import {getSiteUrl} from '../integrations/studio/site.js';
-import {templateRole, templateSubdir} from '../lib/template-scaffold.js';
+import {
+	dArrayLenient,
+	dBoolean,
+	dEnum,
+	dNullable,
+	dObject,
+	dString,
+	decode,
+	type DecodeError,
+} from '../lib/decode.js';
+import {templateSubdir} from '../lib/template-scaffold.js';
+import {placeholderInstructions} from './build-template.js';
 import {
 	readTemplate,
 	targetLabel,
@@ -62,15 +74,13 @@ import {
 	type TemplateTarget,
 } from '../lib/wp-templates.js';
 import type {Loaded} from './setup-project/types.js';
-import type {PullMeta} from '../lib/types.js';
-import {readPngSize} from './verify-screenshots.js';
 
 type Props = {
 	activeProject: Loaded;
 	onDone: () => void;
 };
 
-type PickablePull = PullMeta & {templateFile: string};
+type PickablePull = DiffPull;
 
 export type DiffEntry = {
 	id: string;
@@ -110,7 +120,8 @@ type Phase =
 			kind: 'success';
 			resultPath: string;
 			size: number;
-			appliedCount: number;
+			applied: AppliedEntry[];
+			skipped: SkippedEntry[];
 			appliedStyles: number;
 	  }
 	| {kind: 'matched'; pull: PickablePull; ratio: number}
@@ -236,7 +247,8 @@ export default function RefineTemplate({activeProject, onDone}: Props) {
 					kind: 'success',
 					resultPath: result.path,
 					size: result.size,
-					appliedCount: approved.length,
+					applied: result.applied,
+					skipped: result.skipped,
 					appliedStyles: result.appliedStyles,
 				});
 			} catch (err) {
@@ -372,16 +384,39 @@ export default function RefineTemplate({activeProject, onDone}: Props) {
 			{phase.kind === 'success' ? (
 				<Box marginTop={1} flexDirection="column">
 					<Text color="green" bold>
-						✓ Applied {phase.appliedCount} diff
-						{phase.appliedCount === 1 ? '' : 's'}
+						✓ Applied {phase.applied.length} of{' '}
+						{phase.applied.length + phase.skipped.length} diff
+						{phase.applied.length + phase.skipped.length === 1 ? '' : 's'}
 						{phase.appliedStyles > 0
-							? ` and ${phase.appliedStyles} block style${
+							? `, persisted ${phase.appliedStyles} block style${
 									phase.appliedStyles === 1 ? '' : 's'
 								}`
 							: ''}{' '}
 						({phase.size} bytes).
 					</Text>
-					<Text dimColor>{phase.resultPath}</Text>
+					{phase.applied.length > 0 ? (
+						<Box flexDirection="column" marginTop={1}>
+							{phase.applied.map(a => (
+								<Text key={a.id} color="green">
+									{'  ✓ '}
+									<Text bold>{a.id}:</Text> {a.summary}
+								</Text>
+							))}
+						</Box>
+					) : null}
+					{phase.skipped.length > 0 ? (
+						<Box flexDirection="column" marginTop={1}>
+							{phase.skipped.map(s => (
+								<Text key={s.id} color="yellow">
+									{'  ! '}
+									<Text bold>{s.id}:</Text> {s.reason}
+								</Text>
+							))}
+						</Box>
+					) : null}
+					<Box marginTop={1}>
+						<Text dimColor>{phase.resultPath}</Text>
+					</Box>
 					<Text dimColor>Press any key to return.</Text>
 				</Box>
 			) : null}
@@ -447,71 +482,16 @@ export async function runDiagnose(
 		message: `Loaded current template (${currentTemplate.length} bytes)`,
 	});
 
-	const designPath = join(loaded.dir, 'design', pull.slug, 'screenshot.png');
-	const designBuf = await readFile(designPath).catch(() => null);
-	if (!designBuf) {
-		throw new Error(`No design screenshot at ${designPath}.`);
+	let captured;
+	try {
+		captured = await captureAndDiffPull(loaded, pull, signal, onEvent, {
+			captureAtSize: capture,
+		});
+	} catch (err) {
+		if (err instanceof CaptureAbortedError) throw new AgentAbortedError();
+		throw err;
 	}
-	const designSize = readPngSize(designBuf);
-	if (!designSize) {
-		throw new Error(`design/${pull.slug}/screenshot.png is not a valid PNG.`);
-	}
-	onEvent({
-		kind: 'step',
-		message: `Design screenshot ${designSize.width}×${designSize.height}`,
-	});
-
-	const siteUrl = await getSiteUrl(loaded.dir);
-	if (!siteUrl) {
-		throw new Error(
-			'Could not resolve the running site URL from ~/.studio/cli.json. Is the site registered with Studio?',
-		);
-	}
-	const previewPath = pull.previewPath ?? '/';
-	const previewUrl = siteUrl + previewPath;
-	const role = templateRole(pull.templateFile);
-	const selector = selectorForRole(role);
-	onEvent({
-		kind: 'step',
-		message: selector
-			? `Capturing ${previewUrl} (element ${selector})`
-			: `Capturing ${previewUrl}`,
-	});
-
-	const liveBuf = await capture({
-		url: previewUrl,
-		width: designSize.width,
-		height: designSize.height,
-		signal,
-		selector,
-	});
-
-	if (signal.aborted) throw new AgentAbortedError();
-
-	const livePath = join(loaded.dir, 'design', pull.slug, 'live.png');
-	await writeFileAtomic(livePath, liveBuf);
-
-	const liveSize = readPngSize(liveBuf);
-	const sizeNote =
-		liveSize &&
-		(liveSize.width !== designSize.width ||
-			liveSize.height !== designSize.height)
-			? `Live ${liveSize.width}×${liveSize.height} differs from design ${designSize.width}×${designSize.height}.`
-			: null;
-	if (sizeNote) {
-		onEvent({kind: 'warn', message: sizeNote});
-	}
-	onEvent({kind: 'step', message: `Saved live.png (${liveBuf.length} bytes)`});
-
-	const diffPath = join(loaded.dir, 'design', pull.slug, 'diff.png');
-	const outcome = await diffWithPadding(
-		designBuf,
-		liveBuf,
-		designPath,
-		livePath,
-		diffPath,
-		onEvent,
-	);
+	const {designBuf, liveBuf, diffPath, outcome, sizeNote} = captured;
 
 	if (!outcome.ok) {
 		throw new Error(
@@ -525,8 +505,8 @@ export async function runDiagnose(
 	}
 
 	// odiff returns layout-diff only when padding fails or is skipped;
-	// our diffWithPadding always produces a pixel-diff because it pads
-	// to a common canvas first. Treat any non-match as pixel-diff.
+	// captureAndDiffPull always pads to a common canvas first. Treat
+	// any non-match as pixel-diff.
 	if (outcome.kind !== 'pixel-diff') {
 		throw new Error(
 			'Padded diff produced layout-diff — should be unreachable.',
@@ -604,7 +584,9 @@ export async function runDiagnose(
 		onEvent,
 	);
 
-	const report = parseDiffReport(reportText);
+	const report = parseDiffReport(reportText, msg =>
+		onEvent({kind: 'warn', message: msg}),
+	);
 	const reportPath = join(loaded.dir, 'design', pull.slug, 'diff-report.json');
 	await writeFileAtomic(reportPath, JSON.stringify(report, null, 2) + '\n');
 	onEvent({
@@ -633,6 +615,16 @@ type ApplyDeps = {
 	runAgent?: typeof runAgent;
 };
 
+export type AppliedEntry = {
+	id: string;
+	summary: string;
+};
+
+export type SkippedEntry = {
+	id: string;
+	reason: string;
+};
+
 export type ApplyEnvelope = {
 	template_html: string;
 	block_styles: Array<{
@@ -641,6 +633,8 @@ export type ApplyEnvelope = {
 		label: string;
 		css: string;
 	}>;
+	applied: AppliedEntry[];
+	skipped: SkippedEntry[];
 };
 
 export async function runApply(
@@ -656,7 +650,13 @@ export async function runApply(
 	signal: AbortSignal,
 	onEvent: (ev: LogEvent) => void,
 	deps: ApplyDeps = {},
-): Promise<{path: string; size: number; appliedStyles: number}> {
+): Promise<{
+	path: string;
+	size: number;
+	applied: AppliedEntry[];
+	skipped: SkippedEntry[];
+	appliedStyles: number;
+}> {
 	const agentRunner = deps.runAgent ?? runAgent;
 
 	const sections: string[] = [
@@ -671,6 +671,10 @@ export async function runApply(
 	}
 	if (reviewPhase.variablesText) {
 		sections.push('', '=== variables.json ===', reviewPhase.variablesText);
+	}
+	const placeholder = loaded.config.placeholderImage;
+	if (placeholder) {
+		sections.push('', '=== placeholder image ===', placeholderInstructions(placeholder));
 	}
 
 	onEvent({kind: 'step', message: 'Invoking apply-diff agent…'});
@@ -694,7 +698,23 @@ export async function runApply(
 		onEvent,
 	);
 
-	const envelope = parseApplyEnvelope(responseText);
+	const envelope = parseApplyEnvelope(responseText, msg =>
+		onEvent({kind: 'warn', message: msg}),
+	);
+	validateApplyCoverage(envelope, approved.map(a => a.id));
+
+	for (const entry of envelope.applied) {
+		onEvent({
+			kind: 'success',
+			message: `Applied ${entry.id}: ${entry.summary}`,
+		});
+	}
+	for (const entry of envelope.skipped) {
+		onEvent({
+			kind: 'warn',
+			message: `Skipped ${entry.id}: ${entry.reason}`,
+		});
+	}
 
 	const out = envelope.template_html.endsWith('\n')
 		? envelope.template_html
@@ -725,52 +745,83 @@ export async function runApply(
 	return {
 		path: label,
 		size: out.length,
+		applied: envelope.applied,
+		skipped: envelope.skipped,
 		appliedStyles: envelope.block_styles.length,
 	};
 }
 
+const dApplyEntry = dObject({id: dString, summary: dString});
+const dSkipEntry = dObject({id: dString, reason: dString});
+const dBlockStyle = dObject({
+	block: dString,
+	name: dString,
+	label: dString,
+	css: dString,
+});
+
 // Validates the apply-diff agent's JSON envelope. Throws with a
-// truncated preview on schema mismatches.
-export function parseApplyEnvelope(input: string): ApplyEnvelope {
-	let parsed: unknown;
-	try {
-		parsed = JSON.parse(input);
-	} catch (err) {
-		throw new Error(
-			`apply-diff response was not valid JSON: ${
-				err instanceof Error ? err.message : String(err)
-			}\n\nFirst 500 chars: ${input.slice(0, 500)}`,
-		);
-	}
+// truncated preview on top-level schema mismatches; per-entry failures
+// in block_styles / applied / skipped are reported via onWarn and the
+// entry is dropped (one bad entry shouldn't kill the whole apply).
+export function parseApplyEnvelope(
+	input: string,
+	onWarn?: (msg: string) => void,
+): ApplyEnvelope {
+	const parsed = parseAgentJson(input, 'apply-diff');
 	if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
 		throw new Error('apply-diff response is not a JSON object.');
 	}
 	const obj = parsed as Record<string, unknown>;
+
 	const html = obj['template_html'];
 	if (typeof html !== 'string' || !html.trim()) {
 		throw new Error('apply-diff envelope is missing a non-empty template_html.');
 	}
-	const rawStyles = Array.isArray(obj['block_styles']) ? obj['block_styles'] : [];
-	const blockStyles: ApplyEnvelope['block_styles'] = [];
-	for (const entry of rawStyles) {
-		if (typeof entry !== 'object' || entry === null) continue;
-		const e = entry as Record<string, unknown>;
-		if (
-			typeof e['block'] !== 'string' ||
-			typeof e['name'] !== 'string' ||
-			typeof e['label'] !== 'string' ||
-			typeof e['css'] !== 'string'
-		) {
-			continue;
-		}
-		blockStyles.push({
-			block: e['block'],
-			name: e['name'],
-			label: e['label'],
-			css: e['css'],
-		});
-	}
-	return {template_html: html, block_styles: blockStyles};
+
+	const drop = (kind: string) => (path: string, err: DecodeError) => {
+		onWarn?.(`Dropped ${kind} entry at ${path}: ${err.message}`);
+	};
+
+	const block_styles = decode(
+		dArrayLenient(dBlockStyle, drop('block_styles')),
+		obj['block_styles'] ?? [],
+		'apply-diff.block_styles',
+	);
+	const applied = decode(
+		dArrayLenient(dApplyEntry, drop('applied')),
+		obj['applied'] ?? [],
+		'apply-diff.applied',
+	);
+	const skipped = decode(
+		dArrayLenient(dSkipEntry, drop('skipped')),
+		obj['skipped'] ?? [],
+		'apply-diff.skipped',
+	);
+
+	return {template_html: html, block_styles, applied, skipped};
+}
+
+// Verifies the agent accounted for every approved diff (each id appears
+// in either `applied` or `skipped`). Throws if any are unaccounted for —
+// previous behaviour silently dropped diffs and the user had no way to
+// tell what landed.
+export function validateApplyCoverage(
+	envelope: ApplyEnvelope,
+	approvedIds: string[],
+): void {
+	const accounted = new Set([
+		...envelope.applied.map(a => a.id),
+		...envelope.skipped.map(s => s.id),
+	]);
+	const missing = approvedIds.filter(id => !accounted.has(id));
+	if (missing.length === 0) return;
+	throw new Error(
+		`apply-diff agent did not account for diff id${
+			missing.length === 1 ? '' : 's'
+		}: ${missing.join(', ')}. ` +
+			'Each approved diff must appear in "applied" or "skipped".',
+	);
 }
 
 // Routes the agent's block-style edits to wp-config (constant) and
@@ -864,67 +915,73 @@ function buildContextSection(
 	return parts.join('\n');
 }
 
-// Validates and narrows the visual-diff agent's response. Throws with a
-// truncated preview on schema mismatches so the user can see what went
-// wrong without flooding the terminal.
-export function parseDiffReport(input: string): DiffReport {
-	let parsed: unknown;
-	try {
-		parsed = JSON.parse(input);
-	} catch (err) {
-		throw new Error(
-			`visual-diff response was not valid JSON: ${
-				err instanceof Error ? err.message : String(err)
-			}\n\nFirst 500 chars: ${input.slice(0, 500)}`,
-		);
-	}
+const dDiffEntry = dObject({
+	id: dString,
+	region: dString,
+	severity: dEnum('high', 'medium', 'low'),
+	description: dString,
+	block_change: dNullable(dString),
+	style_change: dNullable(dString),
+	affects_layout: dBoolean,
+});
+
+// Validates and narrows the visual-diff agent's response. Throws on
+// top-level schema mismatch; per-entry failures are reported via
+// onWarn and the entry is dropped. Duplicate ids are dropped first-wins.
+export function parseDiffReport(
+	input: string,
+	onWarn?: (msg: string) => void,
+): DiffReport {
+	const parsed = parseAgentJson(input, 'visual-diff');
 	if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
 		throw new Error('visual-diff response is not a JSON object');
 	}
 	const obj = parsed as Record<string, unknown>;
 	const summary = typeof obj['summary'] === 'string' ? obj['summary'] : '';
 	const matchesDesign = obj['matches_design'] === true;
-	const rawDiffs = Array.isArray(obj['diffs']) ? obj['diffs'] : [];
+
+	if (matchesDesign) return {summary, matches_design: true, diffs: []};
+
+	const rawDiffs = decode(
+		dArrayLenient(dDiffEntry, (path, err) => {
+			onWarn?.(`Dropped diff entry at ${path}: ${err.message}`);
+		}),
+		obj['diffs'] ?? [],
+		'visual-diff.diffs',
+	);
+
+	const seen = new Set<string>();
 	const diffs: DiffEntry[] = [];
-	const seenIds = new Set<string>();
-
 	for (const entry of rawDiffs) {
-		if (typeof entry !== 'object' || entry === null) continue;
-		const e = entry as Record<string, unknown>;
-		const id = typeof e['id'] === 'string' ? e['id'] : null;
-		const region = typeof e['region'] === 'string' ? e['region'] : null;
-		const severity = e['severity'];
-		const description =
-			typeof e['description'] === 'string' ? e['description'] : null;
-		const affectsLayout = e['affects_layout'];
-
-		if (!id || !region || !description) continue;
-		if (severity !== 'high' && severity !== 'medium' && severity !== 'low') {
+		if (seen.has(entry.id)) {
+			onWarn?.(`Dropped duplicate diff id "${entry.id}"`);
 			continue;
 		}
-		if (typeof affectsLayout !== 'boolean') continue;
-		if (seenIds.has(id)) continue;
-		seenIds.add(id);
-
+		seen.add(entry.id);
 		diffs.push({
-			id,
-			region,
-			severity,
-			description,
-			block_change:
-				typeof e['block_change'] === 'string'
-					? e['block_change']
-					: undefined,
-			style_change:
-				typeof e['style_change'] === 'string'
-					? e['style_change']
-					: undefined,
-			affects_layout: affectsLayout,
+			id: entry.id,
+			region: entry.region,
+			severity: entry.severity,
+			description: entry.description,
+			block_change: entry.block_change ?? undefined,
+			style_change: entry.style_change ?? undefined,
+			affects_layout: entry.affects_layout,
 		});
 	}
 
-	if (matchesDesign) return {summary, matches_design: true, diffs: []};
 	return {summary, matches_design: false, diffs};
+}
+
+function parseAgentJson(input: string, label: string): unknown {
+	try {
+		return JSON.parse(input);
+	} catch (err) {
+		throw new Error(
+			`${label} response was not valid JSON: ${
+				err instanceof Error ? err.message : String(err)
+			}\n\nFirst 500 chars: ${input.slice(0, 500)}`,
+		);
+	}
 }
 
 function templatePath(
@@ -952,45 +1009,3 @@ async function readIfExists(p: string): Promise<string | null> {
 	}
 }
 
-// odiff requires identical dimensions, but the design and live render
-// often disagree on height (the whole point of refinement). We pad
-// both buffers to a common canvas with magenta in the missing region,
-// run odiff against the padded copies in a temp dir, and write the
-// resulting diff.png to the pull's design folder. The padded copies
-// are discarded — the user keeps the original design.png/live.png.
-async function diffWithPadding(
-	designBuf: Buffer,
-	liveBuf: Buffer,
-	designPath: string,
-	livePath: string,
-	diffPath: string,
-	onEvent: (ev: LogEvent) => void,
-) {
-	const padded = padToMatch(designBuf, liveBuf);
-
-	if (!padded.padded) {
-		return diffImages(designPath, livePath, diffPath, {
-			threshold: 0.1,
-			antialiasing: true,
-		});
-	}
-
-	onEvent({
-		kind: 'step',
-		message: `Padding to ${padded.canvas.width}×${padded.canvas.height} for diff`,
-	});
-
-	const tmpDir = await mkdtemp(join(tmpdir(), 'neptune-pad-'));
-	try {
-		const paddedDesignPath = join(tmpDir, 'design.png');
-		const paddedLivePath = join(tmpDir, 'live.png');
-		await writeFileAtomic(paddedDesignPath, padded.designPng);
-		await writeFileAtomic(paddedLivePath, padded.livePng);
-		return await diffImages(paddedDesignPath, paddedLivePath, diffPath, {
-			threshold: 0.1,
-			antialiasing: true,
-		});
-	} finally {
-		await rm(tmpDir, {recursive: true, force: true}).catch(() => {});
-	}
-}

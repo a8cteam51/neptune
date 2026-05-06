@@ -2,6 +2,7 @@ import test from 'ava';
 import {
 	parseApplyEnvelope,
 	parseDiffReport,
+	validateApplyCoverage,
 } from '../../source/commands/refine-template.js';
 
 test('parses a valid report', t => {
@@ -170,4 +171,114 @@ test('parseApplyEnvelope: throws on top-level non-object', t => {
 	t.throws(() => parseApplyEnvelope('[]'), {
 		message: /not a JSON object/i,
 	});
+});
+
+test('parseApplyEnvelope: applied + skipped arrays parse', t => {
+	const e = parseApplyEnvelope(
+		JSON.stringify({
+			template_html: '<!-- wp:p --><!-- /wp:p -->',
+			block_styles: [],
+			applied: [
+				{id: 'a', summary: 'changed paragraph to heading'},
+				{id: 'b', summary: 'set padding preset lg'},
+			],
+			skipped: [{id: 'c', reason: 'description was ambiguous'}],
+		}),
+	);
+	t.is(e.applied.length, 2);
+	t.is(e.applied[0]!.id, 'a');
+	t.is(e.applied[0]!.summary, 'changed paragraph to heading');
+	t.is(e.skipped.length, 1);
+	t.is(e.skipped[0]!.reason, 'description was ambiguous');
+});
+
+test('parseApplyEnvelope: missing applied/skipped default to empty arrays', t => {
+	const e = parseApplyEnvelope(
+		JSON.stringify({
+			template_html: '<!-- wp:p --><!-- /wp:p -->',
+			block_styles: [],
+		}),
+	);
+	t.deepEqual(e.applied, []);
+	t.deepEqual(e.skipped, []);
+});
+
+test('parseApplyEnvelope: drops malformed entries from applied/skipped', t => {
+	const e = parseApplyEnvelope(
+		JSON.stringify({
+			template_html: '<!-- wp:p --><!-- /wp:p -->',
+			block_styles: [],
+			applied: [
+				{id: 'good', summary: 'ok'},
+				{id: 'no-summary'},
+				'string',
+				null,
+			],
+			skipped: [
+				{id: 'good2', reason: 'because'},
+				{summary: 'wrong field'},
+			],
+		}),
+	);
+	t.is(e.applied.length, 1);
+	t.is(e.applied[0]!.id, 'good');
+	t.is(e.skipped.length, 1);
+	t.is(e.skipped[0]!.id, 'good2');
+});
+
+test('validateApplyCoverage: passes when every approved id is accounted for', t => {
+	t.notThrows(() =>
+		validateApplyCoverage(
+			{
+				template_html: 'x',
+				block_styles: [],
+				applied: [{id: 'a', summary: 'x'}],
+				skipped: [{id: 'b', reason: 'y'}],
+			},
+			['a', 'b'],
+		),
+	);
+});
+
+test('validateApplyCoverage: throws when any id is missing', t => {
+	t.throws(
+		() =>
+			validateApplyCoverage(
+				{
+					template_html: 'x',
+					block_styles: [],
+					applied: [{id: 'a', summary: 'x'}],
+					skipped: [],
+				},
+				['a', 'b', 'c'],
+			),
+		{message: /b, c/},
+	);
+});
+
+test('validateApplyCoverage: empty approved + empty applied/skipped passes', t => {
+	t.notThrows(() =>
+		validateApplyCoverage(
+			{template_html: 'x', block_styles: [], applied: [], skipped: []},
+			[],
+		),
+	);
+});
+
+test('validateApplyCoverage: extra ids in applied that are not approved are fine', t => {
+	// We trust the agent's report; extra ids are informational.
+	t.notThrows(() =>
+		validateApplyCoverage(
+			{
+				template_html: 'x',
+				block_styles: [],
+				applied: [
+					{id: 'a', summary: 'x'},
+					{id: 'extra', summary: 'unrequested'},
+				],
+				skipped: [],
+			},
+			['a'],
+		),
+	);
 });

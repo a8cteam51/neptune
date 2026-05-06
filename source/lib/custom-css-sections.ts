@@ -10,8 +10,8 @@
 // A future npm command can extract these sections into per-block
 // stylesheet files; until then they live in the Customizer where the
 // site renders them automatically.
-import {Buffer} from 'node:buffer';
-import {shellSingleQuote, wpCli} from './wp-cli.js';
+import {b64Arg, runNeptuneCli} from './neptune-cli.js';
+import {dBoolean, dObject, dString} from './decode.js';
 import type {StudioSession} from '../integrations/studio/mcp.js';
 
 export type SectionKey = {
@@ -121,44 +121,33 @@ function stripBoundaryNewlines(s: string): string {
 	return s.replace(/^\n/u, '').replace(/\n$/u, '');
 }
 
+const dCssGet = dObject({css: dString});
+const dCssSet = dObject({ok: dBoolean});
+
 export async function readCustomCss(
 	session: StudioSession,
 	nameOrPath: string,
 ): Promise<string> {
-	// Bracket the echoed base64 with sentinels so any wp-cli prefix
-	// (deprecation notices, site-load banners, ANSI cruft) doesn't
-	// pollute the bytes we decode. PHP uses double quotes around the
-	// payload so the outer shell single quotes nest cleanly.
-	const out = await wpCli(
+	const result = await runNeptuneCli(
 		session,
 		nameOrPath,
-		`eval 'echo "@@NEPTUNE_OPEN@@" . base64_encode( wp_get_custom_css() ) . "@@NEPTUNE_CLOSE@@";'`,
+		'custom-css-get',
+		{},
+		dCssGet,
 	);
-	const match = /@@NEPTUNE_OPEN@@([A-Za-z0-9+/=]*)@@NEPTUNE_CLOSE@@/.exec(out);
-	if (!match) {
-		throw new Error(
-			`readCustomCss got unexpected wp_cli output. First 200 chars: ${out
-				.slice(0, 200)
-				.trim()}`,
-		);
-	}
-	const payload = match[1] ?? '';
-	if (payload === '') return '';
-	return Buffer.from(payload, 'base64').toString('utf8');
+	return result.css;
 }
 
-// Updates Customizer custom_css. The CSS body is base64-encoded so
-// it can be embedded inside a PHP double-quoted string with no
-// escaping concerns; the PHP code is then wrapped in shell single
-// quotes which need no internal escape because the PHP code contains
-// no single quotes.
 export async function writeCustomCss(
 	session: StudioSession,
 	nameOrPath: string,
 	css: string,
 ): Promise<void> {
-	const encoded = Buffer.from(css, 'utf8').toString('base64');
-	const phpCode =
-		`wp_update_custom_css_post( base64_decode( "${encoded}" ) );`;
-	await wpCli(session, nameOrPath, `eval ${shellSingleQuote(phpCode)}`);
+	await runNeptuneCli(
+		session,
+		nameOrPath,
+		'custom-css-set',
+		{css: b64Arg(css)},
+		dCssSet,
+	);
 }

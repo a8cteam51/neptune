@@ -38,9 +38,27 @@ type JsonRpcRequest = {
 type JsonRpcResponse = {
 	jsonrpc: '2.0';
 	id?: number;
-	result?: any;
+	result?: unknown;
 	error?: {code: number; message: string};
 };
+
+type FigmaContentBlock = {type: string; text?: string; data?: string};
+
+function figmaToolContent(
+	resp: JsonRpcResponse | undefined,
+): FigmaContentBlock[] {
+	const result = resp?.result;
+	if (typeof result !== 'object' || result === null) return [];
+	const content = (result as {content?: unknown}).content;
+	if (!Array.isArray(content)) return [];
+	return content as FigmaContentBlock[];
+}
+
+function figmaIsToolError(resp: JsonRpcResponse | undefined): boolean {
+	const result = resp?.result;
+	if (typeof result !== 'object' || result === null) return false;
+	return (result as {isError?: unknown}).isError === true;
+}
 
 export type SelectionMetadata = {
 	rawXml: string;
@@ -116,7 +134,7 @@ export async function getSelectionMetadata(
 					error: new Error(`MCP error ${resp.error.code}: ${resp.error.message}`),
 				};
 			}
-			if (resp?.result?.isError === true) {
+			if (figmaIsToolError(resp)) {
 				return {ok: false, error: new Error('MCP returned isError=true')};
 			}
 
@@ -196,9 +214,7 @@ export async function* pullFromFigma(
 	if (signal?.aborted) throw new Error('Pull aborted');
 	yield {kind: 'step', message: 'get_screenshot -> screenshot.png'};
 	const shotResp = await session.call('get_screenshot', args);
-	const shotContent: Array<{type: string; data?: string}> =
-		shotResp?.result?.content ?? [];
-	const imageBlock = shotContent.find(c => c.type === 'image');
+	const imageBlock = figmaToolContent(shotResp).find(c => c.type === 'image');
 	if (imageBlock?.data) {
 		await writeFileAtomic(
 			join(outDir, 'screenshot.png'),
@@ -276,11 +292,9 @@ export async function openMcpSession(
 }
 
 export function joinTextContent(resp: JsonRpcResponse | undefined): string {
-	const content: Array<{type: string; text?: string}> =
-		resp?.result?.content ?? [];
-	return content
+	return figmaToolContent(resp)
 		.filter(c => c.type === 'text' && typeof c.text === 'string')
-		.map(c => c.text)
+		.map(c => c.text!)
 		.join('\n');
 }
 

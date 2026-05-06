@@ -399,6 +399,10 @@ export async function runBuild(
 	if (variablesText) {
 		baseSections.push('', '=== variables.json ===', variablesText);
 	}
+	const placeholder = loaded.config.placeholderImage;
+	if (placeholder) {
+		baseSections.push('', '=== placeholder image ===', placeholderInstructions(placeholder));
+	}
 	const baseContext = baseSections.join('\n');
 
 	const screenshotPath = join(
@@ -496,6 +500,23 @@ function buildUserContent(
 	content.push({type: 'text', text: baseContext});
 
 	return content;
+}
+
+// Instructions appended to the agent prompt when a placeholder image
+// has been registered. Both the build and refine flows share this so
+// the rule is identical in both contexts.
+export function placeholderInstructions(placeholder: {
+	id: number;
+	url: string;
+}): string {
+	return [
+		`A placeholder image is uploaded to the WordPress media library.`,
+		`Use it for EVERY wp:image block you emit:`,
+		`  - Block attrs: {"id":${placeholder.id}}`,
+		`  - <img> src: ${placeholder.url}`,
+		`  - <img> class includes: wp-image-${placeholder.id}`,
+		`Never leave src empty and never invent a different URL.`,
+	].join('\n');
 }
 
 export function roleScopeNote(role: TemplateRole): string {
