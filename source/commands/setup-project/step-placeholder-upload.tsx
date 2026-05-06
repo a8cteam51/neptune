@@ -1,17 +1,15 @@
 import React, {useRef} from 'react';
-import {copyFile, mkdir, rm} from 'node:fs/promises';
-import {dirname, relative, resolve} from 'node:path';
-import {fileURLToPath} from 'node:url';
+import {access} from 'node:fs/promises';
+import {resolve} from 'node:path';
 import EventStep from '../../lib/event-step.js';
 import type {LogEvent} from '../../lib/event-list.js';
 import {openStudioSession} from '../../integrations/studio/mcp.js';
 import {shellSingleQuote, wpCli} from '../../lib/wp-cli.js';
 import type {NeptuneConfig} from './types.js';
 
-// Walk up from dist/commands/setup-project/step-placeholder-upload.js
-// to the package root where placeholder.jpg ships.
-const moduleDir = dirname(fileURLToPath(import.meta.url));
-const PLACEHOLDER_PATH = resolve(moduleDir, '..', '..', '..', 'placeholder.jpg');
+// The placeholder image ships at <theme>/assets/placeholder.jpg in the
+// theme scaffold, so the source is already inside Studio's open_basedir
+// — no host-side staging needed.
 
 type UploadedMedia = {
 	id: number;
@@ -34,9 +32,15 @@ export default function PlaceholderUploadStep({
 	return (
 		<EventStep
 			title="Step 7 — Upload placeholder image"
-			start={async signal =>
-				runUpload(projectDir, signal, uploadedRef)
-			}
+			start={async signal => {
+				const themeSlug = config.themeSlug;
+				if (!themeSlug) {
+					throw new Error(
+						'themeSlug missing from neptune-config — run the theme step first.',
+					);
+				}
+				return runUpload(projectDir, themeSlug, signal, uploadedRef);
+			}}
 			onSuccess={() => {
 				const uploaded = uploadedRef.current;
 				if (!uploaded) {
@@ -55,34 +59,32 @@ export default function PlaceholderUploadStep({
 
 async function* runUpload(
 	projectDir: string,
+	themeSlug: string,
 	signal: AbortSignal,
 	uploadedRef: React.MutableRefObject<UploadedMedia | null>,
 ): AsyncGenerator<LogEvent> {
 	const wpRoot = resolve(projectDir, 'wordpress');
+	const sourceRel = `wp-content/themes/${themeSlug}/assets/placeholder.jpg`;
+	const sourceAbs = resolve(wpRoot, sourceRel);
 
-	// Studio's wp-cli runs in a sandboxed filesystem view, so absolute
-	// host paths like /Users/... don't resolve. Stage the placeholder
-	// inside the WP install (host-side) and pass wp-cli a path RELATIVE
-	// to the WP root — wp-cli resolves it against --path, which works
-	// regardless of how Studio virtualizes the filesystem.
-	const uploadsDir = resolve(wpRoot, 'wp-content', 'uploads');
-	await mkdir(uploadsDir, {recursive: true});
-	const stagingPath = resolve(
-		uploadsDir,
-		`.neptune-placeholder-${Date.now()}.jpg`,
-	);
-	const stagingRel = relative(wpRoot, stagingPath);
+	// Verify upfront so the user gets a clear "missing file" message
+	// instead of wp-cli's noisier import failure.
+	try {
+		await access(sourceAbs);
+	} catch {
+		throw new Error(
+			`Placeholder image not found at ${sourceAbs}. Confirm the theme scaffold ships assets/placeholder.jpg.`,
+		);
+	}
 
-	yield {kind: 'step', message: `Staging placeholder → ${stagingPath}`};
-	await copyFile(PLACEHOLDER_PATH, stagingPath);
+	yield {kind: 'step', message: `Importing ${sourceRel} into the media library…`};
 
 	const session = await openStudioSession({signal});
 	try {
-		yield {kind: 'step', message: 'Importing into media library…'};
 		const idRaw = await wpCli(
 			session,
 			wpRoot,
-			`media import ${shellSingleQuote(stagingRel)} --porcelain`,
+			`media import ${shellSingleQuote(sourceRel)} --porcelain`,
 		);
 		const id = Number.parseInt(idRaw.trim(), 10);
 		if (!Number.isFinite(id) || id <= 0) {
@@ -108,8 +110,5 @@ async function* runUpload(
 		};
 	} finally {
 		session.close();
-		// Best-effort cleanup; the staging file is harmless if left
-		// behind but pollutes the uploads dir.
-		await rm(stagingPath, {force: true}).catch(() => {});
 	}
 }

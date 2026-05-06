@@ -40,6 +40,8 @@ import {
 	applyBlockStyleVariations,
 	applyThemeJsonPatch,
 	flushThemeJsonCache,
+	formatBlockStyleVariationsContext,
+	readBlockStyleVariations,
 	type BlockStyleVariation,
 	type ThemeJsonPatch,
 } from '../lib/theme-json-patch.js';
@@ -116,6 +118,7 @@ type Phase =
 			themeJsonText: string | null;
 			variablesText: string | null;
 			devAnnotationsText: string | null;
+			existingVariationsText: string | null;
 	  }
 	| {kind: 'applying'; pull: PickablePull}
 	| {
@@ -207,6 +210,7 @@ export default function RefineTemplate({activeProject, onDone}: Props) {
 					themeJsonText: result.themeJsonText,
 					variablesText: result.variablesText,
 					devAnnotationsText: result.devAnnotationsText,
+					existingVariationsText: result.existingVariationsText,
 				});
 			} catch (err) {
 				if (controller.signal.aborted) return;
@@ -451,6 +455,7 @@ type DiagnoseResult =
 			themeJsonText: string | null;
 			variablesText: string | null;
 			devAnnotationsText: string | null;
+			existingVariationsText: string | null;
 	  };
 
 export async function runDiagnose(
@@ -545,6 +550,26 @@ export async function runDiagnose(
 	const variablesText = await readIfExists(
 		join(loaded.dir, 'variables', 'all-variables.json'),
 	);
+	const themePath = resolve(
+		loaded.dir,
+		'wordpress',
+		'wp-content',
+		'themes',
+		themeSlug,
+	);
+	const existingVariations = await readBlockStyleVariations(
+		themePath,
+		msg => onEvent({kind: 'warn', message: msg}),
+	);
+	const existingVariationsText = formatBlockStyleVariationsContext(
+		existingVariations,
+	);
+	if (existingVariationsText) {
+		onEvent({
+			kind: 'step',
+			message: `Loaded ${existingVariations.length} existing block style variation${existingVariations.length === 1 ? '' : 's'} for reuse context`,
+		});
+	}
 
 	// code.tsx carries inline data-development-annotations the designer
 	// authored in Figma. Surface them to both agents as explicit context;
@@ -609,6 +634,7 @@ export async function runDiagnose(
 					currentTemplate,
 					themeJsonText,
 					devAnnotationsText,
+					existingVariationsText,
 				),
 			},
 		],
@@ -641,6 +667,7 @@ export async function runDiagnose(
 		themeJsonText,
 		variablesText,
 		devAnnotationsText,
+		existingVariationsText,
 	};
 }
 
@@ -675,6 +702,7 @@ export async function runApply(
 		themeJsonText: string | null;
 		variablesText: string | null;
 		devAnnotationsText: string | null;
+		existingVariationsText: string | null;
 	},
 	approved: DiffEntry[],
 	signal: AbortSignal,
@@ -701,6 +729,14 @@ export async function runApply(
 	}
 	if (reviewPhase.variablesText) {
 		sections.push('', '=== variables.json ===', reviewPhase.variablesText);
+	}
+	if (reviewPhase.existingVariationsText) {
+		sections.push(
+			'',
+			'=== existing block style variations ===',
+			'These variations are already registered in this theme. Reuse them by applying the matching `is-style-<slug>` class instead of redefining them. Only emit a new entry in `block_style_variations[]` when none of these fits.',
+			reviewPhase.existingVariationsText,
+		);
 	}
 	if (reviewPhase.devAnnotationsText) {
 		sections.push(
@@ -939,10 +975,19 @@ function buildContextSection(
 	currentTemplate: string,
 	themeJsonText: string | null,
 	devAnnotationsText: string | null,
+	existingVariationsText: string | null,
 ): string {
 	const parts = ['=== current.html ===', currentTemplate];
 	if (themeJsonText) {
 		parts.push('', '=== theme.json ===', themeJsonText);
+	}
+	if (existingVariationsText) {
+		parts.push(
+			'',
+			'=== existing block style variations ===',
+			'These variations are already registered in this theme. When proposing a diff that needs an alternative block style, prefer reusing one of these (apply the matching `is-style-<slug>` class) over inventing a new one.',
+			existingVariationsText,
+		);
 	}
 	if (devAnnotationsText) {
 		parts.push('', '=== dev annotations ===', devAnnotationsText);

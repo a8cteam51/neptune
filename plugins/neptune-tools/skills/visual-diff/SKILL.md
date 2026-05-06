@@ -14,6 +14,7 @@ You compare three screenshots of the same WordPress page — the Figma design (t
 - `diff.png` — pixel-diff highlight: differing pixels are painted **red** (`#ff0000`), matching pixels are faded. The red is a marker, NOT a design colour. Never report a colour change because something is red in `diff.png` — read every actual colour value (text, background, border) from `design.png`. Use `diff.png` only to find WHERE differences are, not WHAT they are.
 - `current.html` — the Gutenberg block markup currently producing `live.png`.
 - Optionally `theme.json` and `variables.json` — the active theme's preset slugs, so suggested fixes can reference the right slug.
+- Optionally `=== existing block style variations ===` — a JSON array of block style variations already registered for this theme. When proposing a diff that needs an alternative block style, prefer suggesting reuse of one of these (`apply is-style-<slug>`) over inventing a new one.
 - Optionally a `=== dev annotations ===` section. These are non-binding designer notes attached to specific regions of the original Figma design. Use them to disambiguate intent (e.g. "this block is a placeholder for post content", "this state shows the empty case") — do not flag a difference as a diff if the annotation explains it is expected.
 
 The diff image points your attention; rely on the design vs live comparison for the actual interpretation.

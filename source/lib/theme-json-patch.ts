@@ -14,7 +14,7 @@
 // Block style variations (the editor-pickable kind) are NOT theme.json
 // patches — they're separate JSON files at <theme>/styles/blocks/<slug>.json
 // that WP 6.6+ auto-registers at theme init. See applyBlockStyleVariations.
-import {mkdir, readFile} from 'node:fs/promises';
+import {mkdir, readFile, readdir} from 'node:fs/promises';
 import {join} from 'node:path';
 import {writeFileAtomic} from './atomic-write.js';
 import {wpCli} from './wp-cli.js';
@@ -141,6 +141,95 @@ export async function applyBlockStyleVariations(
 		written.push(filePath);
 	}
 	return {written};
+}
+
+// Lists every block style variation already shipped at
+// <theme>/styles/blocks/*.json so the agent can reuse an existing
+// variation instead of registering a new duplicate. Tolerant: missing
+// dir returns []; malformed files are skipped (logged via onWarn).
+// The returned shape mirrors `BlockStyleVariation` because that's the
+// agent's working unit — slug, title, blockTypes, styles. WP-only
+// metadata ($schema, version) is dropped.
+export async function readBlockStyleVariations(
+	themePath: string,
+	onWarn?: (msg: string) => void,
+): Promise<BlockStyleVariation[]> {
+	const blocksDir = join(themePath, 'styles', 'blocks');
+	let entries: string[];
+	try {
+		entries = await readdir(blocksDir);
+	} catch (err) {
+		if ((err as NodeJS.ErrnoException).code === 'ENOENT') return [];
+		throw err;
+	}
+	const out: BlockStyleVariation[] = [];
+	for (const name of entries.sort()) {
+		if (!name.endsWith('.json')) continue;
+		const filePath = join(blocksDir, name);
+		let raw: string;
+		try {
+			raw = await readFile(filePath, 'utf8');
+		} catch (err) {
+			onWarn?.(
+				`Could not read ${filePath}: ${err instanceof Error ? err.message : String(err)}`,
+			);
+			continue;
+		}
+		let parsed: unknown;
+		try {
+			parsed = JSON.parse(raw);
+		} catch (err) {
+			onWarn?.(
+				`Skipping non-JSON ${filePath}: ${err instanceof Error ? err.message : String(err)}`,
+			);
+			continue;
+		}
+		if (
+			typeof parsed !== 'object' ||
+			parsed === null ||
+			Array.isArray(parsed)
+		) {
+			onWarn?.(`Skipping ${filePath}: not a JSON object.`);
+			continue;
+		}
+		const obj = parsed as Record<string, unknown>;
+		const slug = typeof obj['slug'] === 'string' ? (obj['slug'] as string) : null;
+		const title =
+			typeof obj['title'] === 'string' ? (obj['title'] as string) : null;
+		const blockTypes = Array.isArray(obj['blockTypes'])
+			? (obj['blockTypes'] as unknown[]).filter(
+					(b): b is string => typeof b === 'string',
+				)
+			: null;
+		const styles =
+			typeof obj['styles'] === 'object' &&
+			obj['styles'] !== null &&
+			!Array.isArray(obj['styles'])
+				? (obj['styles'] as Record<string, unknown>)
+				: null;
+		if (!slug || !title || !blockTypes || blockTypes.length === 0 || !styles) {
+			onWarn?.(`Skipping ${filePath}: missing slug/title/blockTypes/styles.`);
+			continue;
+		}
+		out.push({slug, title, blockTypes, styles});
+	}
+	return out;
+}
+
+// Renders existing variations as a section the agent can read alongside
+// theme.json. Returns null when the inventory is empty so callers can
+// omit the section entirely instead of emitting an empty header.
+export function formatBlockStyleVariationsContext(
+	variations: ReadonlyArray<BlockStyleVariation>,
+): string | null {
+	if (variations.length === 0) return null;
+	const body = variations.map(v => ({
+		slug: v.slug,
+		title: v.title,
+		blockTypes: v.blockTypes,
+		styles: v.styles,
+	}));
+	return JSON.stringify(body, null, '\t');
 }
 
 // --- helpers -------------------------------------------------------------

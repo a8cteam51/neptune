@@ -28,6 +28,8 @@ import {
 	applyBlockStyleVariations,
 	applyThemeJsonPatch,
 	flushThemeJsonCache,
+	formatBlockStyleVariationsContext,
+	readBlockStyleVariations,
 } from '../lib/theme-json-patch.js';
 import {parseBuildEnvelope} from '../lib/build-envelope.js';
 import EventList, {type LogEvent} from '../lib/event-list.js';
@@ -406,12 +408,36 @@ export async function runBuild(
 		});
 	}
 
+	const wpRoot = resolve(loaded.dir, 'wordpress');
+	const themePath = resolve(wpRoot, 'wp-content', 'themes', themeSlug);
+	const existingVariations = await readBlockStyleVariations(
+		themePath,
+		msg => onEvent({kind: 'warn', message: msg}),
+	);
+	const variationsContext = formatBlockStyleVariationsContext(
+		existingVariations,
+	);
+	if (variationsContext) {
+		onEvent({
+			kind: 'step',
+			message: `Loaded ${existingVariations.length} existing block style variation${existingVariations.length === 1 ? '' : 's'} for reuse context`,
+		});
+	}
+
 	const baseSections: string[] = ['=== code.tsx ===', code];
 	if (themeJsonText) {
 		baseSections.push('', '=== theme.json ===', themeJsonText);
 	}
 	if (variablesText) {
 		baseSections.push('', '=== variables.json ===', variablesText);
+	}
+	if (variationsContext) {
+		baseSections.push(
+			'',
+			'=== existing block style variations ===',
+			'These variations are already registered. Reuse them by adding the matching `is-style-<slug>` class to a block instead of redefining them. Only emit a new entry in `block_style_variations[]` when none of these fits.',
+			variationsContext,
+		);
 	}
 	const devAnnotations = extractDevAnnotations(code);
 	if (devAnnotations.length > 0) {
@@ -478,8 +504,6 @@ export async function runBuild(
 		? envelope.template_html
 		: envelope.template_html + '\n';
 
-	const wpRoot = resolve(loaded.dir, 'wordpress');
-	const themePath = resolve(wpRoot, 'wp-content', 'themes', themeSlug);
 	const session = await openStudioSession({signal});
 	let cacheNeedsFlush = false;
 	try {

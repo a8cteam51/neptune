@@ -152,6 +152,7 @@ export default function RefineAll({activeProject, onDone}: Props) {
 							themeJsonText: result.themeJsonText,
 							variablesText: result.variablesText,
 							devAnnotationsText: result.devAnnotationsText,
+							existingVariationsText: result.existingVariationsText,
 						},
 						approved,
 						controller.signal,

@@ -1,10 +1,12 @@
-import {readFile, readdir, writeFile} from 'node:fs/promises';
+import {mkdir, readFile, readdir, writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import test from 'ava';
 import {
 	applyBlockStyleVariations,
 	applyThemeJsonPatch,
 	deepMergeInto,
+	formatBlockStyleVariationsContext,
+	readBlockStyleVariations,
 	readThemeJson,
 } from '../../source/lib/theme-json-patch.js';
 import {makeTmpDir} from '../helpers/tmp.js';
@@ -252,6 +254,100 @@ test('applyBlockStyleVariations: creates styles/blocks if missing', async t => {
 	]);
 	const stat = await readdir(join(themePath, 'styles', 'blocks'));
 	t.deepEqual(stat, ['neptune-x.json']);
+});
+
+test('readBlockStyleVariations: returns [] when styles/blocks is missing', async t => {
+	const themePath = await makeTmpDir(t);
+	const result = await readBlockStyleVariations(themePath);
+	t.deepEqual(result, []);
+});
+
+test('readBlockStyleVariations: round-trips files written by applyBlockStyleVariations', async t => {
+	const themePath = await makeTmpDir(t);
+	await applyBlockStyleVariations(themePath, [
+		{
+			slug: 'neptune-fill-small',
+			title: 'Fill Small',
+			blockTypes: ['core/button'],
+			styles: {spacing: {padding: '8px 16px'}},
+		},
+		{
+			slug: 'neptune-section-callout',
+			title: 'Section Callout',
+			blockTypes: ['core/group', 'core/cover'],
+			styles: {color: {background: '#000', text: '#fff'}},
+		},
+	]);
+	const result = await readBlockStyleVariations(themePath);
+	t.is(result.length, 2);
+	const slugs = result.map(v => v.slug).sort();
+	t.deepEqual(slugs, ['neptune-fill-small', 'neptune-section-callout']);
+	const callout = result.find(v => v.slug === 'neptune-section-callout')!;
+	t.is(callout.title, 'Section Callout');
+	t.deepEqual(callout.blockTypes, ['core/group', 'core/cover']);
+	t.deepEqual(callout.styles, {color: {background: '#000', text: '#fff'}});
+});
+
+test('readBlockStyleVariations: skips malformed JSON and reports via onWarn', async t => {
+	const themePath = await makeTmpDir(t);
+	const blocksDir = join(themePath, 'styles', 'blocks');
+	await mkdir(blocksDir, {recursive: true});
+	await writeFile(join(blocksDir, 'broken.json'), 'not json', 'utf8');
+	await writeFile(
+		join(blocksDir, 'neptune-good.json'),
+		JSON.stringify({
+			slug: 'neptune-good',
+			title: 'Good',
+			blockTypes: ['core/button'],
+			styles: {color: {background: '#fff'}},
+		}),
+		'utf8',
+	);
+	const warnings: string[] = [];
+	const result = await readBlockStyleVariations(themePath, msg =>
+		warnings.push(msg),
+	);
+	t.is(result.length, 1);
+	t.is(result[0]!.slug, 'neptune-good');
+	t.true(warnings.some(w => w.includes('broken.json')));
+});
+
+test('readBlockStyleVariations: skips files missing required fields', async t => {
+	const themePath = await makeTmpDir(t);
+	const blocksDir = join(themePath, 'styles', 'blocks');
+	await mkdir(blocksDir, {recursive: true});
+	// Missing styles
+	await writeFile(
+		join(blocksDir, 'partial.json'),
+		JSON.stringify({slug: 'neptune-x', title: 'X', blockTypes: ['core/button']}),
+		'utf8',
+	);
+	const warnings: string[] = [];
+	const result = await readBlockStyleVariations(themePath, msg =>
+		warnings.push(msg),
+	);
+	t.deepEqual(result, []);
+	t.is(warnings.length, 1);
+});
+
+test('formatBlockStyleVariationsContext: returns null on empty input', t => {
+	t.is(formatBlockStyleVariationsContext([]), null);
+});
+
+test('formatBlockStyleVariationsContext: emits parseable JSON', t => {
+	const out = formatBlockStyleVariationsContext([
+		{
+			slug: 'neptune-x',
+			title: 'X',
+			blockTypes: ['core/button'],
+			styles: {color: {text: '#000'}},
+		},
+	]);
+	t.truthy(out);
+	const parsed = JSON.parse(out!);
+	t.true(Array.isArray(parsed));
+	t.is(parsed[0].slug, 'neptune-x');
+	t.deepEqual(parsed[0].styles, {color: {text: '#000'}});
 });
 
 test('atomic write semantics: temp file does not appear in final dir', async t => {

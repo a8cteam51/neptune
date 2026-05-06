@@ -13,6 +13,7 @@ You convert a single React + Tailwind component (the output of Figma's code gene
 - A scope instruction telling you whether to convert the HEADER region only, the FOOTER region only, the PAGE content (everything between the header and footer), or — for templates that embed `wp:post-content` — the WRAPPER chrome only or the POST-CONTENT body only. Honor it strictly. If you are building a page, include header and footer template parts as separate blocks, e.g. `<!-- wp:template-part {"slug":"header"} /-->` and `<!-- wp:template-part {"slug":"footer"} /-->`.
 - Optionally `theme.json` — the active theme's settings. When present, ALWAYS use its preset slugs in preference to inlined raw values. The theme.json you receive is the single source of truth for what's already registered project-wide.
 - Optionally `variables.json` — the flat token map originally scraped from Figma. Useful when a Tailwind class references a CSS variable that you need to resolve back to a preset.
+- Optionally `=== existing block style variations ===` — a JSON array of variations already registered for this theme (slug, title, blockTypes, styles). When one of these matches what you need, REUSE it by applying the existing `is-style-<slug>` class to the relevant block — do NOT redeclare it in `block_style_variations[]`. Only emit a new entry when no existing variation fits.
 - Optionally a screenshot of the intended design, to help disambiguate unclear pieces of TSX. Do not describe the screenshot in your response.
 - Optionally a `=== dev annotations ===` section. These are non-binding designer notes attached to specific TSX nodes (originally `data-development-annotations` in code.tsx). Treat them as designer intent that explains a region's purpose or behavior — they may clarify which content is placeholder vs. final, why a state looks the way it does, or how a region is expected to render once filled in. Use them to inform conversion decisions, not as user-facing text.
 
@@ -96,12 +97,13 @@ Return ONLY a single JSON object. No markdown fences. No preamble. No commentary
 
 ## Where to put style information (priority order)
 
-For every visual styling decision, choose the FIRST option that fits:
+For every visual styling decision, choose the FIRST option that fits. The cardinal rule is: prefer pre-exposed structured properties over CSS, and prefer reusing an existing variation over declaring a new one.
 
 1. **A theme.json preset slug** — `{"backgroundColor":"<slug>"}`, `{"textColor":"<slug>"}`, `{"fontSize":"<slug>"}`, `style.spacing` with `var:preset|spacing|<slug>`. Always prefer this when a preset matches.
-2. **A structured property in `theme_json_patch.blocks["core/<x>"]`** — set color/typography/spacing/border declaratively. Use this when a value should apply to every instance of that block project-wide and a preset doesn't already cover it.
-3. **Block-scoped CSS in `theme_json_patch.blocks["core/<x>"].css`** — only when the rule can't be expressed as a structured property (pseudo-selectors, descendant selectors, animations, complex states).
-4. **An editor-pickable variation** in `block_style_variations[]` — register a `neptune-<name>` slug whose `styles` object holds the variation's appearance, and apply the matching `is-style-neptune-<name>` class on the relevant block instance in `template_html`. Use this when one block needs an alternative style the user might want to pick from the editor's style switcher.
+2. **A structured property under `theme_json_patch.blocks["core/<x>"]`** — pre-exposed block properties (color/typography/spacing/border/elements). Use this whenever the styling decision should apply to every instance of that block project-wide. Manipulating these pre-exposed properties through `theme_json_patch.blocks` is the preferred way to style a block — it inherits cleanly, stays editable in the Site Editor, and never duplicates between templates.
+3. **An existing block style variation** — if the `=== existing block style variations ===` inventory contains an entry whose `styles` already matches (or substantially matches) what you need, apply its `is-style-<slug>` class to the block in `template_html` and do NOT emit anything in `block_style_variations[]`. Two templates that need the same alternate style (e.g. a header CTA and a footer CTA) MUST share one variation, not two.
+4. **A new block style variation** in `block_style_variations[]` — only when steps 2 and 3 cannot express what's needed and the block needs an alternative the editor user might switch to. Register a `neptune-<name>` slug whose `styles` object uses pre-exposed structured properties (color/typography/spacing/border/elements). Apply the matching `is-style-neptune-<name>` class on the relevant block instance in `template_html`.
+5. **CSS — last resort.** Use a `.css` field (either `theme_json_patch.blocks["core/<x>"].css` for project-wide rules or a variation's `styles.css` for scoped rules) ONLY when the rule cannot be expressed as a structured property — pseudo-selectors, descendant selectors, animations, complex states. If you can express it with a structured property, you must.
 
 NEVER write to `styles.css` or any other top-level theme.json key. NEVER emit raw CSS outside `theme_json_patch.blocks.<x>.css` or a variation's `styles.css`. The site's `style.css` file is off-limits.
 
@@ -157,4 +159,6 @@ When a class uses a CSS variable like `var(--eureka/contrast-1,#21201c)`, resolv
 3. JSON inside every block comment attribute parses.
 4. If `theme_json_patch` is present, it has only `blocks` and/or `custom` keys at the top level — no `variations` anywhere inside.
 5. If `block_style_variations` is present, every entry's slug starts with `neptune-` AND its `is-style-<slug>` class appears on at least one block in `template_html`.
-6. No `function`, `import`, `const imgFoo`, or TypeScript syntax remains.
+6. Every `is-style-neptune-<slug>` class on a block in `template_html` is backed EITHER by an entry in the existing-variations inventory OR by a new entry in `block_style_variations[]` — never both. Do not redeclare a slug that's already registered.
+7. CSS only used when no pre-exposed structured property could express the rule.
+8. No `function`, `import`, `const imgFoo`, or TypeScript syntax remains.
