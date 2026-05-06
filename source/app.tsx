@@ -35,7 +35,6 @@ import SetupProject, {type Loaded} from './commands/setup-project.js';
 import {loadOrInit} from './commands/setup-project/config.js';
 import {listPulls} from './lib/design-walk.js';
 import {listPatternSources} from './lib/patterns.js';
-import {acquireProjectLock, type ProjectLock} from './lib/lockfile.js';
 import {
 	getStudioSiteStatus,
 	type SiteStatus,
@@ -156,29 +155,6 @@ export default function App({name, startCwd}: Props) {
 			});
 		return () => controller.abort();
 	}, [activeProject, projectVersion]);
-
-	useEffect(() => {
-		if (!activeProject) return;
-		let lock: ProjectLock | null = null;
-		let released = false;
-
-		acquireProjectLock(activeProject.dir)
-			.then(acquired => {
-				if (released) {
-					void acquired.release();
-					return;
-				}
-				lock = acquired;
-			})
-			.catch(err => {
-				setAutoLoadError(err instanceof Error ? err.message : String(err));
-			});
-
-		return () => {
-			released = true;
-			if (lock) void lock.release();
-		};
-	}, [activeProject]);
 
 	const hasSelectedPatterns =
 		(activeProject?.config.patterns?.length ?? 0) > 0;

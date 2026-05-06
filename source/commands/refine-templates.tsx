@@ -13,15 +13,13 @@ import {AgentAbortedError} from '../lib/agent-stream.js';
 import {listPulls, sortByTemplatePriority} from '../lib/design-walk.js';
 import EventList, {type LogEvent} from '../lib/event-list.js';
 import {runApply, runDiagnose} from './refine-template.js';
+import type {DiffPull} from '../lib/template-diff.js';
 import type {Loaded} from './setup-project/types.js';
-import type {PullMeta} from '../lib/types.js';
 
 type Props = {
 	activeProject: Loaded;
 	onDone: () => void;
 };
-
-type PickablePull = PullMeta & {templateFile: string};
 
 type Outcome =
 	| {kind: 'matched'; slug: string; ratio: number}
@@ -36,8 +34,8 @@ type Outcome =
 
 type Phase =
 	| {kind: 'loading'}
-	| {kind: 'picking'; pulls: PickablePull[]}
-	| {kind: 'running'; pulls: PickablePull[]; cursor: number}
+	| {kind: 'picking'; pulls: DiffPull[]}
+	| {kind: 'running'; pulls: DiffPull[]; cursor: number}
 	| {kind: 'done'; outcomes: Outcome[]}
 	| {kind: 'message'; title: string; subtitle?: string};
 
@@ -54,7 +52,7 @@ export default function RefineTemplates({activeProject, onDone}: Props) {
 				const pulls = await listPulls(activeProject.dir);
 				if (controller.signal.aborted) return;
 				const pickable = pulls.filter(
-					(p): p is PickablePull =>
+					(p): p is DiffPull =>
 						p.special === undefined &&
 						p.contentOnly !== true &&
 						typeof p.templateFile === 'string' &&
@@ -92,7 +90,7 @@ export default function RefineTemplates({activeProject, onDone}: Props) {
 		[],
 	);
 
-	const beginRun = (pulls: PickablePull[]) => {
+	const beginRun = (pulls: DiffPull[]) => {
 		setPhase({kind: 'running', pulls, cursor: 0});
 		setEvents([]);
 		outcomesRef.current = [];
@@ -256,7 +254,7 @@ export default function RefineTemplates({activeProject, onDone}: Props) {
 							Heads up: the visual-diff agent sometimes flags subpixel /
 							anti-aliasing noise as a low-severity diff. Without per-diff
 							review those get applied too. If that becomes a problem, refine
-							individually via &quot;Refine template&quot; instead.
+							individually via &quot;View template diff&quot; to inspect drift without paying for an agent call, then re-run with only the relevant row toggled on.
 						</Text>
 					</Box>
 				</Box>

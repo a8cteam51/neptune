@@ -20,7 +20,7 @@ import React, {useEffect, useState} from 'react';
 import {Box, Text, useInput} from 'ink';
 import {access} from 'node:fs/promises';
 import {join} from 'node:path';
-import {writeFileAtomic} from '../lib/atomic-write.js';
+import {writePatternMeta} from '../lib/patterns.js';
 import {realClock} from '../lib/clock.js';
 import FigmaPull from '../integrations/figma/pull.js';
 import {
@@ -186,19 +186,19 @@ export default function PullPattern({activeProject, onDone}: Props) {
 			pageName={phase.name}
 			nodeRef=""
 			outRoot={join(activeProject.dir, 'patterns')}
-			onSuccess={async (_emit, _session, _signal) => {
-				const folder = join(activeProject.dir, 'patterns', phase.name);
-				const meta = {
+			onSuccess={async (_emit, _session, signal) => {
+				// Bail before writing if the user already aborted — the
+				// FigmaPull artifacts are already on disk, but skipping
+				// meta.json on cancel keeps "the meta is fresh" as a
+				// useful invariant for downstream readers.
+				if (signal.aborted) return;
+				await writePatternMeta(activeProject.dir, phase.name, {
 					name: phase.name,
 					selectionName: phase.selection?.name,
 					x: phase.selection?.x,
 					y: phase.selection?.y,
 					pulledAt: realClock(),
-				};
-				await writeFileAtomic(
-					join(folder, 'meta.json'),
-					JSON.stringify(meta, null, 2) + '\n',
-				);
+				});
 			}}
 			onDone={onDone}
 		/>

@@ -22,6 +22,14 @@ import type {PullMeta} from './types.js';
 // we can pick a screenshot selector and target the right WP template.
 export type DiffPull = PullMeta & {templateFile: string};
 
+// Below this pixel-diff ratio we treat the live render as matching the
+// design, even when odiff reports a non-zero number. Anti-aliasing,
+// font hinting, and subpixel rendering all show up as small ratios
+// that don't visually matter — paying for a refine agent run on them
+// would be waste. 0.5% is the empirical threshold; refine-template /
+// refine-content honor it before invoking the visual-diff agent.
+export const PIXEL_DIFF_THRESHOLD = 0.5;
+
 export type CaptureAndDiffDeps = {
 	captureAtSize?: typeof captureAtSize;
 };

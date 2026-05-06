@@ -11,7 +11,7 @@ import MultiSelect from '../lib/multi-select.js';
 import {AgentAbortedError} from '../lib/agent-stream.js';
 import {listPulls, sortByTemplatePriority} from '../lib/design-walk.js';
 import EventList, {type LogEvent} from '../lib/event-list.js';
-import {runBuild, type PickablePull} from './build-template.js';
+import {runBuild, type TemplateBuildPull} from './build-template.js';
 import type {Loaded} from './setup-project/types.js';
 
 type Props = {
@@ -26,8 +26,8 @@ type Outcome =
 
 type Phase =
 	| {kind: 'loading'}
-	| {kind: 'picking'; pulls: PickablePull[]}
-	| {kind: 'running'; pulls: PickablePull[]; cursor: number}
+	| {kind: 'picking'; pulls: TemplateBuildPull[]}
+	| {kind: 'running'; pulls: TemplateBuildPull[]; cursor: number}
 	| {kind: 'done'; outcomes: Outcome[]}
 	| {kind: 'message'; title: string; subtitle?: string};
 
@@ -44,7 +44,7 @@ export default function BuildTemplates({activeProject, onDone}: Props) {
 				const pulls = await listPulls(activeProject.dir);
 				if (controller.signal.aborted) return;
 				const pickable = pulls.filter(
-					(p): p is PickablePull =>
+					(p): p is TemplateBuildPull =>
 						p.special === undefined &&
 						p.contentOnly !== true &&
 						typeof p.templateFile === 'string' &&
@@ -82,7 +82,7 @@ export default function BuildTemplates({activeProject, onDone}: Props) {
 		[],
 	);
 
-	const beginRun = (pulls: PickablePull[]) => {
+	const beginRun = (pulls: TemplateBuildPull[]) => {
 		setPhase({kind: 'running', pulls, cursor: 0});
 		setEvents([]);
 		outcomesRef.current = [];

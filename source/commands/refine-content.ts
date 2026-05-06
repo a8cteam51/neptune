@@ -18,16 +18,18 @@
 // Reuses pure helpers from refine-template.ts (parseDiffReport,
 // parseApplyEnvelope, validateApplyCoverage) since the agent envelopes
 // are identical — only the persistence target differs.
-import {access, readFile} from 'node:fs/promises';
+import {readFile} from 'node:fs/promises';
 import {join, resolve} from 'node:path';
 import {dirname} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {writeFileAtomic} from '../lib/atomic-write.js';
 import {AgentAbortedError, runAgent} from '../lib/agent-stream.js';
 import {captureAtSize} from '../lib/browser-capture.js';
+import {readIfExists} from '../lib/fs-helpers.js';
 import {
 	captureAndDiffPull,
 	CaptureAbortedError,
+	PIXEL_DIFF_THRESHOLD,
 	type DiffPull,
 } from '../lib/template-diff.js';
 import {
@@ -67,7 +69,6 @@ import type {Loaded} from './setup-project/types.js';
 // that hosts the post body.
 export type ContentPull = DiffPull & {pageSlug: string};
 
-const PIXEL_DIFF_THRESHOLD = 0.5; // percent
 const moduleDir = dirname(fileURLToPath(import.meta.url));
 const PLUGIN_PATH = resolve(moduleDir, '..', '..', 'plugins', 'neptune-tools');
 
@@ -109,7 +110,7 @@ export async function runDiagnoseContent(
 	const target = pageTargetFor(pull.pageSlug, pull.pageName);
 	const wpRoot = resolve(loaded.dir, 'wordpress');
 
-	const currentContent = await loadCurrentPage(wpRoot, target);
+	const currentContent = await loadCurrentPage(wpRoot, target, signal);
 	onEvent({
 		kind: 'step',
 		message: `Loaded current page content (${currentContent.length} bytes)`,
@@ -474,8 +475,9 @@ export async function runApplyContent(
 async function loadCurrentPage(
 	wpRoot: string,
 	target: PageTarget,
+	signal: AbortSignal,
 ): Promise<string> {
-	const session = await openStudioSession();
+	const session = await openStudioSession({signal});
 	let dbResult;
 	try {
 		dbResult = await readPage(session, wpRoot, target);
@@ -519,11 +521,3 @@ function buildContextSection(
 	return parts.join('\n');
 }
 
-async function readIfExists(p: string): Promise<string | null> {
-	try {
-		await access(p);
-		return await readFile(p, 'utf8');
-	} catch {
-		return null;
-	}
-}

@@ -106,7 +106,6 @@ source/
     build-variables.ts          variables/* merge
     dev-annotations.ts          Designer notes extraction
     atomic-write.ts             tmp-file-then-rename writes
-    lockfile.ts                 Per-project mutual exclusion
   integrations/
     figma/                      MCP session, asset download, handoff parser
     studio/                     MCP session, Studio site detection

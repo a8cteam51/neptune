@@ -12,7 +12,8 @@
 // The UI shell lives in build-contents.tsx — it picks the pulls and
 // calls runBuildContent for each. This module owns no React; it's
 // pure I/O + agent invocation.
-import {access, readFile} from 'node:fs/promises';
+import {readFile} from 'node:fs/promises';
+import {readBufferIfExists, readIfExists} from '../lib/fs-helpers.js';
 import {dirname, join, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {
@@ -47,7 +48,7 @@ import {placeholderInstructions} from './build-template.js';
 import type {Loaded} from './setup-project/types.js';
 import type {PullMeta} from '../lib/types.js';
 
-export type PickablePull = PullMeta & {pageSlug: string};
+export type ContentBuildPull = PullMeta & {pageSlug: string};
 
 const moduleDir = dirname(fileURLToPath(import.meta.url));
 const PLUGIN_PATH = resolve(moduleDir, '..', '..', 'plugins', 'neptune-tools');
@@ -58,7 +59,7 @@ export type BuildDeps = {
 
 export async function runBuildContent(
 	loaded: Loaded,
-	pull: PickablePull,
+	pull: ContentBuildPull,
 	signal: AbortSignal,
 	onEvent: (ev: LogEvent) => void,
 	deps: BuildDeps = {},
@@ -301,20 +302,3 @@ function buildUserContent(
 	return content;
 }
 
-async function readBufferIfExists(p: string): Promise<Buffer | null> {
-	try {
-		await access(p);
-		return await readFile(p);
-	} catch {
-		return null;
-	}
-}
-
-async function readIfExists(p: string): Promise<string | null> {
-	try {
-		await access(p);
-		return await readFile(p, 'utf8');
-	} catch {
-		return null;
-	}
-}

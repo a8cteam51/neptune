@@ -11,24 +11,26 @@
 //      If under threshold (0.5%), report "matches" and exit.
 //   4. visual-diff agent: 3 images + current template → JSON report.
 //      If `matches_design: true`, exit with success.
-//   5. Caller (refine-multiple's UI) lets the user pick which diffs to
+//   5. Caller (refine-templates.tsx) lets the user pick which diffs to
 //      apply (default-all-selected) and submits the approved subset.
 //   6. apply-diff agent: selected diffs + current template + theme.json
 //      + variables.json → updated markup. Overwrite the template.
 //
-// All artifacts (live.png, diff.png, diff-report.json) live alongside
-// the design screenshot for inspection. This module owns no React;
-// the UI shell lives in refine-multiple.tsx.
-import {access, readFile} from 'node:fs/promises';
+// All artifacts (live.png, diff.png, template-diff-report.json) live
+// alongside the design screenshot for inspection. This module owns no
+// React; the UI shell lives in refine-templates.tsx.
+import {readFile} from 'node:fs/promises';
 import {join, resolve} from 'node:path';
 import {dirname} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {writeFileAtomic} from '../lib/atomic-write.js';
 import {AgentAbortedError, runAgent} from '../lib/agent-stream.js';
 import {captureAtSize} from '../lib/browser-capture.js';
+import {readIfExists} from '../lib/fs-helpers.js';
 import {
 	captureAndDiffPull,
 	CaptureAbortedError,
+	PIXEL_DIFF_THRESHOLD,
 	type DiffPull,
 } from '../lib/template-diff.js';
 import {
@@ -88,7 +90,6 @@ export type DiffReport = {
 	diffs: DiffEntry[];
 };
 
-const PIXEL_DIFF_THRESHOLD = 0.5; // percent
 const moduleDir = dirname(fileURLToPath(import.meta.url));
 const PLUGIN_PATH = resolve(moduleDir, '..', '..', 'plugins', 'neptune-tools');
 
@@ -134,6 +135,7 @@ export async function runDiagnose(
 		wpRoot,
 		target,
 		filePath,
+		signal,
 	);
 	if (!currentTemplate.trim()) {
 		throw new Error(
@@ -256,6 +258,15 @@ export async function runDiagnose(
 		`Template file: ${pull.templateFile}.`,
 		`Pixel-diff ratio: ${outcome.diffPercentage.toFixed(2)}%.`,
 	];
+	if (pull.usesPostContent === true) {
+		// The wrapper template embeds wp:post-content; current.html is
+		// the wrapper markup only. Body diffs would have nowhere to
+		// land — they belong to refine-content's pass against the page
+		// post.
+		headerParts.push(
+			`SCOPE: this template embeds the page body via wp:post-content. Flag ONLY diffs in the wrapper chrome — site header, primary nav, footer, post-title, post-date, comments, and any other surrounding chrome. IGNORE diffs inside the page body region; those belong to the page post and are refined separately by refine-content. The current.html provided is the wrapper markup only; diffs targeting the body cannot be applied here.`,
+		);
+	}
 	if (sizeNote) {
 		headerParts.push(
 			`${sizeNote} Both images were padded to a common canvas before diffing; magenta regions in diff.png mark areas where one side has no content (i.e. one side is taller/wider than the other).`,
@@ -297,11 +308,16 @@ export async function runDiagnose(
 	const report = parseDiffReport(reportText, msg =>
 		onEvent({kind: 'warn', message: msg}),
 	);
-	const reportPath = join(loaded.dir, 'design', pull.slug, 'diff-report.json');
+	const reportPath = join(
+		loaded.dir,
+		'design',
+		pull.slug,
+		'template-diff-report.json',
+	);
 	await writeFileAtomic(reportPath, JSON.stringify(report, null, 2) + '\n');
 	onEvent({
 		kind: 'step',
-		message: `Wrote diff-report.json (${report.diffs.length} diff${
+		message: `Wrote template-diff-report.json (${report.diffs.length} diff${
 			report.diffs.length === 1 ? '' : 's'
 		})`,
 	});
@@ -601,8 +617,9 @@ async function loadCurrentTemplate(
 	wpRoot: string,
 	target: TemplateTarget,
 	filePath: string,
+	signal: AbortSignal,
 ): Promise<string> {
-	const session = await openStudioSession();
+	const session = await openStudioSession({signal});
 	let dbContent: string | null;
 	try {
 		dbContent = await readTemplate(session, wpRoot, target);
@@ -720,11 +737,3 @@ function templatePath(
 	);
 }
 
-async function readIfExists(p: string): Promise<string | null> {
-	try {
-		await access(p);
-		return await readFile(p, 'utf8');
-	} catch {
-		return null;
-	}
-}

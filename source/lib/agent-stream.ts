@@ -206,6 +206,13 @@ type Tally = {
 // EventList renders it as a normal step row; aggregators (E2E) pick out
 // the structured fields. The message preserves the previous human-
 // readable form so single-call screens look the same as before.
+//
+// Note: every numeric field on the Tally is optional because the SDK
+// may omit fields on non-success result subtypes (e.g. error_max_turns
+// can return without a `total_cost_usd`). Aggregators that sum these
+// can therefore undercount on partial failures — surface a "may be
+// incomplete" caveat on summary screens whenever any agent call
+// failed.
 function emitTally(onEvent: (ev: LogEvent) => void, tally: Tally) {
 	const parts: string[] = [];
 	if (tally.outputTokens !== undefined)

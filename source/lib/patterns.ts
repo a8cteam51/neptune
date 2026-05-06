@@ -1,11 +1,14 @@
-// Helpers for the build-patterns flow. Patterns are extracted by
-// extract-patterns into a per-pattern folder
-// <project>/patterns/<Name>/ that mirrors a design pull —
-// code.tsx (the extracted function), screenshot.png and meta.json
-// start empty and are filled in by future verify/refine flows.
-// build-patterns turns each into a WordPress block pattern PHP file at
-// <theme>/patterns/<slug>.php that core auto-registers from a header
-// comment block.
+// Helpers for the pattern flow. The lifecycle is:
+//   1. extract-patterns scans every non-special design pull's code.tsx
+//      and presents a checkbox list of unique top-level function names;
+//      the user's selection persists to neptune-config (config.patterns).
+//   2. pull-pattern fetches each selected pattern from Figma and writes
+//      <project>/patterns/<Name>/{code.tsx, screenshot.png,
+//      variables.json, metadata.xml, meta.json}.
+//   3. build-patterns runs the tsx-to-pattern skill against each
+//      patterns/<Name>/code.tsx and writes
+//      <theme>/patterns/<kebab-slug>.php — WP core auto-registers from
+//      its header comment.
 //
 // listRegisteredPatterns surfaces "what is currently registered" to the
 // build-template / build-content agents so they can emit
@@ -28,9 +31,10 @@ import type {
 } from './theme-json-patch.js';
 
 // One source pattern living under <project>/patterns/<Name>/code.tsx.
-// The folder name doubles as the PascalCase function name; sibling
-// screenshot.png and meta.json files are reserved for future
-// verify/refine flows and may currently be empty.
+// The folder name doubles as the PascalCase function name. The sibling
+// screenshot.png is fed to the build agent as visual reference;
+// variables.json, metadata.xml and meta.json are written by pull-pattern
+// for future verify/refine flows but aren't required to build.
 export type PatternSource = {
 	// PascalCase function name as written in the TSX (e.g. "HeroCallout").
 	name: string;
@@ -39,6 +43,35 @@ export type PatternSource = {
 	// File contents.
 	body: string;
 };
+
+// Metadata persisted by pull-pattern alongside the Figma artifacts.
+// Mirrors PullMeta in shape but is patterns-specific — we deliberately
+// don't reuse PullMeta because patterns have no templateFile,
+// previewPath, or post-content seam.
+export type PatternMeta = {
+	name: string;
+	selectionName?: string;
+	x?: number;
+	y?: number;
+	pulledAt: string;
+};
+
+// Atomically writes <project>/patterns/<Name>/meta.json. Symmetric to
+// design-walk.ts's writePullMeta — keeps the shape centralized so
+// future readers don't have to inspect every call site to learn what
+// the file contains.
+export async function writePatternMeta(
+	projectDir: string,
+	name: string,
+	meta: PatternMeta,
+): Promise<void> {
+	const folder = join(projectDir, 'patterns', name);
+	await mkdir(folder, {recursive: true});
+	await writeFileAtomic(
+		join(folder, 'meta.json'),
+		JSON.stringify(meta, null, 2) + '\n',
+	);
+}
 
 // Lists every <project>/patterns/<Name>/code.tsx file. Returns [] when
 // the patterns directory does not exist; callers can decide whether

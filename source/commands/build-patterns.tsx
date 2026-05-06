@@ -1,46 +1,27 @@
-// Sequentially builds a user-chosen subset of patterns/<Name>/code.tsx
-// files into WordPress block patterns at <theme>/patterns/<slug>.php. The
-// picker starts with every pattern checked; the user toggles off the
-// ones they don't want and presses Enter to run. No per-pattern
-// confirm — the picker IS the confirmation.
+// Build patterns UI shell. Lists every patterns/<Name>/ source whose
+// name appears in config.patterns (the user's selection from Extract
+// patterns), lets them toggle the subset they want, then sequentially
+// calls runBuildPattern from commands/build-pattern.ts on each. Every
+// row starts checked so the common case (rebuild everything) is one
+// Enter; toggling off lets the user rebuild a single pattern. No
+// per-pattern confirm — the picker IS the confirmation. Per-pattern
+// failures don't abort the batch; they're tallied.
 //
-// Each pattern is one paid Claude Agent SDK call against the
-// tsx-to-pattern skill. The agent returns a JSON envelope with the
-// pattern title/categories/keywords plus block markup; Neptune wraps
-// the markup in a PHP file header WordPress core auto-registers at
-// boot. theme.json patches and block style variations from the
-// envelope are applied the same way the build-template flow handles
-// them.
+// Filtering by config.patterns means the menu and E2E share the same
+// source-of-truth: a pattern is buildable iff the user explicitly
+// picked it. Folders left over on disk for an unselected pattern are
+// invisible here until re-selected via Extract patterns.
 import React, {useEffect, useRef, useState} from 'react';
 import {Box, Text, useInput} from 'ink';
-import {access, readFile, stat} from 'node:fs/promises';
-import {dirname, join, resolve} from 'node:path';
-import {fileURLToPath} from 'node:url';
-import {
-	AgentAbortedError,
-	runAgent,
-	type ImageBlock,
-	type TextBlock,
-} from '../lib/agent-stream.js';
+import {AgentAbortedError} from '../lib/agent-stream.js';
 import EventList, {type LogEvent} from '../lib/event-list.js';
 import MultiSelect from '../lib/multi-select.js';
 import {
-	applyBlockStyleVariations,
-	applyThemeJsonPatch,
-	flushThemeJsonCache,
-	formatBlockStyleVariationsContext,
-	readBlockStyleVariations,
-} from '../lib/theme-json-patch.js';
-import {
 	kebabFromPascalCase,
 	listPatternSources,
-	parsePatternEnvelope,
-	serializePatternPhp,
-	writePatternFile,
 	type PatternSource,
 } from '../lib/patterns.js';
-import {placeholderInstructions} from './build-template.js';
-import {openStudioSession} from '../integrations/studio/mcp.js';
+import {runBuildPattern} from './build-pattern.js';
 import type {Loaded} from './setup-project/types.js';
 
 type Props = {
@@ -58,9 +39,6 @@ type Phase =
 	| {kind: 'running'; sources: PatternSource[]; cursor: number}
 	| {kind: 'done'; outcomes: Outcome[]}
 	| {kind: 'message'; title: string; subtitle?: string};
-
-const moduleDir = dirname(fileURLToPath(import.meta.url));
-const PLUGIN_PATH = resolve(moduleDir, '..', '..', 'plugins', 'neptune-tools');
 
 export default function BuildPatterns({activeProject, onDone}: Props) {
 	const [phase, setPhase] = useState<Phase>({kind: 'loading'});
@@ -80,13 +58,22 @@ export default function BuildPatterns({activeProject, onDone}: Props) {
 					});
 					return;
 				}
-				const sources = await listPatternSources(activeProject.dir);
+				const allSources = await listPatternSources(activeProject.dir);
 				if (controller.signal.aborted) return;
+				const selected = new Set(activeProject.config.patterns ?? []);
+				const sources =
+					selected.size === 0
+						? []
+						: allSources.filter(s => selected.has(s.name));
 				if (sources.length === 0) {
 					setPhase({
 						kind: 'message',
-						title: 'No patterns/*/code.tsx found.',
-						subtitle: 'Run Extract patterns first.',
+						title:
+							selected.size === 0
+								? 'No patterns selected.'
+								: 'No pulled pattern sources match your selection.',
+						subtitle:
+							'Run Extract patterns to pick the names you care about, then Pull pattern to fetch each one from Figma.',
 					});
 					return;
 				}
@@ -101,7 +88,11 @@ export default function BuildPatterns({activeProject, onDone}: Props) {
 			}
 		})();
 		return () => controller.abort();
-	}, [activeProject.config.themeSlug, activeProject.dir]);
+	}, [
+		activeProject.config.themeSlug,
+		activeProject.config.patterns,
+		activeProject.dir,
+	]);
 
 	useEffect(
 		() => () => {
@@ -210,7 +201,7 @@ export default function BuildPatterns({activeProject, onDone}: Props) {
 	if (phase.kind === 'picking') {
 		const items = phase.sources.map(s => ({
 			key: s.name,
-			label: `${s.name} → patterns/${kebabFromPascalCase(s.name)}.php`,
+			label: `${s.name} → <theme>/patterns/${kebabFromPascalCase(s.name)}.php`,
 			value: s,
 		}));
 		return (
@@ -221,7 +212,7 @@ export default function BuildPatterns({activeProject, onDone}: Props) {
 						All {phase.sources.length} pattern{phase.sources.length === 1 ? '' : 's'} are selected by default.
 					</Text>
 					<Text>
-						Toggle off any you don't want to build and press Enter. Each
+						Toggle off any you don&apos;t want to build and press Enter. Each
 						selected pattern is one paid Claude Agent SDK call. Existing
 						pattern PHP files at the same slug will be overwritten.
 					</Text>
@@ -281,245 +272,4 @@ export default function BuildPatterns({activeProject, onDone}: Props) {
 			</Box>
 		</Box>
 	);
-}
-
-export type BuildPatternDeps = {
-	runAgent?: typeof runAgent;
-};
-
-export async function runBuildPattern(
-	loaded: Loaded,
-	src: PatternSource,
-	signal: AbortSignal,
-	onEvent: (ev: LogEvent) => void,
-	deps: BuildPatternDeps = {},
-): Promise<{slug: string; path: string; size: number}> {
-	const agentRunner = deps.runAgent ?? runAgent;
-	const themeSlug = loaded.config.themeSlug!;
-
-	onEvent({
-		kind: 'step',
-		message: `Loaded patterns/${src.name}/code.tsx (${src.body.length} bytes)`,
-	});
-
-	const wpRoot = resolve(loaded.dir, 'wordpress');
-	const themePath = resolve(wpRoot, 'wp-content', 'themes', themeSlug);
-	const themeJsonPath = resolve(themePath, 'theme.json');
-
-	const themeJsonText = await readIfExists(themeJsonPath);
-	if (themeJsonText) {
-		onEvent({
-			kind: 'step',
-			message: `Loaded theme.json (${themeJsonText.length} bytes)`,
-		});
-	} else {
-		onEvent({
-			kind: 'warn',
-			message: 'No theme.json found — proceeding without it',
-		});
-	}
-
-	const variablesPath = join(loaded.dir, 'variables', 'all-variables.json');
-	const variablesText = await readIfExists(variablesPath);
-	if (variablesText) {
-		onEvent({
-			kind: 'step',
-			message: `Loaded variables/all-variables.json (${variablesText.length} bytes)`,
-		});
-	} else {
-		onEvent({
-			kind: 'warn',
-			message: 'No variables/all-variables.json — proceeding without it',
-		});
-	}
-
-	const existingVariations = await readBlockStyleVariations(themePath, msg =>
-		onEvent({kind: 'warn', message: msg}),
-	);
-	const variationsContext = formatBlockStyleVariationsContext(
-		existingVariations,
-	);
-	if (variationsContext) {
-		onEvent({
-			kind: 'step',
-			message: `Loaded ${existingVariations.length} existing block style variation${existingVariations.length === 1 ? '' : 's'} for reuse context`,
-		});
-	}
-
-	const sections: string[] = ['=== pattern.tsx ===', src.body];
-	if (themeJsonText) {
-		sections.push('', '=== theme.json ===', themeJsonText);
-	}
-	if (variablesText) {
-		sections.push('', '=== variables.json ===', variablesText);
-	}
-	if (variationsContext) {
-		sections.push(
-			'',
-			'=== existing block style variations ===',
-			'These variations are already registered. Reuse them by adding the matching `is-style-<slug>` class to a block instead of redefining them. Only emit a new entry in `block_style_variations[]` when none of these fits.',
-			variationsContext,
-		);
-	}
-	const placeholder = loaded.config.placeholderImage;
-	if (placeholder) {
-		sections.push(
-			'',
-			'=== placeholder image ===',
-			placeholderInstructions(placeholder),
-		);
-	}
-	const baseContext = sections.join('\n');
-
-	const screenshotPath = join(
-		loaded.dir,
-		'patterns',
-		src.name,
-		'screenshot.png',
-	);
-	const screenshotBuf = await readPngIfExists(screenshotPath);
-	if (screenshotBuf) {
-		onEvent({
-			kind: 'step',
-			message: `Loaded screenshot.png (${screenshotBuf.length} bytes)`,
-		});
-	} else {
-		onEvent({
-			kind: 'warn',
-			message: 'No usable screenshot.png — proceeding without visual reference',
-		});
-	}
-	const screenshotBase64 = screenshotBuf
-		? screenshotBuf.toString('base64')
-		: null;
-
-	const userContent = buildUserContent(src.name, baseContext, screenshotBase64);
-
-	onEvent({kind: 'step', message: 'Invoking Claude Agent SDK…'});
-
-	const responseText = await agentRunner(
-		userContent,
-		{cwd: loaded.dir, pluginPath: PLUGIN_PATH, signal},
-		onEvent,
-	);
-
-	const envelope = parsePatternEnvelope(responseText);
-	const slug = kebabFromPascalCase(src.name);
-	if (!slug) {
-		throw new Error(
-			`Cannot derive a kebab-case slug from pattern name "${src.name}".`,
-		);
-	}
-	const php = serializePatternPhp({themeSlug, slug, envelope});
-	const path = await writePatternFile(themePath, slug, php);
-
-	const session = await openStudioSession({signal});
-	let cacheNeedsFlush = false;
-	try {
-		if (envelope.theme_json_patch) {
-			const patchResult = await applyThemeJsonPatch(
-				themeJsonPath,
-				envelope.theme_json_patch,
-			);
-			if (patchResult.wrote) {
-				onEvent({
-					kind: 'success',
-					message: `Patched theme.json (${patchResult.touched.join(', ')})`,
-				});
-				cacheNeedsFlush = true;
-			}
-		}
-		if (envelope.block_style_variations) {
-			const writeResult = await applyBlockStyleVariations(
-				themePath,
-				envelope.block_style_variations,
-			);
-			if (writeResult.written.length > 0) {
-				onEvent({
-					kind: 'success',
-					message: `Registered ${writeResult.written.length} block style variation${writeResult.written.length === 1 ? '' : 's'}`,
-				});
-				cacheNeedsFlush = true;
-			}
-		}
-		if (cacheNeedsFlush) {
-			await flushThemeJsonCache(session, wpRoot);
-		}
-	} finally {
-		session.close();
-	}
-
-	onEvent({
-		kind: 'success',
-		message: `Wrote ${php.length} bytes to ${path}`,
-	});
-
-	return {slug, path, size: php.length};
-}
-
-type UserContent = Array<TextBlock | ImageBlock>;
-
-// We rely on the tsx-to-pattern skill to know HOW to convert. The
-// lead sentence keeps the trigger words from the skill's description
-// so the SDK auto-invokes it; the skill body owns the conversion
-// rules. The per-call dynamic context is the pattern's source name —
-// the agent uses it as the canonical title fallback when the TSX
-// doesn't suggest something better.
-function buildUserContent(
-	name: string,
-	baseContext: string,
-	screenshotBase64: string | null,
-): UserContent {
-	const content: UserContent = [
-		{
-			type: 'text',
-			text:
-				`Convert this Figma-extracted React + Tailwind pattern function (named "${name}") into a WordPress block pattern. ` +
-				`Use the tsx-to-pattern skill. Treat the supplied TSX as a reusable fragment — patterns are not full pages. ` +
-				`Return the JSON envelope described in the skill. Neptune wraps the markup in the PHP file header itself; ` +
-				`do NOT emit any \`<?php\` tags or call any tools yourself.`,
-		},
-	];
-
-	if (screenshotBase64) {
-		content.push({
-			type: 'text',
-			text: '=== screenshot.png — visual reference for the intended design output ===',
-		});
-		content.push({
-			type: 'image',
-			source: {
-				type: 'base64',
-				media_type: 'image/png',
-				data: screenshotBase64,
-			},
-		});
-	}
-
-	content.push({type: 'text', text: baseContext});
-
-	return content;
-}
-
-// pull-pattern always writes a screenshot.png alongside code.tsx, but
-// extract-patterns under the previous flow may have left zero-byte
-// placeholders behind. A zero-byte file is "exists" but not a usable
-// PNG, so treat it the same as missing.
-async function readPngIfExists(p: string): Promise<Buffer | null> {
-	try {
-		const s = await stat(p);
-		if (!s.isFile() || s.size === 0) return null;
-		return await readFile(p);
-	} catch {
-		return null;
-	}
-}
-
-async function readIfExists(p: string): Promise<string | null> {
-	try {
-		await access(p);
-		return await readFile(p, 'utf8');
-	} catch {
-		return null;
-	}
 }

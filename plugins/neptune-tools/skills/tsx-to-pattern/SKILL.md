@@ -1,6 +1,6 @@
 ---
 name: tsx-to-pattern
-description: Use when converting a single Figma-extracted React + Tailwind pattern function (a top-level function from patterns/<Name>.tsx) into a WordPress block pattern. Outputs a JSON envelope containing the block markup plus pattern metadata (title, categories, keywords, viewport width) and an optional theme.json patch / block style variations.
+description: Use when converting a single Figma-pulled React + Tailwind pattern function (the contents of patterns/<Name>/code.tsx) into a WordPress block pattern. Outputs a JSON envelope containing the block markup plus pattern metadata (title, categories, keywords, viewport width) and an optional theme.json patch / block style variations.
 ---
 
 # TSX → WordPress block pattern

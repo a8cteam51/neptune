@@ -6,10 +6,10 @@
 // wp_template / wp_template_part post in the WordPress database via
 // Studio's wp-cli.
 //
-// The UI shell lives in build-multiple.tsx — it picks the pulls and
+// The UI shell lives in build-templates.tsx — it picks the pulls and
 // calls runBuild for each. This module owns no React; it's pure I/O
 // + agent invocation.
-import {access, readFile} from 'node:fs/promises';
+import {readFile} from 'node:fs/promises';
 import {dirname, join, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {
@@ -17,6 +17,7 @@ import {
 	type ImageBlock,
 	type TextBlock,
 } from '../lib/agent-stream.js';
+import {readBufferIfExists, readIfExists} from '../lib/fs-helpers.js';
 import {
 	extractDevAnnotations,
 	formatDevAnnotationsSection,
@@ -44,7 +45,7 @@ import {openStudioSession} from '../integrations/studio/mcp.js';
 import type {Loaded} from './setup-project/types.js';
 import type {PullMeta} from '../lib/types.js';
 
-export type PickablePull = PullMeta & {templateFile: string};
+export type TemplateBuildPull = PullMeta & {templateFile: string};
 
 const moduleDir = dirname(fileURLToPath(import.meta.url));
 const PLUGIN_PATH = resolve(moduleDir, '..', '..', 'plugins', 'neptune-tools');
@@ -55,7 +56,7 @@ export type BuildDeps = {
 
 export async function runBuild(
 	loaded: Loaded,
-	pull: PickablePull,
+	pull: TemplateBuildPull,
 	signal: AbortSignal,
 	onEvent: (ev: LogEvent) => void,
 	deps: BuildDeps = {},
@@ -337,20 +338,3 @@ export function roleScopeNote(role: TemplateRole): string {
 	return 'Convert ONLY the main content region of the source page. Header and footer are rendered separately by parts/header.html and parts/footer.html — skip them.';
 }
 
-async function readBufferIfExists(p: string): Promise<Buffer | null> {
-	try {
-		await access(p);
-		return await readFile(p);
-	} catch {
-		return null;
-	}
-}
-
-async function readIfExists(p: string): Promise<string | null> {
-	try {
-		await access(p);
-		return await readFile(p, 'utf8');
-	} catch {
-		return null;
-	}
-}
