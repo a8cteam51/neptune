@@ -115,11 +115,7 @@ test('parseApplyEnvelope: accepts envelope with template + theme_json_patch', t 
 			template_html: '<!-- wp:group -->x<!-- /wp:group -->',
 			theme_json_patch: {
 				blocks: {
-					'core/button': {
-						variations: {
-							'neptune-fill-small': {css: '.x { padding: 4px; }'},
-						},
-					},
+					'core/button': {color: {text: '#000'}, css: '.x{}'},
 				},
 			},
 		}),
@@ -127,10 +123,25 @@ test('parseApplyEnvelope: accepts envelope with template + theme_json_patch', t 
 	t.is(e.template_html, '<!-- wp:group -->x<!-- /wp:group -->');
 	t.truthy(e.theme_json_patch);
 	t.deepEqual(e.theme_json_patch?.blocks, {
-		'core/button': {
-			variations: {'neptune-fill-small': {css: '.x { padding: 4px; }'}},
-		},
+		'core/button': {color: {text: '#000'}, css: '.x{}'},
 	});
+});
+
+test('parseApplyEnvelope: rejects variations under theme_json_patch.blocks', t => {
+	t.throws(
+		() =>
+			parseApplyEnvelope(
+				JSON.stringify({
+					template_html: '<!-- wp:p --><!-- /wp:p -->',
+					theme_json_patch: {
+						blocks: {
+							'core/button': {variations: {'neptune-x': {}}},
+						},
+					},
+				}),
+			),
+		{message: /variations is not supported.*block_style_variations/},
+	);
 });
 
 test('parseApplyEnvelope: omitted theme_json_patch is undefined', t => {

@@ -17,6 +17,8 @@ import {AgentAbortedError, runAgent} from '../lib/agent-stream.js';
 import {buildVariables} from '../lib/build-variables.js';
 import EventList, {type LogEvent} from '../lib/event-list.js';
 import {markVariablesBuilt} from './setup-project/config.js';
+import {openStudioSession} from '../integrations/studio/mcp.js';
+import {flushThemeJsonCache} from '../lib/theme-json-patch.js';
 import type {Loaded} from './setup-project/types.js';
 
 type Props = {
@@ -301,6 +303,17 @@ export async function buildThemeJson(
 		kind: 'step',
 		message: `Wrote ${formatted.length} bytes to theme.json`,
 	});
+
+	// Flush WP's cached resolved theme.json so the live site picks up
+	// the new presets on the next request. Mirrors the flush every other
+	// theme.json writer (build-template/build-content/refine) does.
+	const wpRoot = resolve(loaded.dir, 'wordpress');
+	const session = await openStudioSession({signal});
+	try {
+		await flushThemeJsonCache(session, wpRoot);
+	} finally {
+		session.close();
+	}
 
 	return {path: target, size: formatted.length};
 }

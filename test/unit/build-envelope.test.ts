@@ -107,6 +107,36 @@ test('parseThemeJsonPatchField: returns only requested subtrees', t => {
 	t.deepEqual(v, {blocks: {'core/p': {}}, custom: {x: 1}});
 });
 
+test('parseThemeJsonPatchField: rejects variations under blocks.<x>', t => {
+	t.throws(
+		() =>
+			parseThemeJsonPatchField(
+				{
+					blocks: {
+						'core/button': {variations: {'neptune-x': {css: '.x{}'}}},
+					},
+				},
+				'build-template',
+			),
+		{
+			message:
+				/blocks\["core\/button"\]\.variations is not supported.*block_style_variations/,
+		},
+	);
+});
+
+test('parseThemeJsonPatchField: allows non-variation children of blocks.<x>', t => {
+	const v = parseThemeJsonPatchField(
+		{
+			blocks: {
+				'core/button': {color: {text: '#000'}, css: '.x{}'},
+			},
+		},
+		'x',
+	);
+	t.truthy(v?.blocks);
+});
+
 test('parseBlockStyleVariationsField: undefined / null → undefined', t => {
 	t.is(parseBlockStyleVariationsField(undefined, 'x'), undefined);
 	t.is(parseBlockStyleVariationsField(null, 'x'), undefined);

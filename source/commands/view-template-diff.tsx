@@ -6,7 +6,7 @@ import React, {useEffect, useRef, useState} from 'react';
 import {Box, Text, useInput} from 'ink';
 import Menu from '../lib/menu.js';
 import EventList, {type LogEvent} from '../lib/event-list.js';
-import {listPulls} from '../lib/design-walk.js';
+import {listPulls, sortByTemplatePriority} from '../lib/design-walk.js';
 import {openFileInDefaultApp} from '../lib/open-file.js';
 import {
 	captureAndDiffPull,
@@ -58,6 +58,7 @@ export default function ViewTemplateDiff({activeProject, onDone}: Props) {
 				const pickable = pulls.filter(
 					(p): p is DiffPull =>
 						p.special === undefined &&
+						p.contentOnly !== true &&
 						typeof p.templateFile === 'string' &&
 						p.templateFile.length > 0,
 				);
@@ -66,11 +67,14 @@ export default function ViewTemplateDiff({activeProject, onDone}: Props) {
 						kind: 'message',
 						title: 'No pulls available to diff.',
 						subtitle:
-							'Pull a non-special template with a templateFile first.',
+							'Pull a non-special template with a templateFile first. Content-only pulls share their wrapper with another pull.',
 					});
 					return;
 				}
-				setPhase({kind: 'picking', pulls: pickable});
+				setPhase({
+					kind: 'picking',
+					pulls: sortByTemplatePriority(pickable),
+				});
 			} catch (err) {
 				if (controller.signal.aborted) return;
 				setPhase({

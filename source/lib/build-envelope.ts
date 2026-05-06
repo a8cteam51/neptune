@@ -61,7 +61,28 @@ export function parseThemeJsonPatchField(
 		) {
 			throw new Error(`${label}.theme_json_patch.blocks must be an object.`);
 		}
-		out.blocks = obj['blocks'] as Record<string, unknown>;
+		// Block style variations live in their own envelope field
+		// (block_style_variations[]) and ship as files at
+		// <theme>/styles/blocks/<slug>.json. Putting `variations` under
+		// theme_json_patch.blocks.<x> is a dead-write path on WP 6.6+ —
+		// it merges into theme.json silently and registers nothing.
+		// Catch the agent here so the mistake fails loud instead of
+		// quietly polluting theme.json.
+		const blocksObj = obj['blocks'] as Record<string, unknown>;
+		for (const [blockName, blockBody] of Object.entries(blocksObj)) {
+			if (
+				typeof blockBody === 'object' &&
+				blockBody !== null &&
+				!Array.isArray(blockBody) &&
+				'variations' in blockBody
+			) {
+				throw new Error(
+					`${label}.theme_json_patch.blocks["${blockName}"].variations is not supported. ` +
+						`Register editor-pickable variations via the block_style_variations[] envelope field instead.`,
+				);
+			}
+		}
+		out.blocks = blocksObj;
 	}
 	if (obj['custom'] !== undefined) {
 		if (
