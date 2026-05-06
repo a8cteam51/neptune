@@ -1,10 +1,6 @@
 import test from 'ava';
 import {extractAssetUrls} from '../../source/integrations/figma/assets-fetch.js';
-import {
-	extractJsxText,
-	parseDevNoteIds,
-	parseTitleCards,
-} from '../../source/integrations/figma/handoff-parse.js';
+import {parseTitleCards} from '../../source/integrations/figma/handoff-parse.js';
 import {stripLlmInstructions} from '../../source/integrations/figma/mcp.js';
 import {slugify} from '../../source/commands/pull-template/special-meta.js';
 
@@ -44,19 +40,6 @@ const inJsx = <img src="http://localhost:3845/assets/ddd.svg" />;
 	]);
 });
 
-test('parseDevNoteIds matches loosely on name', t => {
-	const xml = `
-<frame>
-  <instance id="1:1" name="Dev Note" />
-  <instance id="1:2" name="💬 Dev Note" />
-  <instance id="1:3" name="dev note - hero" />
-  <instance id="1:4" name="DevNote" />
-  <instance id="1:5" name="Other" />
-</frame>
-`;
-	t.deepEqual(parseDevNoteIds(xml), ['1:1', '1:2', '1:3']);
-});
-
 test('parseTitleCards extracts inner text element name', t => {
 	const xml = `
 <frame>
@@ -72,21 +55,6 @@ test('parseTitleCards extracts inner text element name', t => {
 		{id: '2:1', name: 'Menu'},
 		{id: '2:3', name: 'Hero'},
 	]);
-});
-
-test('extractJsxText collapses whitespace and skips JSX expressions', t => {
-	const code = `
-function X() {
-  return (
-    <div>
-      <p>Hello   world</p>
-      <span>{count}</span>
-      <p>Another   line</p>
-    </div>
-  );
-}
-`;
-	t.is(extractJsxText(code), 'Hello world Another line');
 });
 
 test('stripLlmInstructions cuts code.tsx LLM tail at SUPER CRITICAL', t => {
@@ -116,16 +84,4 @@ test('slugify handles emojis, diacritics, and spaces', t => {
 	t.is(slugify('💬 Notes'), 'notes');
 	t.is(slugify('Café Olé'), 'cafe-ole');
 	t.is(slugify('   '), '');
-});
-
-test('parseDevNoteIds: only matches self-closing instances (documented limit)', t => {
-	const xml = `<frame>
-  <instance id="1:1" name="Dev Note" />
-  <instance id="1:2" name="Dev Note">inner</instance>
-</frame>`;
-	t.deepEqual(parseDevNoteIds(xml), ['1:1']);
-});
-
-test('extractJsxText: documented limit — numeric entities pass through verbatim', t => {
-	t.is(extractJsxText('<p>Don&#39;t panic</p>'), 'Don&#39;t panic');
 });

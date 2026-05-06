@@ -1,12 +1,12 @@
-// Picks one non-special pull, feeds its design/<slug>/code.tsx (plus the
-// theme's theme.json and variables/all-variables.json when present) to the
-// Claude Agent SDK with the tsx-to-blocks skill, and writes the resulting
-// Gutenberg block markup to the pull's wp_template / wp_template_part
-// post in the WordPress database via Studio's wp_cli.
+// Picks one usesPostContent pull, feeds its design/<slug>/code.tsx (plus
+// theme.json and variables/all-variables.json when present) to the
+// Claude Agent SDK with the tsx-to-blocks skill, and writes the
+// resulting Gutenberg block markup to the matching wp_post (page) via
+// the page-set wp neptune CLI.
 //
-// Modeled on build-theme-json.tsx: confirm-overwrite gate when a DB row
-// already exists so the user doesn't lose hand edits (Site Editor or
-// previous Neptune runs) and doesn't pay for a regen they didn't intend.
+// Mirrors build-template, but: only sees pulls flagged usesPostContent;
+// targets a wp_post (page) via lib/wp-pages.ts; tells the skill to
+// convert ONLY the data-neptune-annotations="post-content" subtree.
 import React, {useEffect, useRef, useState} from 'react';
 import {Box, Text, useInput} from 'ink';
 import SelectInput from 'ink-select-input';
@@ -25,14 +25,14 @@ import {
 	formatDevAnnotationsSection,
 } from '../lib/dev-annotations.js';
 import EventList, {type LogEvent} from '../lib/event-list.js';
-import {templateRole, type TemplateRole} from '../lib/template-scaffold.js';
 import {
-	readTemplate,
-	targetLabel,
-	templateTargetFor,
-	writeTemplate,
-} from '../lib/wp-templates.js';
+	pageTargetFor,
+	pageTargetLabel,
+	readPage,
+	writePage,
+} from '../lib/wp-pages.js';
 import {openStudioSession} from '../integrations/studio/mcp.js';
+import {placeholderInstructions} from './build-template.js';
 import type {Loaded} from './setup-project/types.js';
 import type {PullMeta} from '../lib/types.js';
 
@@ -41,7 +41,7 @@ type Props = {
 	onDone: () => void;
 };
 
-type PickablePull = PullMeta & {templateFile: string};
+type PickablePull = PullMeta & {pageSlug: string};
 
 type Phase =
 	| {kind: 'loading'}
@@ -55,7 +55,7 @@ type Phase =
 const moduleDir = dirname(fileURLToPath(import.meta.url));
 const PLUGIN_PATH = resolve(moduleDir, '..', '..', 'plugins', 'neptune-tools');
 
-export default function BuildTemplate({activeProject, onDone}: Props) {
+export default function BuildContent({activeProject, onDone}: Props) {
 	const [phase, setPhase] = useState<Phase>({kind: 'loading'});
 	const [events, setEvents] = useState<LogEvent[]>([]);
 	const runControllerRef = useRef<AbortController | null>(null);
@@ -69,16 +69,16 @@ export default function BuildTemplate({activeProject, onDone}: Props) {
 				const pickable = pulls.filter(
 					(p): p is PickablePull =>
 						p.special === undefined &&
-						p.contentOnly !== true &&
-						typeof p.templateFile === 'string' &&
-						p.templateFile.length > 0,
+						p.usesPostContent === true &&
+						typeof p.pageSlug === 'string' &&
+						p.pageSlug.length > 0,
 				);
 				if (pickable.length === 0) {
 					setPhase({
 						kind: 'message',
-						title: 'No pulls available to build a template from.',
+						title: 'No content-bearing pulls available.',
 						subtitle:
-							'Pull a non-special template with a templateFile first. Content-only pulls are built via build-content.',
+							'Pull a template flagged as uses post_content first.',
 					});
 					return;
 				}
@@ -110,7 +110,7 @@ export default function BuildTemplate({activeProject, onDone}: Props) {
 		runControllerRef.current = controller;
 		(async () => {
 			try {
-				const result = await runBuild(
+				const result = await runBuildContent(
 					activeProject,
 					pull,
 					controller.signal,
@@ -138,35 +138,30 @@ export default function BuildTemplate({activeProject, onDone}: Props) {
 	};
 
 	const onPickPull = async (pull: PickablePull) => {
-		const themeSlug = activeProject.config.themeSlug;
-		if (!themeSlug) {
-			setPhase({
-				kind: 'message',
-				title: 'themeSlug missing from neptune-config.json.',
-				subtitle: 'Finish theme setup first.',
-			});
-			return;
-		}
-		const target = templateTargetFor(pull.templateFile, pull.pageName);
+		const target = pageTargetFor(pull.pageSlug, pull.pageName);
 		const wpRoot = resolve(activeProject.dir, 'wordpress');
 		let exists = false;
 		try {
 			const session = await openStudioSession();
 			try {
-				exists = (await readTemplate(session, wpRoot, target)) !== null;
+				exists = (await readPage(session, wpRoot, target)) !== null;
 			} finally {
 				session.close();
 			}
 		} catch (err) {
 			setPhase({
 				kind: 'message',
-				title: 'Could not check existing template in the database.',
+				title: 'Could not check existing page in the database.',
 				subtitle: err instanceof Error ? err.message : String(err),
 			});
 			return;
 		}
 		if (exists) {
-			setPhase({kind: 'confirm', pull, targetLabel: targetLabel(target)});
+			setPhase({
+				kind: 'confirm',
+				pull,
+				targetLabel: pageTargetLabel(target),
+			});
 		} else {
 			beginRun(pull);
 		}
@@ -196,7 +191,7 @@ export default function BuildTemplate({activeProject, onDone}: Props) {
 	if (phase.kind === 'loading') {
 		return (
 			<Box flexDirection="column" padding={1}>
-				<Text bold color="cyan">Build template</Text>
+				<Text bold color="cyan">Build content</Text>
 				<Box marginTop={1}>
 					<Text dimColor>Loading pulls…</Text>
 				</Box>
@@ -207,7 +202,7 @@ export default function BuildTemplate({activeProject, onDone}: Props) {
 	if (phase.kind === 'message') {
 		return (
 			<Box flexDirection="column" padding={1}>
-				<Text bold color="cyan">Build template</Text>
+				<Text bold color="cyan">Build content</Text>
 				<Box marginTop={1}>
 					<Text color="yellow" bold>{phase.title}</Text>
 				</Box>
@@ -220,14 +215,14 @@ export default function BuildTemplate({activeProject, onDone}: Props) {
 	if (phase.kind === 'picking') {
 		const items = phase.pulls.map(p => ({
 			key: p.slug,
-			label: `${p.pageName} → ${p.templateFile}`,
+			label: `${p.pageName} → page:${p.pageSlug}`,
 			value: p,
 		}));
 		return (
 			<Box flexDirection="column" padding={1}>
-				<Text bold color="cyan">Build template</Text>
+				<Text bold color="cyan">Build content</Text>
 				<Box marginTop={1}>
-					<Text bold>Pick a pull to build into the theme:</Text>
+					<Text bold>Pick a pull to build into a page post:</Text>
 				</Box>
 				<Box marginTop={1}>
 					<SelectInput
@@ -263,14 +258,14 @@ export default function BuildTemplate({activeProject, onDone}: Props) {
 
 	return (
 		<Box flexDirection="column" padding={1}>
-			<Text bold color="cyan">Build template</Text>
+			<Text bold color="cyan">Build content</Text>
 			<Box marginTop={1}>
 				<EventList events={events} status={status} />
 			</Box>
 			{phase.kind === 'success' ? (
 				<Box marginTop={1} flexDirection="column">
 					<Text color="green" bold>
-						✓ Template written ({phase.size} bytes).
+						✓ Page content written ({phase.size} bytes).
 					</Text>
 					<Text dimColor>{phase.resultPath}</Text>
 					<Text dimColor>Press any key to return.</Text>
@@ -303,7 +298,7 @@ function ConfirmOverwrite({
 	const items = [
 		{
 			key: 'cancel',
-			label: 'Cancel — keep existing template',
+			label: 'Cancel — keep existing page content',
 			value: 'cancel',
 		},
 		{
@@ -315,16 +310,16 @@ function ConfirmOverwrite({
 
 	return (
 		<Box flexDirection="column" padding={1}>
-			<Text bold color="cyan">Build template</Text>
+			<Text bold color="cyan">Build content</Text>
 			<Box marginTop={1} flexDirection="column">
 				<Text color="yellow" bold>
-					A template post already exists in the database.
+					A page post already exists in the database.
 				</Text>
 				<Text dimColor>{targetLabel}</Text>
 				<Box marginTop={1}>
 					<Text>
-						Running the build will overwrite the existing post (revision
-						history is preserved) and consume a paid Claude Agent SDK call.
+						Running the build will overwrite the existing page post and
+						consume a paid Claude Agent SDK call.
 					</Text>
 				</Box>
 			</Box>
@@ -348,7 +343,7 @@ export type BuildDeps = {
 	runAgent?: typeof runAgent;
 };
 
-export async function runBuild(
+export async function runBuildContent(
 	loaded: Loaded,
 	pull: PickablePull,
 	signal: AbortSignal,
@@ -360,6 +355,11 @@ export async function runBuild(
 
 	const codePath = join(loaded.dir, 'design', pull.slug, 'code.tsx');
 	const code = await readFile(codePath, 'utf8');
+	if (!/data-neptune-annotations="post-content"/.test(code)) {
+		throw new Error(
+			'code.tsx has no data-neptune-annotations="post-content" region. The pull was flagged as uses post_content but no body subtree is marked.',
+		);
+	}
 	onEvent({
 		kind: 'step',
 		message: `Loaded design/${pull.slug}/code.tsx (${code.length} bytes)`,
@@ -448,12 +448,7 @@ export async function runBuild(
 		? screenshotBuf.toString('base64')
 		: null;
 
-	const userContent = buildUserContent(
-		pull.templateFile,
-		baseContext,
-		screenshotBase64,
-		pull.usesPostContent === true,
-	);
+	const userContent = buildUserContent(baseContext, screenshotBase64);
 
 	onEvent({kind: 'step', message: 'Invoking Claude Agent SDK…'});
 
@@ -463,18 +458,18 @@ export async function runBuild(
 		onEvent,
 	);
 
-	const target = templateTargetFor(pull.templateFile, pull.pageName);
+	const target = pageTargetFor(pull.pageSlug, pull.pageName);
 	const out = markup.endsWith('\n') ? markup : markup + '\n';
 
 	const wpRoot = resolve(loaded.dir, 'wordpress');
 	const session = await openStudioSession({signal});
 	try {
-		await writeTemplate(session, wpRoot, target, out);
+		await writePage(session, wpRoot, target, out);
 	} finally {
 		session.close();
 	}
 
-	const label = targetLabel(target);
+	const label = pageTargetLabel(target);
 	onEvent({
 		kind: 'success',
 		message: `Wrote ${out.length} bytes to ${label}`,
@@ -485,28 +480,16 @@ export async function runBuild(
 
 type UserContent = Array<TextBlock | ImageBlock>;
 
-// We rely on the tsx-to-blocks skill to know HOW to convert. The lead
-// sentence keeps the trigger words from the skill's description so the
-// SDK auto-invokes it; the skill body owns the conversion rules. The
-// per-call dynamic context is the template's role (header/footer/page),
-// which the skill cannot infer from code.tsx alone.
 function buildUserContent(
-	templateFile: string,
 	baseContext: string,
 	screenshotBase64: string | null,
-	usesPostContent: boolean,
 ): UserContent {
-	const role = templateRole(templateFile);
 	const content: UserContent = [];
-
-	const wrapperNote = usesPostContent
-		? ' This template embeds the page body via wp:post-content. The TSX has a region marked with data-neptune-annotations="post-content" — replace that subtree with `<!-- wp:post-content /-->` and convert ONLY the surrounding chrome (post title, post date, comments, etc.). Do NOT convert the marked subtree itself; build-content will handle it.'
-		: '';
 
 	content.push({
 		type: 'text',
 		text:
-			`Convert this Figma-generated React + Tailwind component (code.tsx) to Gutenberg block markup for the WordPress block theme template ${templateFile} (role: ${role}). Use the tsx-to-blocks skill. ${roleScopeNote(role)}${wrapperNote}`,
+			'Convert the post-content body of this Figma-generated React + Tailwind component (code.tsx) to Gutenberg block markup for a WordPress page post. Use the tsx-to-blocks skill. SCOPE: convert ONLY the subtree marked with data-neptune-annotations="post-content" (the page body). Do NOT include header, footer, post-title, post-date, comments, or any wrapper chrome — those belong to the surrounding template. Do NOT emit any wp:template-part references. Do NOT emit wp:post-content (this output IS the post content).',
 	});
 
 	if (screenshotBase64) {
@@ -527,33 +510,6 @@ function buildUserContent(
 	content.push({type: 'text', text: baseContext});
 
 	return content;
-}
-
-// Instructions appended to the agent prompt when a placeholder image
-// has been registered. Both the build and refine flows share this so
-// the rule is identical in both contexts.
-export function placeholderInstructions(placeholder: {
-	id: number;
-	url: string;
-}): string {
-	return [
-		`A placeholder image is uploaded to the WordPress media library.`,
-		`Use it for EVERY wp:image block you emit:`,
-		`  - Block attrs: {"id":${placeholder.id}}`,
-		`  - <img> src: ${placeholder.url}`,
-		`  - <img> class includes: wp-image-${placeholder.id}`,
-		`Never leave src empty and never invent a different URL.`,
-	].join('\n');
-}
-
-export function roleScopeNote(role: TemplateRole): string {
-	if (role === 'header') {
-		return 'Convert ONLY the header region of the source page (site title, primary nav, top bar). Ignore main content and footer.';
-	}
-	if (role === 'footer') {
-		return 'Convert ONLY the footer region of the source page (site info, secondary nav, copyright). Ignore header and main content.';
-	}
-	return 'Convert ONLY the main content region of the source page. Header and footer are rendered separately by parts/header.html and parts/footer.html — skip them.';
 }
 
 async function readBufferIfExists(p: string): Promise<Buffer | null> {

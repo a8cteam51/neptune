@@ -1,17 +1,12 @@
 // Specials are fixed-purpose pulls that gate access to the rest of the
-// flow. Pulling all three (Dev Handoff, Style Guide, Templates) opens
-// the picker and free-form pulls.
+// flow. Pulling both (Style Guide, Templates) opens the picker and
+// free-form pulls.
 import type {SpecialPullKind} from '../../lib/types.js';
 
 export const SPECIAL_META: Record<
 	SpecialPullKind,
 	{pageName: string; slug: string; label: string}
 > = {
-	devHandoff: {
-		pageName: 'Dev Handoff',
-		slug: 'dev-handoff',
-		label: 'Dev Handoff template',
-	},
 	styleGuide: {
 		pageName: 'Style Guide',
 		slug: 'style-guide',

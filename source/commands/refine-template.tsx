@@ -48,6 +48,10 @@ import {
 	writeCustomCss,
 } from '../lib/custom-css-sections.js';
 import {listPulls} from '../lib/design-walk.js';
+import {
+	extractDevAnnotations,
+	formatDevAnnotationsSection,
+} from '../lib/dev-annotations.js';
 import EventList, {type LogEvent} from '../lib/event-list.js';
 import MultiSelect from '../lib/multi-select.js';
 import {
@@ -114,6 +118,7 @@ type Phase =
 			target: TemplateTarget;
 			themeJsonText: string | null;
 			variablesText: string | null;
+			devAnnotationsText: string | null;
 	  }
 	| {kind: 'applying'; pull: PickablePull}
 	| {
@@ -200,6 +205,7 @@ export default function RefineTemplate({activeProject, onDone}: Props) {
 					target: result.target,
 					themeJsonText: result.themeJsonText,
 					variablesText: result.variablesText,
+					devAnnotationsText: result.devAnnotationsText,
 				});
 			} catch (err) {
 				if (controller.signal.aborted) return;
@@ -445,6 +451,7 @@ type DiagnoseResult =
 			target: TemplateTarget;
 			themeJsonText: string | null;
 			variablesText: string | null;
+			devAnnotationsText: string | null;
 	  };
 
 export async function runDiagnose(
@@ -540,6 +547,28 @@ export async function runDiagnose(
 		join(loaded.dir, 'variables', 'all-variables.json'),
 	);
 
+	// code.tsx carries inline data-development-annotations the designer
+	// authored in Figma. Surface them to both agents as explicit context;
+	// missing or annotation-less files just produce a null section.
+	const codeText = await readIfExists(
+		join(loaded.dir, 'design', pull.slug, 'code.tsx'),
+	);
+	const devAnnotations = codeText ? extractDevAnnotations(codeText) : [];
+	const devAnnotationsText =
+		devAnnotations.length > 0
+			? formatDevAnnotationsSection(devAnnotations)
+			: null;
+	if (devAnnotationsText) {
+		const noteCount = devAnnotations.reduce(
+			(sum, a) => sum + a.notes.length,
+			0,
+		);
+		onEvent({
+			kind: 'step',
+			message: `Captured ${noteCount} dev annotation${noteCount === 1 ? '' : 's'} on ${devAnnotations.length} node${devAnnotations.length === 1 ? '' : 's'}`,
+		});
+	}
+
 	const designBase64 = designBuf.toString('base64');
 	const liveBase64 = liveBuf.toString('base64');
 
@@ -577,7 +606,11 @@ export async function runDiagnose(
 			},
 			{
 				type: 'text',
-				text: buildContextSection(currentTemplate, themeJsonText),
+				text: buildContextSection(
+					currentTemplate,
+					themeJsonText,
+					devAnnotationsText,
+				),
 			},
 		],
 		{cwd: loaded.dir, pluginPath: PLUGIN_PATH, signal},
@@ -608,6 +641,7 @@ export async function runDiagnose(
 		target,
 		themeJsonText,
 		variablesText,
+		devAnnotationsText,
 	};
 }
 
@@ -645,6 +679,7 @@ export async function runApply(
 		target: TemplateTarget;
 		themeJsonText: string | null;
 		variablesText: string | null;
+		devAnnotationsText: string | null;
 	},
 	approved: DiffEntry[],
 	signal: AbortSignal,
@@ -671,6 +706,13 @@ export async function runApply(
 	}
 	if (reviewPhase.variablesText) {
 		sections.push('', '=== variables.json ===', reviewPhase.variablesText);
+	}
+	if (reviewPhase.devAnnotationsText) {
+		sections.push(
+			'',
+			'=== dev annotations ===',
+			reviewPhase.devAnnotationsText,
+		);
 	}
 	const placeholder = loaded.config.placeholderImage;
 	if (placeholder) {
@@ -907,10 +949,14 @@ async function loadCurrentTemplate(
 function buildContextSection(
 	currentTemplate: string,
 	themeJsonText: string | null,
+	devAnnotationsText: string | null,
 ): string {
 	const parts = ['=== current.html ===', currentTemplate];
 	if (themeJsonText) {
 		parts.push('', '=== theme.json ===', themeJsonText);
+	}
+	if (devAnnotationsText) {
+		parts.push('', '=== dev annotations ===', devAnnotationsText);
 	}
 	return parts.join('\n');
 }

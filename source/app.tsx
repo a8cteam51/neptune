@@ -12,6 +12,7 @@ import PullTemplate from './commands/pull-template.js';
 import ExtractPatterns from './commands/extract-patterns.js';
 import VerifyScreenshots from './commands/verify-screenshots.js';
 import BuildTemplate from './commands/build-template.js';
+import BuildContent from './commands/build-content.js';
 import RefineTemplate from './commands/refine-template.js';
 import ViewTemplateDiff from './commands/view-template-diff.js';
 import BuildThemeJson from './commands/build-theme-json.js';
@@ -36,6 +37,7 @@ type View =
 	| 'extractPatterns'
 	| 'verifyScreenshots'
 	| 'buildTemplate'
+	| 'buildContent'
 	| 'refineTemplate'
 	| 'viewTemplateDiff'
 	| 'buildTheme';
@@ -50,6 +52,7 @@ export default function App({name, startCwd}: Props) {
 	const [projectVersion, setProjectVersion] = useState(0);
 	const [hasPulls, setHasPulls] = useState(false);
 	const [hasNonSpecialPulls, setHasNonSpecialPulls] = useState(false);
+	const [hasPostContentPulls, setHasPostContentPulls] = useState(false);
 	const [autoLoadError, setAutoLoadError] = useState<string | null>(null);
 	const [autoLoaded, setAutoLoaded] = useState(false);
 	const [siteStatus, setSiteStatus] = useState<
@@ -75,6 +78,7 @@ export default function App({name, startCwd}: Props) {
 		if (!activeProject) {
 			setHasPulls(false);
 			setHasNonSpecialPulls(false);
+			setHasPostContentPulls(false);
 			return;
 		}
 		let cancelled = false;
@@ -83,11 +87,21 @@ export default function App({name, startCwd}: Props) {
 				if (cancelled) return;
 				setHasPulls(pulls.length > 0);
 				setHasNonSpecialPulls(pulls.some(p => p.special === undefined));
+				setHasPostContentPulls(
+					pulls.some(
+						p =>
+							p.special === undefined &&
+							p.usesPostContent === true &&
+							typeof p.pageSlug === 'string' &&
+							p.pageSlug.length > 0,
+					),
+				);
 			})
 			.catch(() => {
 				if (!cancelled) {
 					setHasPulls(false);
 					setHasNonSpecialPulls(false);
+					setHasPostContentPulls(false);
 				}
 			});
 		return () => {
@@ -141,6 +155,7 @@ export default function App({name, startCwd}: Props) {
 		hasActive: Boolean(activeProject),
 		hasPulls,
 		hasNonSpecialPulls,
+		hasPostContentPulls,
 		hasTheme,
 	});
 
@@ -278,11 +293,13 @@ function buildMenuItems({
 	hasActive,
 	hasPulls,
 	hasNonSpecialPulls,
+	hasPostContentPulls,
 	hasTheme,
 }: {
 	hasActive: boolean;
 	hasPulls: boolean;
 	hasNonSpecialPulls: boolean;
+	hasPostContentPulls: boolean;
 	hasTheme: boolean;
 }): MenuItem[] {
 	const items: MenuItem[] = [];
@@ -300,6 +317,9 @@ function buildMenuItems({
 		}
 		if (hasNonSpecialPulls && hasTheme) {
 			items.push({label: 'Build template', value: 'buildTemplate'});
+			if (hasPostContentPulls) {
+				items.push({label: 'Build content', value: 'buildContent'});
+			}
 			items.push({label: 'Refine template', value: 'refineTemplate'});
 			items.push({
 				label: '  ↳ View template diff',
@@ -356,6 +376,13 @@ function renderView(
 		case 'buildTemplate':
 			return (
 				<BuildTemplate
+					activeProject={activeProject}
+					onDone={() => onDone(false)}
+				/>
+			);
+		case 'buildContent':
+			return (
+				<BuildContent
 					activeProject={activeProject}
 					onDone={() => onDone(false)}
 				/>

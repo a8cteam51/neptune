@@ -13,7 +13,6 @@ type ItemValue =
 export default function GateView({
 	selection,
 	selectionError,
-	hasDevHandoff,
 	hasStyleGuide,
 	hasTemplates,
 	onSelect,
@@ -22,7 +21,6 @@ export default function GateView({
 }: {
 	selection: SelectionMetadata | null;
 	selectionError: Error | null;
-	hasDevHandoff: boolean;
 	hasStyleGuide: boolean;
 	hasTemplates: boolean;
 	onSelect: (kind: SpecialPullKind) => void;
@@ -34,13 +32,6 @@ export default function GateView({
 	});
 
 	const items: Array<{key: string; label: string; value: ItemValue}> = [];
-	if (!hasDevHandoff) {
-		items.push({
-			key: 'devHandoff',
-			label: 'Pull Dev Handoff template from current selection',
-			value: {kind: 'special', special: 'devHandoff'},
-		});
-	}
 	if (!hasStyleGuide) {
 		items.push({
 			key: 'styleGuide',
@@ -72,7 +63,6 @@ export default function GateView({
 		selection.y !== undefined;
 
 	const checklist: Array<{label: string; done: boolean}> = [
-		{label: 'Dev Handoff template', done: hasDevHandoff},
 		{label: 'Style Guide template', done: hasStyleGuide},
 		{label: 'Templates layer', done: hasTemplates},
 	];
@@ -83,8 +73,8 @@ export default function GateView({
 
 			<Box marginTop={1} flexDirection="column">
 				<Text>
-					Before pulling additional templates, the Dev Handoff template,
-					Style Guide template, and Templates layer must be pulled first.
+					Before pulling additional templates, the Style Guide template and
+					Templates layer must be pulled first.
 				</Text>
 			</Box>
 

@@ -21,13 +21,9 @@ test('roleScopeNote: page tells the model to skip header/footer', t => {
 	t.regex(note, /parts\/footer\.html/);
 });
 
-test('SPECIAL_META: stable shape for all three kinds', t => {
-	t.deepEqual(Object.keys(SPECIAL_META).sort(), [
-		'devHandoff',
-		'styleGuide',
-		'templates',
-	]);
-	for (const kind of ['devHandoff', 'styleGuide', 'templates'] as const) {
+test('SPECIAL_META: stable shape for both kinds', t => {
+	t.deepEqual(Object.keys(SPECIAL_META).sort(), ['styleGuide', 'templates']);
+	for (const kind of ['styleGuide', 'templates'] as const) {
 		const meta = SPECIAL_META[kind];
 		t.is(typeof meta.pageName, 'string');
 		t.is(typeof meta.slug, 'string');

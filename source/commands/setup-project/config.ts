@@ -3,7 +3,7 @@
 // per-pull state — that's on disk under design/<slug>/meta.json. See
 // design-walk.ts for the rationale.
 //
-// Older configs may carry orphan keys (pulls, devHandoffPulledAt, etc.)
+// Older configs may carry orphan keys (e.g. an inline `pulls` array)
 // from before the move to disk-as-truth. normalizeConfig drops them on
 // read; the next write through applyUpdate strips them from the file.
 import {mkdir, readdir, readFile, stat} from 'node:fs/promises';

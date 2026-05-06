@@ -2,8 +2,8 @@
 //
 // Phases:
 //   loading      — fetching selection + disk pull state in parallel.
-//   gate         — one or more of devHandoff/styleGuide/templates not yet
-//                  pulled. User picks which special to pull next.
+//   gate         — one or both of styleGuide/templates not yet pulled.
+//                  User picks which special to pull next.
 //   picking      — gate satisfied. User picks a title card (from the
 //                  templates pull) or "Custom" to enter free-form mode.
 //   configuring  — pageName + WordPress template file entry. PageName is
@@ -28,8 +28,7 @@ import {
 	writePullMeta,
 } from '../../lib/design-walk.js';
 import {downloadCodeAssets} from '../../integrations/figma/assets-fetch.js';
-import {fetchDevNoteTexts} from '../../integrations/figma/handoff-fetch.js';
-import {parseDevNoteIds, parseTitleCards} from '../../integrations/figma/handoff-parse.js';
+import {parseTitleCards} from '../../integrations/figma/handoff-parse.js';
 import {
 	getSelectionMetadata,
 	type SelectionMetadata,
@@ -38,14 +37,15 @@ import FigmaPull from '../../integrations/figma/pull.js';
 import {realClock} from '../../lib/clock.js';
 import {openStudioSession} from '../../integrations/studio/mcp.js';
 import {ensureTemplate, templateTargetFor} from '../../lib/wp-templates.js';
+import {ensurePage, pageTargetFor} from '../../lib/wp-pages.js';
 import {resolve} from 'node:path';
 import type {
-	DevNote,
 	SpecialPullKind,
 	TitleCardRef,
 } from '../../lib/types.js';
 import type {Loaded} from '../setup-project/types.js';
 import ConfigureView from './configure-view.js';
+import type {ConfigureSubmit} from './configure-view.js';
 import GateView from './gate-view.js';
 import PickerView from './picker-view.js';
 import {SPECIAL_META} from './special-meta.js';
@@ -62,7 +62,6 @@ type Phase =
 			kind: 'gate';
 			selection: SelectionMetadata | null;
 			selectionError: Error | null;
-			hasDevHandoff: boolean;
 			hasStyleGuide: boolean;
 			hasTemplates: boolean;
 	  }
@@ -87,6 +86,9 @@ type Phase =
 			previewPath?: string;
 			special?: SpecialPullKind;
 			selection: SelectionMetadata | null;
+			usesPostContent?: boolean;
+			pageSlug?: string;
+			contentOnly?: boolean;
 	  };
 
 export default function PullTemplate({activeProject, onDone}: Props) {
@@ -110,10 +112,7 @@ export default function PullTemplate({activeProject, onDone}: Props) {
 				if (controller.signal.aborted) return;
 				const sel = selResult.ok ? selResult.selection : null;
 				const selectionError = selResult.ok ? null : selResult.error;
-				const gateOpen =
-					status.hasDevHandoff &&
-					status.hasStyleGuide &&
-					status.hasTemplates;
+				const gateOpen = status.hasStyleGuide && status.hasTemplates;
 				if (gateOpen) {
 					setPhase({
 						kind: 'picking',
@@ -126,7 +125,6 @@ export default function PullTemplate({activeProject, onDone}: Props) {
 						kind: 'gate',
 						selection: sel,
 						selectionError,
-						hasDevHandoff: status.hasDevHandoff,
 						hasStyleGuide: status.hasStyleGuide,
 						hasTemplates: status.hasTemplates,
 					});
@@ -206,7 +204,6 @@ export default function PullTemplate({activeProject, onDone}: Props) {
 			<GateView
 				selection={phase.selection}
 				selectionError={phase.selectionError}
-				hasDevHandoff={phase.hasDevHandoff}
 				hasStyleGuide={phase.hasStyleGuide}
 				hasTemplates={phase.hasTemplates}
 				onSelect={kind => {
@@ -257,15 +254,19 @@ export default function PullTemplate({activeProject, onDone}: Props) {
 	if (phase.kind === 'configuring') {
 		return (
 			<ConfigureView
+				projectDir={activeProject.dir}
 				selection={phase.selection}
 				prefilledPageName={phase.prefilledPageName}
-				onSubmit={(pageName, slug, templateFile, previewPath) =>
+				onSubmit={(submit: ConfigureSubmit) =>
 					void beginPull({
 						kind: 'pulling',
-						pageName,
-						slug,
-						templateFile,
-						previewPath,
+						pageName: submit.pageName,
+						slug: submit.slug,
+						templateFile: submit.templateFile,
+						previewPath: submit.previewPath,
+						usesPostContent: submit.usesPostContent,
+						pageSlug: submit.pageSlug,
+						contentOnly: submit.contentOnly,
 						selection: phase.selection,
 					})
 				}
@@ -289,12 +290,36 @@ export default function PullTemplate({activeProject, onDone}: Props) {
 			pageName={phase.slug}
 			nodeRef=""
 			outRoot={join(activeProject.dir, 'design')}
-			onSuccess={async (emit, session, signal) => {
+			onSuccess={async (emit, _session, signal) => {
 				const pullDir = join(activeProject.dir, 'design', phase.slug);
 
 				// Asset download is part of the pull's correctness contract;
 				// failure here means the pull is incomplete, so escalate.
 				await downloadCodeAssets(pullDir, emit, signal);
+
+				// Validate code.tsx against the user's usesPostContent flag
+				// so we fail loud instead of letting the agent build with
+				// no seam (or building a wrapper that ignores annotations).
+				let pageId: number | undefined;
+				if (!isSpecial) {
+					const codePath = join(pullDir, 'code.tsx');
+					const code = await readFile(codePath, 'utf8');
+					const hasAnnotation = /data-neptune-annotations="post-content"/.test(
+						code,
+					);
+					if (phase.usesPostContent && !hasAnnotation) {
+						throw new Error(
+							'Pull is flagged as uses post_content but code.tsx contains no data-neptune-annotations="post-content". Add the annotation in Figma or unflag the pull.',
+						);
+					}
+					if (!phase.usesPostContent && hasAnnotation) {
+						emit({
+							kind: 'warn',
+							message:
+								'code.tsx has data-neptune-annotations="post-content" but this pull is not flagged as uses post_content. The annotation will be ignored.',
+						});
+					}
+				}
 
 				let scaffolded = false;
 				if (!isSpecial) {
@@ -306,40 +331,38 @@ export default function PullTemplate({activeProject, onDone}: Props) {
 					if (!phase.templateFile) {
 						throw new Error('templateFile missing for non-special pull.');
 					}
-					const target = templateTargetFor(
-						phase.templateFile,
-						phase.pageName,
-					);
 					const wpRoot = resolve(activeProject.dir, 'wordpress');
 					const studio = await openStudioSession({signal});
 					try {
-						const result = await ensureTemplate(studio, wpRoot, target);
-						scaffolded = result.created;
+						// Skip wrapper scaffold for content-only pulls — the
+						// pull that owns the templateFile already scaffolded it.
+						if (!phase.contentOnly) {
+							const target = templateTargetFor(
+								phase.templateFile,
+								phase.pageName,
+							);
+							const result = await ensureTemplate(studio, wpRoot, target);
+							scaffolded = result.created;
+						}
+						if (phase.usesPostContent && phase.pageSlug) {
+							const pageTarget = pageTargetFor(
+								phase.pageSlug,
+								phase.pageName,
+							);
+							const ensured = await ensurePage(studio, wpRoot, pageTarget);
+							pageId = ensured.id;
+							emit({
+								kind: 'step',
+								message: `Page ${ensured.created ? 'created' : 'found'}: page:${pageTarget.slug} (id ${ensured.id})`,
+							});
+						}
 					} finally {
 						studio.close();
 					}
 				}
 
-				let devNotes: DevNote[] | undefined;
 				let titleCards: TitleCardRef[] | undefined;
-				if (phase.special === 'devHandoff') {
-					emit({kind: 'step', message: 'Parsing dev handoff metadata…'});
-					const xmlPath = join(
-						activeProject.dir,
-						'design',
-						phase.slug,
-						'metadata.xml',
-					);
-					const xml = await readFile(xmlPath, 'utf8');
-					const ids = parseDevNoteIds(xml);
-					emit({
-						kind: 'step',
-						message: `Found ${ids.length} dev note${
-							ids.length === 1 ? '' : 's'
-						}`,
-					});
-					devNotes = await fetchDevNoteTexts(session, ids, emit, signal);
-				} else if (phase.special === 'templates') {
+				if (phase.special === 'templates') {
 					emit({kind: 'step', message: 'Parsing templates metadata…'});
 					const xmlPath = join(
 						activeProject.dir,
@@ -371,8 +394,11 @@ export default function PullTemplate({activeProject, onDone}: Props) {
 					scaffolded,
 					special: phase.special,
 					pulledAt: realClock(),
-					devNotes,
 					titleCards,
+					usesPostContent: phase.usesPostContent || undefined,
+					pageSlug: phase.usesPostContent ? phase.pageSlug : undefined,
+					pageId,
+					contentOnly: phase.contentOnly || undefined,
 				});
 			}}
 			onDone={onDone}

@@ -1,4 +1,4 @@
-// Project-config types live here; pull-level types (PullMeta, DevNote,
+// Project-config types live here; pull-level types (PullMeta,
 // TitleCardRef, SpecialPullKind) live in lib/types.ts so the lib layer
 // doesn't depend on commands/.
 export const CONFIG_FILENAME = 'neptune-config.json';
@@ -53,7 +53,6 @@ export type Loaded = {
 
 // Re-exports for backwards-compatibility — preferred import is lib/types.js.
 export type {
-	DevNote,
 	PullMeta,
 	SpecialPullKind,
 	TitleCardRef,

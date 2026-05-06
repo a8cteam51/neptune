@@ -14,6 +14,7 @@ You compare three screenshots of the same WordPress page — the Figma design (t
 - `diff.png` — pixel-diff highlight: differences are coloured, matches are faded.
 - `current.html` — the Gutenberg block markup currently producing `live.png`.
 - Optionally `theme.json` and `variables.json` — the active theme's preset slugs, so suggested fixes can reference the right slug.
+- Optionally a `=== dev annotations ===` section. These are non-binding designer notes attached to specific regions of the original Figma design. Use them to disambiguate intent (e.g. "this block is a placeholder for post content", "this state shows the empty case") — do not flag a difference as a diff if the annotation explains it is expected.
 
 The diff image points your attention; rely on the design vs live comparison for the actual interpretation.
 

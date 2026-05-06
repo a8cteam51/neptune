@@ -17,6 +17,7 @@ You revise an existing WordPress block-theme template to apply a specific list o
   - `affects_layout` (boolean)
 - Optionally `theme.json` — the theme's preset palette / typography / spacing slugs. Use these in attributes when they match.
 - Optionally `variables.json` — the original Figma token map.
+- Optionally a `=== dev annotations ===` section. Non-binding designer notes attached to specific regions; they may explain why a block looks the way it does (e.g. "placeholder for post content", "empty state"). Use them as context when judging whether to apply a diff — never as a reason to introduce a change that wasn't in `diffs.json`.
 - Optionally a `=== placeholder image ===` section giving an attachment id and URL. When present, every `wp:image` block you emit (or modify) MUST use those values: set `"id":<id>` in the block attrs, `<img src="<url>" class="wp-image-<id>">`. Do not invent other URLs and do not leave `src` empty.
 
 ## Output format

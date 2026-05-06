@@ -1,7 +1,7 @@
 // Source of truth for "what has been pulled". Each pull lives in
 // design/<slug>/ and carries a meta.json describing it. We deliberately do
 // NOT store this in neptune-config.json — config flags can drift from disk
-// state (e.g. user deletes design/dev-handoff/ but config says it's pulled).
+// state (e.g. user deletes design/style-guide/ but config says it's pulled).
 import {mkdir, readdir, readFile, stat} from 'node:fs/promises';
 import {dirname, join} from 'node:path';
 import {writeFileAtomic} from './atomic-write.js';
@@ -57,13 +57,11 @@ export async function findPullBySlug(
 export async function getSpecialPullsStatus(
 	projectDir: string,
 ): Promise<{
-	hasDevHandoff: boolean;
 	hasStyleGuide: boolean;
 	hasTemplates: boolean;
 }> {
 	const pulls = await listPulls(projectDir);
 	return {
-		hasDevHandoff: pulls.some(p => p.special === 'devHandoff'),
 		hasStyleGuide: pulls.some(p => p.special === 'styleGuide'),
 		hasTemplates: pulls.some(p => p.special === 'templates'),
 	};
