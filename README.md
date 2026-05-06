@@ -27,10 +27,11 @@ You'll also need:
 | Setup / Load Project | Pick a folder, name the project, point at the WordPress repo | Initialises `neptune-config.json`, clones `wp-content`, creates the Studio site, uploads a placeholder image |
 | Pull template | Paste a Figma node URL, pick the matching template file (`index.html`, `header.html`, …) | Asks Figma's MCP for `code.tsx`, `screenshot.png`, `variables.json`, dev notes; writes `design/<slug>/` |
 | Build theme.json | — | Merges every pull's `variables.json` into `variables/all-variables.json`, then asks the `theme-json` skill to map tokens onto a block-theme `theme.json` |
-| Build template | Pick a pull | Sends `code.tsx`, `theme.json`, variables, screenshot, dev notes, and the inventory of existing block style variations to the `tsx-to-blocks` skill; writes the resulting block markup into the `wp_template` / `wp_template_part` row |
-| Build content | Pick a pull flagged as `usesPostContent` | Same agent flow, but converts only the `data-neptune-annotations="post-content"` subtree and writes it to a `wp_post` |
-| Refine template | Pick a built pull | Captures the live page in headless Chromium, diffs it against `screenshot.png` with [odiff](https://github.com/dmtrKovalenko/odiff), runs the `visual-diff` skill, lets you pick which diffs to apply, then runs `apply-diff` to update the markup, `theme.json`, or block style variations |
-| Build all / Refine all | — | Runs the per-template flow across every pull, in priority order |
+| Build templates | Toggle off any pulls you don't want (every row starts checked) | For each selected pull, sends `code.tsx`, `theme.json`, variables, screenshot, dev notes, and the inventory of existing block style variations to the `tsx-to-blocks` skill; writes the resulting block markup into the `wp_template` / `wp_template_part` row. Building one template is the same flow with one row toggled — no separate single-template command. |
+| Build content | Pick a pull flagged as `usesPostContent` | Same agent flow as Build templates, but converts only the `data-neptune-annotations="post-content"` subtree and writes it to a `wp_post` |
+| Refine templates | Toggle off any pulls you don't want | For each selected pull, captures the live page in headless Chromium, diffs it against `screenshot.png` with [odiff](https://github.com/dmtrKovalenko/odiff), runs the `visual-diff` skill, then runs `apply-diff` to update the markup, `theme.json`, or block style variations. Auto-approves every diff the visual-diff agent reports. |
+| Extract patterns | — | Walks every pull's `code.tsx` and copies non-default top-level functions into `patterns/<Name>.tsx` (first-write-wins on duplicates) |
+| Build patterns | Deselect any patterns you don't want | For each selected `patterns/<Name>.tsx`, runs the `tsx-to-pattern` skill and writes a WordPress block pattern PHP file at `<theme>/patterns/<slug>.php`. The picker starts with everything checked. |
 | Verify screenshots | — | Re-renders each design and re-captures so you know the source-of-truth screenshot still matches what Figma gives you |
 | View template diff | Pick a pull | Re-runs only the capture+odiff step so you can inspect drift without paying for an agent call |
 
@@ -41,12 +42,16 @@ flowchart TD
     Start(["Launch neptune"]) --> Setup["Setup / Load Project"]
     Setup -->|"neptune-config.json,<br/>wp-content cloned,<br/>Studio site,<br/>placeholder image"| Pull["Pull template"]
     Pull -->|"design/&lt;slug&gt;/<br/>code.tsx, screenshot.png,<br/>variables.json, meta.json"| Theme["Build theme.json"]
-    Theme -->|"wp-content/themes/&lt;slug&gt;/theme.json"| Build{"Build template<br/>or<br/>Build content?"}
+    Theme -->|"wp-content/themes/&lt;slug&gt;/theme.json"| Build{"Build templates<br/>or<br/>Build content?"}
 
-    Build -->|"template: header, footer,<br/>single, page, index"| BuildTpl["Build template"]
+    Build -->|"template: header, footer,<br/>single, page, index"| BuildTpl["Build templates"]
     Build -->|"page body subtree"| BuildCt["Build content"]
 
-    BuildTpl --> Refine["Refine template"]
+    Pull -.->|"sibling top-level<br/>function declarations"| Extract["Extract patterns"]
+    Extract -->|"patterns/&lt;Name&gt;.tsx"| BuildPat["Build patterns"]
+    BuildPat -->|"&lt;theme&gt;/patterns/&lt;slug&gt;.php"| Done
+
+    BuildTpl --> Refine["Refine templates"]
     BuildCt --> Refine
 
     Refine -->|"capture live,<br/>diff vs design"| Match{"Pixel match<br/>&lt; 0.5%?"}
@@ -58,7 +63,7 @@ flowchart TD
     classDef gate fill:#0e7490,stroke:#22d3ee,color:#fff
     classDef agent fill:#4f46e5,stroke:#818cf8,color:#fff
     class Build,Match gate
-    class Theme,BuildTpl,BuildCt,Apply agent
+    class Theme,BuildTpl,BuildCt,BuildPat,Apply agent
 ```
 
 The arrows are forward-only because each step is gated on the previous step's artefact landing on disk or in the database — `listPulls()` reads `design/<slug>/meta.json`, the menu reads `neptune-config.json`, and the build commands check for `themeSlug` before showing up.
@@ -75,15 +80,18 @@ source/
     setup-project/              Multi-step config wizard
     pull-template/              Figma node → design/<slug>/
     build-theme-json.tsx        variables → theme.json
-    build-template.tsx          code.tsx → wp_template
+    build-template.ts           Headless runBuild helper (used by build-templates.tsx)
+    build-templates.tsx         Build templates picker UI — toggles a deselectable list, runs runBuild per row
     build-content.tsx           code.tsx body → wp_post
-    refine-template.tsx         live capture + odiff + agent fixes
-    build-all.tsx, refine-all.tsx   Batch wrappers
-    extract-patterns.tsx        Reusable patterns from style-guide pulls
+    refine-template.ts          Headless runDiagnose / runApply helpers
+    refine-templates.tsx        Refine templates picker UI — capture + odiff + agent fixes per row
+    extract-patterns.tsx        Reusable TSX patterns from pulls' code.tsx
+    build-patterns.tsx          patterns/&lt;Name&gt;.tsx → &lt;theme&gt;/patterns/&lt;slug&gt;.php
   lib/
     agent-stream.ts             Claude Agent SDK driver
     build-envelope.ts           Validates JSON envelopes from agents
     theme-json-patch.ts         Reads/writes theme.json + block style variations
+    patterns.ts                 Pattern slug + PHP file serialiser + envelope parser
     browser-capture.ts          Playwright headless capture
     odiff-runner.ts             Pixel diff
     template-diff.ts            Pad + diff orchestration
@@ -100,6 +108,7 @@ source/
   plugins/neptune-tools/
     skills/
       tsx-to-blocks/SKILL.md    Source-of-truth prompt for the build agents
+      tsx-to-pattern/SKILL.md   Source-of-truth prompt for the build-patterns agent
       apply-diff/SKILL.md       Source-of-truth prompt for the refine agent
       visual-diff/SKILL.md      Source-of-truth prompt for the diff agent
       theme-json/SKILL.md       Source-of-truth prompt for theme.json builder
@@ -128,11 +137,13 @@ flowchart LR
         D3["variables.json"]
         D4["meta.json"]
         V["variables/<br/>all-variables.json"]
+        PT["patterns/&lt;Name&gt;.tsx"]
     end
 
     subgraph Theme["Theme files"]
         TJ["theme.json"]
         BS["styles/blocks/<br/>neptune-*.json"]
+        PP["patterns/<br/>&lt;slug&gt;.php"]
     end
 
     subgraph DB["WordPress DB (via Studio)"]
@@ -142,6 +153,7 @@ flowchart LR
 
     subgraph Agents["Claude Agent SDK skills"]
         TT["tsx-to-blocks"]
+        TP["tsx-to-pattern"]
         TJB["theme-json"]
         VD["visual-diff"]
         AD["apply-diff"]
@@ -167,6 +179,14 @@ flowchart LR
 
     TT -.->|"when usesPostContent:<br/>post-content subtree"| WP
 
+    D1 -->|"extract-patterns:<br/>non-default<br/>top-level functions"| PT
+    PT --> TP
+    TJ --> TP
+    BS --> TP
+    TP -->|"template_html<br/>+ pattern metadata"| PP
+    TP -->|"theme_json_patch"| TJ
+    TP -->|"block_style_variations[]"| BS
+
     WT -->|"Playwright capture"| LIVE["live.png"]
     LIVE --> ODIFF["odiff"]
     D2 --> ODIFF
@@ -179,17 +199,19 @@ flowchart LR
 
     classDef agent fill:#4f46e5,stroke:#818cf8,color:#fff
     classDef tool fill:#065f46,stroke:#10b981,color:#fff
-    class TT,TJB,VD,AD agent
+    class TT,TP,TJB,VD,AD agent
     class ODIFF,Review tool
 ```
 
-Read it as three loops:
+Read it as four loops:
 
 1. **Pull loop** — Figma MCP → `design/<slug>/` files. No agents involved; Neptune is just a smart download client. The slug comes from the page name, the `templateFile` mapping comes from the user's pick at pull time, and the `meta.json` carries everything downstream commands need so they don't have to re-ask Figma.
 
 2. **Theme bootstrap** — every pull's `variables.json` merges into a single `variables/all-variables.json` (first-write-wins, conflicts logged), which feeds the `theme-json` skill. The output is a fully-formed block-theme `theme.json` with presets for color, typography, spacing, and layout. This happens once per project; subsequent pulls add new tokens by re-running.
 
 3. **Build / refine loop** — each template runs `tsx-to-blocks` against `code.tsx` plus the current `theme.json`, the variables index, dev notes, the screenshot, and the existing variations inventory. The envelope it returns updates three things atomically: the database row for the template, `theme.json` (deep-merged into `styles.blocks` and `settings.custom` only), and `<theme>/styles/blocks/*.json` for new variations. Refine reuses the same envelope shape — only the prompt changes (it's the diff list instead of `code.tsx`).
+
+4. **Pattern loop** — `extract-patterns` walks every `code.tsx` and copies non-default top-level functions into `patterns/<Name>.tsx` (first-seen wins on duplicates). `build-patterns` then runs `tsx-to-pattern` against each one and writes `<theme>/patterns/<slug>.php`. The PHP file's header comment is the registration metadata WordPress core auto-discovers at boot — `Title:`, `Slug:`, `Categories:`, `Block Types:`, `Viewport Width:`, `Inserter:`, `Description:`, `Keywords:`. The agent never emits PHP; Neptune wraps the block markup in the docblock header itself. Patterns share the same `theme.json` and block-style-variations inventory as the template build, so a button variation declared by a template is reused by a pattern instead of being duplicated.
 
 ## Styling priority
 

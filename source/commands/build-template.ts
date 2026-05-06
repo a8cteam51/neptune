@@ -1,25 +1,22 @@
-// Picks one non-special pull, feeds its design/<slug>/code.tsx (plus the
-// theme's theme.json and variables/all-variables.json when present) to the
-// Claude Agent SDK with the tsx-to-blocks skill, and writes the resulting
-// Gutenberg block markup to the pull's wp_template / wp_template_part
-// post in the WordPress database via Studio's wp_cli.
+// Shared core for the template-build flow. Feeds one pull's
+// design/<slug>/code.tsx (plus the theme's theme.json,
+// variables/all-variables.json, and any existing block style
+// variations) to the Claude Agent SDK with the tsx-to-blocks skill,
+// then writes the resulting Gutenberg block markup to the pull's
+// wp_template / wp_template_part post in the WordPress database via
+// Studio's wp-cli.
 //
-// Modeled on build-theme-json.tsx: confirm-overwrite gate when a DB row
-// already exists so the user doesn't lose hand edits (Site Editor or
-// previous Neptune runs) and doesn't pay for a regen they didn't intend.
-import React, {useEffect, useRef, useState} from 'react';
-import {Box, Text, useInput} from 'ink';
-import Menu from '../lib/menu.js';
+// The UI shell lives in build-multiple.tsx — it picks the pulls and
+// calls runBuild for each. This module owns no React; it's pure I/O
+// + agent invocation.
 import {access, readFile} from 'node:fs/promises';
 import {dirname, join, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {
-	AgentAbortedError,
 	runAgent,
 	type ImageBlock,
 	type TextBlock,
 } from '../lib/agent-stream.js';
-import {listPulls, sortByTemplatePriority} from '../lib/design-walk.js';
 import {
 	extractDevAnnotations,
 	formatDevAnnotationsSection,
@@ -32,10 +29,9 @@ import {
 	readBlockStyleVariations,
 } from '../lib/theme-json-patch.js';
 import {parseBuildEnvelope} from '../lib/build-envelope.js';
-import EventList, {type LogEvent} from '../lib/event-list.js';
+import type {LogEvent} from '../lib/event-list.js';
 import {templateRole, type TemplateRole} from '../lib/template-scaffold.js';
 import {
-	readTemplate,
 	targetLabel,
 	templateTargetFor,
 	writeTemplate,
@@ -44,316 +40,10 @@ import {openStudioSession} from '../integrations/studio/mcp.js';
 import type {Loaded} from './setup-project/types.js';
 import type {PullMeta} from '../lib/types.js';
 
-type Props = {
-	activeProject: Loaded;
-	onDone: () => void;
-};
-
-type PickablePull = PullMeta & {templateFile: string};
-
-type Phase =
-	| {kind: 'loading'}
-	| {kind: 'picking'; pulls: PickablePull[]}
-	| {kind: 'confirm'; pull: PickablePull; targetLabel: string}
-	| {kind: 'running'; pull: PickablePull}
-	| {kind: 'success'; resultPath: string; size: number}
-	| {kind: 'error'; error: string}
-	| {kind: 'message'; title: string; subtitle?: string};
+export type PickablePull = PullMeta & {templateFile: string};
 
 const moduleDir = dirname(fileURLToPath(import.meta.url));
 const PLUGIN_PATH = resolve(moduleDir, '..', '..', 'plugins', 'neptune-tools');
-
-export default function BuildTemplate({activeProject, onDone}: Props) {
-	const [phase, setPhase] = useState<Phase>({kind: 'loading'});
-	const [events, setEvents] = useState<LogEvent[]>([]);
-	const runControllerRef = useRef<AbortController | null>(null);
-
-	useEffect(() => {
-		const controller = new AbortController();
-		(async () => {
-			try {
-				const pulls = await listPulls(activeProject.dir);
-				if (controller.signal.aborted) return;
-				const pickable = pulls.filter(
-					(p): p is PickablePull =>
-						p.special === undefined &&
-						p.contentOnly !== true &&
-						typeof p.templateFile === 'string' &&
-						p.templateFile.length > 0,
-				);
-				if (pickable.length === 0) {
-					setPhase({
-						kind: 'message',
-						title: 'No pulls available to build a template from.',
-						subtitle:
-							'Pull a non-special template with a templateFile first. Content-only pulls are built via build-content.',
-					});
-					return;
-				}
-				setPhase({
-					kind: 'picking',
-					pulls: sortByTemplatePriority(pickable),
-				});
-			} catch (err) {
-				if (controller.signal.aborted) return;
-				setPhase({
-					kind: 'message',
-					title: 'Could not load pulls.',
-					subtitle: err instanceof Error ? err.message : String(err),
-				});
-			}
-		})();
-		return () => controller.abort();
-	}, [activeProject.dir]);
-
-	useEffect(
-		() => () => {
-			runControllerRef.current?.abort();
-		},
-		[],
-	);
-
-	const beginRun = (pull: PickablePull) => {
-		setPhase({kind: 'running', pull});
-		setEvents([]);
-		const controller = new AbortController();
-		runControllerRef.current?.abort();
-		runControllerRef.current = controller;
-		(async () => {
-			try {
-				const result = await runBuild(
-					activeProject,
-					pull,
-					controller.signal,
-					ev => {
-						if (!controller.signal.aborted) {
-							setEvents(prev => [...prev, ev]);
-						}
-					},
-				);
-				if (controller.signal.aborted) return;
-				setPhase({
-					kind: 'success',
-					resultPath: result.path,
-					size: result.size,
-				});
-			} catch (err) {
-				if (controller.signal.aborted) return;
-				if (err instanceof AgentAbortedError) return;
-				setPhase({
-					kind: 'error',
-					error: err instanceof Error ? err.message : String(err),
-				});
-			}
-		})();
-	};
-
-	const onPickPull = async (pull: PickablePull) => {
-		const themeSlug = activeProject.config.themeSlug;
-		if (!themeSlug) {
-			setPhase({
-				kind: 'message',
-				title: 'themeSlug missing from neptune-config.json.',
-				subtitle: 'Finish theme setup first.',
-			});
-			return;
-		}
-		const target = templateTargetFor(pull.templateFile, pull.pageName);
-		const wpRoot = resolve(activeProject.dir, 'wordpress');
-		let exists = false;
-		try {
-			const session = await openStudioSession();
-			try {
-				exists = (await readTemplate(session, wpRoot, target)) !== null;
-			} finally {
-				session.close();
-			}
-		} catch (err) {
-			setPhase({
-				kind: 'message',
-				title: 'Could not check existing template in the database.',
-				subtitle: err instanceof Error ? err.message : String(err),
-			});
-			return;
-		}
-		if (exists) {
-			setPhase({kind: 'confirm', pull, targetLabel: targetLabel(target)});
-		} else {
-			beginRun(pull);
-		}
-	};
-
-	useInput(
-		(_input, key) => {
-			if (
-				phase.kind === 'message' ||
-				phase.kind === 'success' ||
-				phase.kind === 'error'
-			) {
-				onDone();
-				return;
-			}
-			if (phase.kind === 'picking' && key.escape) onDone();
-		},
-		{
-			isActive:
-				phase.kind === 'message' ||
-				phase.kind === 'success' ||
-				phase.kind === 'error' ||
-				phase.kind === 'picking',
-		},
-	);
-
-	if (phase.kind === 'loading') {
-		return (
-			<Box flexDirection="column" padding={1}>
-				<Text bold color="cyan">Build template</Text>
-				<Box marginTop={1}>
-					<Text dimColor>Loading pulls…</Text>
-				</Box>
-			</Box>
-		);
-	}
-
-	if (phase.kind === 'message') {
-		return (
-			<Box flexDirection="column" padding={1}>
-				<Text bold color="cyan">Build template</Text>
-				<Box marginTop={1}>
-					<Text color="yellow" bold>{phase.title}</Text>
-				</Box>
-				{phase.subtitle ? <Text dimColor>{phase.subtitle}</Text> : null}
-				<Text dimColor>Press any key to return.</Text>
-			</Box>
-		);
-	}
-
-	if (phase.kind === 'picking') {
-		const items = phase.pulls.map(p => ({
-			key: p.slug,
-			label: `${p.pageName} → ${p.templateFile}`,
-			value: p,
-		}));
-		return (
-			<Box flexDirection="column" padding={1}>
-				<Text bold color="cyan">Build template</Text>
-				<Box marginTop={1}>
-					<Text bold>Pick a pull to build into the theme:</Text>
-				</Box>
-				<Box marginTop={1}>
-					<Menu
-						items={items}
-						onSelect={item => {
-							void onPickPull(item.value);
-						}}
-					/>
-				</Box>
-				<Box marginTop={1}>
-					<Text dimColor>Esc to cancel.</Text>
-				</Box>
-			</Box>
-		);
-	}
-
-	if (phase.kind === 'confirm') {
-		return (
-			<ConfirmOverwrite
-				targetLabel={phase.targetLabel}
-				onProceed={() => beginRun(phase.pull)}
-				onCancel={onDone}
-			/>
-		);
-	}
-
-	const status =
-		phase.kind === 'running'
-			? 'running'
-			: phase.kind === 'success'
-				? 'success'
-				: 'error';
-
-	return (
-		<Box flexDirection="column" padding={1}>
-			<Text bold color="cyan">Build template</Text>
-			<Box marginTop={1}>
-				<EventList events={events} status={status} />
-			</Box>
-			{phase.kind === 'success' ? (
-				<Box marginTop={1} flexDirection="column">
-					<Text color="green" bold>
-						✓ Template written ({phase.size} bytes).
-					</Text>
-					<Text dimColor>{phase.resultPath}</Text>
-					<Text dimColor>Press any key to return.</Text>
-				</Box>
-			) : null}
-			{phase.kind === 'error' ? (
-				<Box marginTop={1} flexDirection="column">
-					<Text color="red" bold>✗ Build failed.</Text>
-					<Text color="red">{phase.error}</Text>
-					<Text dimColor>Press any key to return.</Text>
-				</Box>
-			) : null}
-		</Box>
-	);
-}
-
-function ConfirmOverwrite({
-	targetLabel,
-	onProceed,
-	onCancel,
-}: {
-	targetLabel: string;
-	onProceed: () => void;
-	onCancel: () => void;
-}) {
-	useInput((_input, key) => {
-		if (key.escape) onCancel();
-	});
-
-	const items = [
-		{
-			key: 'cancel',
-			label: 'Cancel — keep existing template',
-			value: 'cancel',
-		},
-		{
-			key: 'proceed',
-			label: 'Overwrite and run the build',
-			value: 'proceed',
-		},
-	];
-
-	return (
-		<Box flexDirection="column" padding={1}>
-			<Text bold color="cyan">Build template</Text>
-			<Box marginTop={1} flexDirection="column">
-				<Text color="yellow" bold>
-					A template post already exists in the database.
-				</Text>
-				<Text dimColor>{targetLabel}</Text>
-				<Box marginTop={1}>
-					<Text>
-						Running the build will overwrite the existing post (revision
-						history is preserved) and consume a paid Claude Agent SDK call.
-					</Text>
-				</Box>
-			</Box>
-			<Box marginTop={1}>
-				<Menu
-					items={items}
-					onSelect={item => {
-						if (item.value === 'proceed') onProceed();
-						else onCancel();
-					}}
-				/>
-			</Box>
-			<Box marginTop={1}>
-				<Text dimColor>Esc to cancel.</Text>
-			</Box>
-		</Box>
-	);
-}
 
 export type BuildDeps = {
 	runAgent?: typeof runAgent;

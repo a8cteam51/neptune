@@ -7,20 +7,22 @@
 //     (it runs the variables merge as a preamble).
 import React, {useEffect, useState} from 'react';
 import {Box, Text, useApp} from 'ink';
-import Menu from './lib/menu.js';
+import SectionedMenu, {
+	type SectionedItem,
+} from './lib/sectioned-menu.js';
 import PullTemplate from './commands/pull-template.js';
 import ExtractPatterns from './commands/extract-patterns.js';
 import VerifyScreenshots from './commands/verify-screenshots.js';
-import BuildTemplate from './commands/build-template.js';
+import BuildTemplates from './commands/build-templates.js';
 import BuildContent from './commands/build-content.js';
-import BuildAll from './commands/build-all.js';
-import RefineTemplate from './commands/refine-template.js';
-import RefineAll from './commands/refine-all.js';
+import BuildPatterns from './commands/build-patterns.js';
+import RefineTemplates from './commands/refine-templates.js';
 import ViewTemplateDiff from './commands/view-template-diff.js';
 import BuildThemeJson from './commands/build-theme-json.js';
 import SetupProject, {type Loaded} from './commands/setup-project.js';
 import {loadOrInit} from './commands/setup-project/config.js';
 import {listPulls} from './lib/design-walk.js';
+import {listPatternSources} from './lib/patterns.js';
 import {acquireProjectLock, type ProjectLock} from './lib/lockfile.js';
 import {
 	getStudioSiteStatus,
@@ -37,17 +39,15 @@ type View =
 	| 'setup'
 	| 'pull'
 	| 'extractPatterns'
+	| 'buildPatterns'
 	| 'verifyScreenshots'
-	| 'buildTemplate'
-	| 'buildAll'
+	| 'buildTemplates'
 	| 'buildContent'
-	| 'refineTemplate'
-	| 'refineAll'
+	| 'refineTemplates'
 	| 'viewTemplateDiff'
 	| 'buildTheme';
 
 type MenuValue = View | 'quit';
-type MenuItem = {label: string; value: MenuValue};
 
 export default function App({name, startCwd}: Props) {
 	const {exit} = useApp();
@@ -57,6 +57,7 @@ export default function App({name, startCwd}: Props) {
 	const [hasPulls, setHasPulls] = useState(false);
 	const [hasNonSpecialPulls, setHasNonSpecialPulls] = useState(false);
 	const [hasPostContentPulls, setHasPostContentPulls] = useState(false);
+	const [hasPatternSources, setHasPatternSources] = useState(false);
 	const [autoLoadError, setAutoLoadError] = useState<string | null>(null);
 	const [autoLoaded, setAutoLoaded] = useState(false);
 	const [siteStatus, setSiteStatus] = useState<
@@ -83,6 +84,7 @@ export default function App({name, startCwd}: Props) {
 			setHasPulls(false);
 			setHasNonSpecialPulls(false);
 			setHasPostContentPulls(false);
+			setHasPatternSources(false);
 			return;
 		}
 		let cancelled = false;
@@ -107,6 +109,14 @@ export default function App({name, startCwd}: Props) {
 					setHasNonSpecialPulls(false);
 					setHasPostContentPulls(false);
 				}
+			});
+		listPatternSources(activeProject.dir)
+			.then(sources => {
+				if (cancelled) return;
+				setHasPatternSources(sources.length > 0);
+			})
+			.catch(() => {
+				if (!cancelled) setHasPatternSources(false);
 			});
 		return () => {
 			cancelled = true;
@@ -155,20 +165,21 @@ export default function App({name, startCwd}: Props) {
 		};
 	}, [activeProject]);
 
-	const items: MenuItem[] = buildMenuItems({
+	const items = buildMenuItems({
 		hasActive: Boolean(activeProject),
 		hasPulls,
 		hasNonSpecialPulls,
 		hasPostContentPulls,
+		hasPatternSources,
 		hasTheme,
 	});
 
-	const handleSelect = (item: MenuItem) => {
-		if (item.value === 'quit') {
+	const handleSelect = (value: MenuValue) => {
+		if (value === 'quit') {
 			exit();
 			return;
 		}
-		setView(item.value);
+		setView(value);
 	};
 
 	const refreshActiveProject = async () => {
@@ -249,7 +260,10 @@ export default function App({name, startCwd}: Props) {
 			<Box marginTop={1} flexDirection="column">
 				<Text bold>What would you like to do?</Text>
 				<Box marginTop={1}>
-					<Menu items={items} onSelect={handleSelect} />
+					<SectionedMenu
+						items={items}
+						onSelect={handleSelect}
+					/>
 				</Box>
 			</Box>
 		</Box>
@@ -293,53 +307,134 @@ function SiteStatusLine({
 	);
 }
 
+// Menu items are partitioned into top-level sections (Figma / Styles /
+// Patterns / Templates / Content). The section header itself is
+// non-selectable; arrow keys jump straight from one selectable row to
+// the next. Sections that have no available actions for the current
+// project state are omitted entirely so the cursor never lands on an
+// empty group.
 function buildMenuItems({
 	hasActive,
 	hasPulls,
 	hasNonSpecialPulls,
 	hasPostContentPulls,
+	hasPatternSources,
 	hasTheme,
 }: {
 	hasActive: boolean;
 	hasPulls: boolean;
 	hasNonSpecialPulls: boolean;
 	hasPostContentPulls: boolean;
+	hasPatternSources: boolean;
 	hasTheme: boolean;
-}): MenuItem[] {
-	const items: MenuItem[] = [];
+}): SectionedItem<MenuValue>[] {
+	const items: SectionedItem<MenuValue>[] = [];
 
 	if (!hasActive) {
-		items.push({label: 'Setup / Load Project', value: 'setup'});
-	} else {
-		items.push({label: 'Pull template', value: 'pull'});
-		if (hasNonSpecialPulls) {
-			items.push({
-				label: '  ↳ Verify screenshots',
-				value: 'verifyScreenshots',
-			});
-		}
-		if (hasPulls && hasTheme) {
-			items.push({label: 'Build theme.json', value: 'buildTheme'});
-		}
-		if (hasNonSpecialPulls) {
-			items.push({label: 'Extract patterns', value: 'extractPatterns'});
-		}
-		if (hasNonSpecialPulls && hasTheme) {
-			items.push({label: 'Build template', value: 'buildTemplate'});
-			items.push({label: '  ↳ Build all templates', value: 'buildAll'});
-			if (hasPostContentPulls) {
-				items.push({label: 'Build content', value: 'buildContent'});
-			}
-			items.push({label: 'Refine template', value: 'refineTemplate'});
-			items.push({label: '  ↳ Refine all templates', value: 'refineAll'});
-			items.push({
-				label: '  ↳ View template diff',
-				value: 'viewTemplateDiff',
+		items.push({
+			kind: 'item',
+			key: 'setup',
+			label: 'Setup / Load Project',
+			value: 'setup',
+		});
+		pushSection(items, 'Quit', [
+			{kind: 'item', key: 'quit', label: 'Sail away', value: 'quit'},
+		]);
+		return items;
+	}
+
+	const figmaItems: SectionedItem<MenuValue>[] = [
+		{kind: 'item', key: 'pull', label: 'Pull template', value: 'pull'},
+	];
+	if (hasNonSpecialPulls) {
+		figmaItems.push({
+			kind: 'item',
+			key: 'verifyScreenshots',
+			label: 'Verify screenshots',
+			value: 'verifyScreenshots',
+		});
+	}
+
+	const stylesItems: SectionedItem<MenuValue>[] = [];
+	if (hasPulls && hasTheme) {
+		stylesItems.push({
+			kind: 'item',
+			key: 'buildTheme',
+			label: 'Build theme.json',
+			value: 'buildTheme',
+		});
+	}
+
+	const patternItems: SectionedItem<MenuValue>[] = [];
+	if (hasNonSpecialPulls) {
+		patternItems.push({
+			kind: 'item',
+			key: 'extractPatterns',
+			label: 'Extract patterns',
+			value: 'extractPatterns',
+		});
+		if (hasPatternSources && hasTheme) {
+			patternItems.push({
+				kind: 'item',
+				key: 'buildPatterns',
+				label: 'Build patterns',
+				value: 'buildPatterns',
 			});
 		}
 	}
-	items.push({label: 'Quit', value: 'quit'});
+
+	const templateItems: SectionedItem<MenuValue>[] = [];
+	if (hasNonSpecialPulls && hasTheme) {
+		templateItems.push({
+			kind: 'item',
+			key: 'buildTemplates',
+			label: 'Build templates',
+			value: 'buildTemplates',
+		});
+		templateItems.push({
+			kind: 'item',
+			key: 'refineTemplates',
+			label: 'Refine templates',
+			value: 'refineTemplates',
+		});
+		templateItems.push({
+			kind: 'item',
+			key: 'viewTemplateDiff',
+			label: 'View template diff',
+			value: 'viewTemplateDiff',
+		});
+	}
+
+	const contentItems: SectionedItem<MenuValue>[] = [];
+	if (hasNonSpecialPulls && hasTheme && hasPostContentPulls) {
+		contentItems.push({
+			kind: 'item',
+			key: 'buildContent',
+			label: 'Build content',
+			value: 'buildContent',
+		});
+	}
+
+	pushSection(items, 'Figma', figmaItems);
+	pushSection(items, 'Styles', stylesItems);
+	pushSection(items, 'Patterns', patternItems);
+	pushSection(items, 'Templates', templateItems);
+	pushSection(items, 'Content', contentItems);
+	pushSection(items, 'Quit', [
+		{kind: 'item', key: 'quit', label: 'Sail away', value: 'quit'},
+	]);
+
 	return items;
+}
+
+function pushSection<V>(
+	target: SectionedItem<V>[],
+	label: string,
+	rows: ReadonlyArray<SectionedItem<V>>,
+): void {
+	if (rows.length === 0) return;
+	target.push({kind: 'header', key: `header:${label}`, label});
+	for (const row of rows) target.push(row);
 }
 
 function renderView(
@@ -374,6 +469,13 @@ function renderView(
 					onDone={() => onDone(true)}
 				/>
 			);
+		case 'buildPatterns':
+			return (
+				<BuildPatterns
+					activeProject={activeProject}
+					onDone={() => onDone(false)}
+				/>
+			);
 		case 'verifyScreenshots':
 			return (
 				<VerifyScreenshots
@@ -381,16 +483,9 @@ function renderView(
 					onDone={() => onDone(false)}
 				/>
 			);
-		case 'buildTemplate':
+		case 'buildTemplates':
 			return (
-				<BuildTemplate
-					activeProject={activeProject}
-					onDone={() => onDone(false)}
-				/>
-			);
-		case 'buildAll':
-			return (
-				<BuildAll
+				<BuildTemplates
 					activeProject={activeProject}
 					onDone={() => onDone(false)}
 				/>
@@ -402,16 +497,9 @@ function renderView(
 					onDone={() => onDone(false)}
 				/>
 			);
-		case 'refineTemplate':
+		case 'refineTemplates':
 			return (
-				<RefineTemplate
-					activeProject={activeProject}
-					onDone={() => onDone(false)}
-				/>
-			);
-		case 'refineAll':
-			return (
-				<RefineAll
+				<RefineTemplates
 					activeProject={activeProject}
 					onDone={() => onDone(false)}
 				/>

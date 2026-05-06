@@ -1,14 +1,14 @@
-// Sequentially refines every pickable pull via the same runDiagnose +
-// runApply path that refine-template uses. Auto-approves all visual-diff
-// findings — the upfront warning makes that explicit, otherwise this
-// would just be the manual flow with a different entry point.
-//
-// Per-pull failures (capture, diagnose, apply) don't abort the batch;
-// they're tallied. Pulls that already match the design are recorded as
-// "matched" and skipped.
+// Refine templates UI shell. Lists every pickable pull, lets the user
+// toggle the set they want, then sequentially calls runDiagnose +
+// runApply (from commands/refine-template.ts) on each. Every row
+// starts checked so the common case (refine everything) is one Enter;
+// toggling off lets the user refine a single template. Auto-approves
+// all visual-diff findings — the picker IS the confirmation. Per-pull
+// failures don't abort the batch; they're tallied. Pulls that already
+// match the design are recorded as "matched" and skipped.
 import React, {useEffect, useRef, useState} from 'react';
 import {Box, Text, useInput} from 'ink';
-import Menu from '../lib/menu.js';
+import MultiSelect from '../lib/multi-select.js';
 import {AgentAbortedError} from '../lib/agent-stream.js';
 import {listPulls, sortByTemplatePriority} from '../lib/design-walk.js';
 import EventList, {type LogEvent} from '../lib/event-list.js';
@@ -36,12 +36,12 @@ type Outcome =
 
 type Phase =
 	| {kind: 'loading'}
-	| {kind: 'confirm'; pulls: PickablePull[]}
+	| {kind: 'picking'; pulls: PickablePull[]}
 	| {kind: 'running'; pulls: PickablePull[]; cursor: number}
 	| {kind: 'done'; outcomes: Outcome[]}
 	| {kind: 'message'; title: string; subtitle?: string};
 
-export default function RefineAll({activeProject, onDone}: Props) {
+export default function RefineTemplates({activeProject, onDone}: Props) {
 	const [phase, setPhase] = useState<Phase>({kind: 'loading'});
 	const [events, setEvents] = useState<LogEvent[]>([]);
 	const outcomesRef = useRef<Outcome[]>([]);
@@ -70,7 +70,7 @@ export default function RefineAll({activeProject, onDone}: Props) {
 					return;
 				}
 				setPhase({
-					kind: 'confirm',
+					kind: 'picking',
 					pulls: sortByTemplatePriority(pickable),
 				});
 			} catch (err) {
@@ -196,20 +196,20 @@ export default function RefineAll({activeProject, onDone}: Props) {
 				onDone();
 				return;
 			}
-			if (phase.kind === 'confirm' && key.escape) onDone();
+			if (phase.kind === 'picking' && key.escape) onDone();
 		},
 		{
 			isActive:
 				phase.kind === 'message' ||
 				phase.kind === 'done' ||
-				phase.kind === 'confirm',
+				phase.kind === 'picking',
 		},
 	);
 
 	if (phase.kind === 'loading') {
 		return (
 			<Box flexDirection="column" padding={1}>
-				<Text bold color="cyan">Refine all templates</Text>
+				<Text bold color="cyan">Refine templates</Text>
 				<Box marginTop={1}>
 					<Text dimColor>Loading pulls…</Text>
 				</Box>
@@ -220,7 +220,7 @@ export default function RefineAll({activeProject, onDone}: Props) {
 	if (phase.kind === 'message') {
 		return (
 			<Box flexDirection="column" padding={1}>
-				<Text bold color="cyan">Refine all templates</Text>
+				<Text bold color="cyan">Refine templates</Text>
 				<Box marginTop={1}>
 					<Text color="yellow" bold>{phase.title}</Text>
 				</Box>
@@ -230,28 +230,26 @@ export default function RefineAll({activeProject, onDone}: Props) {
 		);
 	}
 
-	if (phase.kind === 'confirm') {
-		const items = [
-			{key: 'cancel', label: 'Cancel', value: 'cancel'},
-			{
-				key: 'proceed',
-				label: 'Refine all and auto-apply every diff',
-				value: 'proceed',
-			},
-		];
+	if (phase.kind === 'picking') {
+		const items = phase.pulls.map(p => ({
+			key: p.slug,
+			label: `${p.pageName} → ${p.templateFile}`,
+			value: p,
+		}));
 		return (
 			<Box flexDirection="column" padding={1}>
-				<Text bold color="cyan">Refine all templates</Text>
+				<Text bold color="cyan">Refine templates</Text>
 				<Box marginTop={1} flexDirection="column">
 					<Text color="yellow" bold>
-						This will refine {phase.pulls.length} template{phase.pulls.length === 1 ? '' : 's'}.
+						All {phase.pulls.length} template{phase.pulls.length === 1 ? '' : 's'} are selected by default.
 					</Text>
 					<Text>
-						For each, Neptune captures a screenshot, diffs against the design,
-						and AUTO-APPLIES every visual difference the diff agent reports —
-						no per-diff review. Existing template posts will be overwritten.
-						Each refine is two paid Claude Agent SDK calls plus a browser
-						capture.
+						Toggle off any you don't want to refine and press Enter. For each
+						selected template, Neptune captures a screenshot, diffs against
+						the design, and AUTO-APPLIES every visual difference the diff
+						agent reports — no per-diff review. Existing template posts will
+						be overwritten. Each refine is two paid Claude Agent SDK calls
+						plus a browser capture.
 					</Text>
 					<Box marginTop={1}>
 						<Text dimColor>
@@ -262,24 +260,18 @@ export default function RefineAll({activeProject, onDone}: Props) {
 						</Text>
 					</Box>
 				</Box>
-				<Box marginTop={1} flexDirection="column">
-					{phase.pulls.map(p => (
-						<Text key={p.slug} dimColor>
-							  {p.pageName} → {p.templateFile}
-						</Text>
-					))}
-				</Box>
 				<Box marginTop={1}>
-					<Menu
+					<MultiSelect
 						items={items}
-						onSelect={item => {
-							if (item.value === 'proceed') beginRun(phase.pulls);
-							else onDone();
+						onSubmit={selected => {
+							if (selected.length === 0) {
+								onDone();
+								return;
+							}
+							beginRun(selected);
 						}}
+						onCancel={onDone}
 					/>
-				</Box>
-				<Box marginTop={1}>
-					<Text dimColor>Esc to cancel.</Text>
 				</Box>
 			</Box>
 		);
@@ -288,7 +280,7 @@ export default function RefineAll({activeProject, onDone}: Props) {
 	if (phase.kind === 'running') {
 		return (
 			<Box flexDirection="column" padding={1}>
-				<Text bold color="cyan">Refine all templates</Text>
+				<Text bold color="cyan">Refine templates</Text>
 				<Box marginTop={1}>
 					<EventList events={events} status="running" />
 				</Box>
@@ -301,7 +293,7 @@ export default function RefineAll({activeProject, onDone}: Props) {
 	const applied = phase.outcomes.filter(o => o.kind === 'applied').length;
 	return (
 		<Box flexDirection="column" padding={1}>
-			<Text bold color="cyan">Refine all templates</Text>
+			<Text bold color="cyan">Refine templates</Text>
 			<Box marginTop={1}>
 				<EventList
 					events={events}

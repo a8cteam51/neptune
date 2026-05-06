@@ -1,23 +1,24 @@
-// Sequentially rebuilds every pickable pull's template via the same
-// runBuild path that build-template uses. One up-front confirm gate;
-// no per-template "overwrite?" prompt — the user already accepted that
-// at the top. Failures don't abort the batch; they're tallied.
+// Build templates UI shell. Lists every pickable pull, lets the user
+// toggle the set they want, then sequentially calls runBuild from
+// commands/build-template.ts on each. Every row starts checked so the
+// common case (rebuild everything) is one Enter; toggling off lets
+// the user rebuild a single template. No per-template "overwrite?"
+// prompt — the picker IS the confirmation. Per-template failures
+// don't abort the batch; they're tallied.
 import React, {useEffect, useRef, useState} from 'react';
 import {Box, Text, useInput} from 'ink';
-import Menu from '../lib/menu.js';
+import MultiSelect from '../lib/multi-select.js';
 import {AgentAbortedError} from '../lib/agent-stream.js';
 import {listPulls, sortByTemplatePriority} from '../lib/design-walk.js';
 import EventList, {type LogEvent} from '../lib/event-list.js';
-import {runBuild} from './build-template.js';
+import {runBuild, type PickablePull} from './build-template.js';
 import type {Loaded} from './setup-project/types.js';
-import type {PullMeta} from '../lib/types.js';
 
 type Props = {
 	activeProject: Loaded;
 	onDone: () => void;
 };
 
-type PickablePull = PullMeta & {templateFile: string};
 
 type Outcome =
 	| {kind: 'ok'; slug: string; label: string; size: number}
@@ -25,12 +26,12 @@ type Outcome =
 
 type Phase =
 	| {kind: 'loading'}
-	| {kind: 'confirm'; pulls: PickablePull[]}
+	| {kind: 'picking'; pulls: PickablePull[]}
 	| {kind: 'running'; pulls: PickablePull[]; cursor: number}
 	| {kind: 'done'; outcomes: Outcome[]}
 	| {kind: 'message'; title: string; subtitle?: string};
 
-export default function BuildAll({activeProject, onDone}: Props) {
+export default function BuildTemplates({activeProject, onDone}: Props) {
 	const [phase, setPhase] = useState<Phase>({kind: 'loading'});
 	const [events, setEvents] = useState<LogEvent[]>([]);
 	const outcomesRef = useRef<Outcome[]>([]);
@@ -59,7 +60,7 @@ export default function BuildAll({activeProject, onDone}: Props) {
 					return;
 				}
 				setPhase({
-					kind: 'confirm',
+					kind: 'picking',
 					pulls: sortByTemplatePriority(pickable),
 				});
 			} catch (err) {
@@ -139,27 +140,24 @@ export default function BuildAll({activeProject, onDone}: Props) {
 
 	useInput(
 		(_input, key) => {
-			if (
-				phase.kind === 'message' ||
-				phase.kind === 'done'
-			) {
+			if (phase.kind === 'message' || phase.kind === 'done') {
 				onDone();
 				return;
 			}
-			if (phase.kind === 'confirm' && key.escape) onDone();
+			if (phase.kind === 'picking' && key.escape) onDone();
 		},
 		{
 			isActive:
 				phase.kind === 'message' ||
 				phase.kind === 'done' ||
-				phase.kind === 'confirm',
+				phase.kind === 'picking',
 		},
 	);
 
 	if (phase.kind === 'loading') {
 		return (
 			<Box flexDirection="column" padding={1}>
-				<Text bold color="cyan">Build all templates</Text>
+				<Text bold color="cyan">Build templates</Text>
 				<Box marginTop={1}>
 					<Text dimColor>Loading pulls…</Text>
 				</Box>
@@ -170,7 +168,7 @@ export default function BuildAll({activeProject, onDone}: Props) {
 	if (phase.kind === 'message') {
 		return (
 			<Box flexDirection="column" padding={1}>
-				<Text bold color="cyan">Build all templates</Text>
+				<Text bold color="cyan">Build templates</Text>
 				<Box marginTop={1}>
 					<Text color="yellow" bold>{phase.title}</Text>
 				</Box>
@@ -180,42 +178,38 @@ export default function BuildAll({activeProject, onDone}: Props) {
 		);
 	}
 
-	if (phase.kind === 'confirm') {
-		const items = [
-			{key: 'cancel', label: 'Cancel', value: 'cancel'},
-			{key: 'proceed', label: 'Build all and overwrite', value: 'proceed'},
-		];
+	if (phase.kind === 'picking') {
+		const items = phase.pulls.map(p => ({
+			key: p.slug,
+			label: `${p.pageName} → ${p.templateFile}`,
+			value: p,
+		}));
 		return (
 			<Box flexDirection="column" padding={1}>
-				<Text bold color="cyan">Build all templates</Text>
+				<Text bold color="cyan">Build templates</Text>
 				<Box marginTop={1} flexDirection="column">
 					<Text color="yellow" bold>
-						This will rebuild {phase.pulls.length} template{phase.pulls.length === 1 ? '' : 's'}.
+						All {phase.pulls.length} template{phase.pulls.length === 1 ? '' : 's'} are selected by default.
 					</Text>
 					<Text>
-						Every existing template post in the database will be overwritten
-						(revision history is preserved). Each build is a paid Claude Agent
-						SDK call.
+						Toggle off any you don't want to rebuild and press Enter. Existing
+						database rows for the selected templates will be overwritten
+						(revision history is preserved). Each build is a paid Claude
+						Agent SDK call.
 					</Text>
 				</Box>
-				<Box marginTop={1} flexDirection="column">
-					{phase.pulls.map(p => (
-						<Text key={p.slug} dimColor>
-							  {p.pageName} → {p.templateFile}
-						</Text>
-					))}
-				</Box>
 				<Box marginTop={1}>
-					<Menu
+					<MultiSelect
 						items={items}
-						onSelect={item => {
-							if (item.value === 'proceed') beginRun(phase.pulls);
-							else onDone();
+						onSubmit={selected => {
+							if (selected.length === 0) {
+								onDone();
+								return;
+							}
+							beginRun(selected);
 						}}
+						onCancel={onDone}
 					/>
-				</Box>
-				<Box marginTop={1}>
-					<Text dimColor>Esc to cancel.</Text>
 				</Box>
 			</Box>
 		);
@@ -224,7 +218,7 @@ export default function BuildAll({activeProject, onDone}: Props) {
 	if (phase.kind === 'running') {
 		return (
 			<Box flexDirection="column" padding={1}>
-				<Text bold color="cyan">Build all templates</Text>
+				<Text bold color="cyan">Build templates</Text>
 				<Box marginTop={1}>
 					<EventList events={events} status="running" />
 				</Box>
@@ -236,7 +230,7 @@ export default function BuildAll({activeProject, onDone}: Props) {
 	const failed = phase.outcomes.filter(o => o.kind === 'err').length;
 	return (
 		<Box flexDirection="column" padding={1}>
-			<Text bold color="cyan">Build all templates</Text>
+			<Text bold color="cyan">Build templates</Text>
 			<Box marginTop={1}>
 				<EventList events={events} status={failed === 0 ? 'success' : 'error'} />
 			</Box>

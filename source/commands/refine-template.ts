@@ -1,5 +1,5 @@
-// Refine an existing block-theme template to better match its design
-// screenshot.
+// Shared core for the template-refine flow. Diagnoses one pull's live
+// render against its design and applies user-approved fixes.
 //
 // Pipeline:
 //   1. Read design/<slug>/screenshot.png. Its pixel dimensions drive
@@ -11,31 +11,26 @@
 //      If under threshold (0.5%), report "matches" and exit.
 //   4. visual-diff agent: 3 images + current template → JSON report.
 //      If `matches_design: true`, exit with success.
-//   5. User reviews the report in a checkbox UI; default-all-selected.
-//      User toggles items off and submits, or cancels.
+//   5. Caller (refine-multiple's UI) lets the user pick which diffs to
+//      apply (default-all-selected) and submits the approved subset.
 //   6. apply-diff agent: selected diffs + current template + theme.json
 //      + variables.json → updated markup. Overwrite the template.
 //
 // All artifacts (live.png, diff.png, diff-report.json) live alongside
-// the design screenshot for inspection.
-import React, {useEffect, useRef, useState} from 'react';
-import {Box, Text, useInput} from 'ink';
-import Menu from '../lib/menu.js';
+// the design screenshot for inspection. This module owns no React;
+// the UI shell lives in refine-multiple.tsx.
 import {access, readFile} from 'node:fs/promises';
-import {dirname, join, resolve} from 'node:path';
+import {join, resolve} from 'node:path';
+import {dirname} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {writeFileAtomic} from '../lib/atomic-write.js';
-import {
-	AgentAbortedError,
-	runAgent,
-} from '../lib/agent-stream.js';
+import {AgentAbortedError, runAgent} from '../lib/agent-stream.js';
 import {captureAtSize} from '../lib/browser-capture.js';
 import {
 	captureAndDiffPull,
 	CaptureAbortedError,
 	type DiffPull,
 } from '../lib/template-diff.js';
-import {listPulls, sortByTemplatePriority} from '../lib/design-walk.js';
 import {
 	applyBlockStyleVariations,
 	applyThemeJsonPatch,
@@ -54,8 +49,7 @@ import {
 	extractDevAnnotations,
 	formatDevAnnotationsSection,
 } from '../lib/dev-annotations.js';
-import EventList, {type LogEvent} from '../lib/event-list.js';
-import MultiSelect from '../lib/multi-select.js';
+import type {LogEvent} from '../lib/event-list.js';
 import {openStudioSession} from '../integrations/studio/mcp.js';
 import {
 	dArrayLenient,
@@ -78,13 +72,6 @@ import {
 } from '../lib/wp-templates.js';
 import type {Loaded} from './setup-project/types.js';
 
-type Props = {
-	activeProject: Loaded;
-	onDone: () => void;
-};
-
-type PickablePull = DiffPull;
-
 export type DiffEntry = {
 	id: string;
 	region: string;
@@ -105,347 +92,12 @@ const PIXEL_DIFF_THRESHOLD = 0.5; // percent
 const moduleDir = dirname(fileURLToPath(import.meta.url));
 const PLUGIN_PATH = resolve(moduleDir, '..', '..', 'plugins', 'neptune-tools');
 
-type Phase =
-	| {kind: 'loading'}
-	| {kind: 'picking'; pulls: PickablePull[]}
-	| {kind: 'capturing'; pull: PickablePull}
-	| {
-			kind: 'reviewing';
-			pull: PickablePull;
-			report: DiffReport;
-			currentTemplate: string;
-			target: TemplateTarget;
-			themeJsonText: string | null;
-			variablesText: string | null;
-			devAnnotationsText: string | null;
-			existingVariationsText: string | null;
-	  }
-	| {kind: 'applying'; pull: PickablePull}
-	| {
-			kind: 'success';
-			resultPath: string;
-			size: number;
-			applied: AppliedEntry[];
-			skipped: SkippedEntry[];
-			themeJsonTouched: string[];
-	  }
-	| {kind: 'matched'; pull: PickablePull; ratio: number}
-	| {kind: 'error'; error: string}
-	| {kind: 'message'; title: string; subtitle?: string};
-
-export default function RefineTemplate({activeProject, onDone}: Props) {
-	const [phase, setPhase] = useState<Phase>({kind: 'loading'});
-	const [events, setEvents] = useState<LogEvent[]>([]);
-	const runControllerRef = useRef<AbortController | null>(null);
-
-	useEffect(() => {
-		const controller = new AbortController();
-		(async () => {
-			try {
-				const pulls = await listPulls(activeProject.dir);
-				if (controller.signal.aborted) return;
-				const pickable = pulls.filter(
-					(p): p is PickablePull =>
-						p.special === undefined &&
-						p.contentOnly !== true &&
-						typeof p.templateFile === 'string' &&
-						p.templateFile.length > 0,
-				);
-				if (pickable.length === 0) {
-					setPhase({
-						kind: 'message',
-						title: 'No pulls available to refine.',
-						subtitle:
-							'Pull a non-special template with a templateFile first. Content-only pulls are refined via build-content + a future refine-content flow.',
-					});
-					return;
-				}
-				setPhase({
-					kind: 'picking',
-					pulls: sortByTemplatePriority(pickable),
-				});
-			} catch (err) {
-				if (controller.signal.aborted) return;
-				setPhase({
-					kind: 'message',
-					title: 'Could not load pulls.',
-					subtitle: err instanceof Error ? err.message : String(err),
-				});
-			}
-		})();
-		return () => controller.abort();
-	}, [activeProject.dir]);
-
-	useEffect(
-		() => () => {
-			runControllerRef.current?.abort();
-		},
-		[],
-	);
-
-	const beginCapture = (pull: PickablePull) => {
-		setPhase({kind: 'capturing', pull});
-		setEvents([]);
-		const controller = new AbortController();
-		runControllerRef.current?.abort();
-		runControllerRef.current = controller;
-		(async () => {
-			try {
-				const result = await runDiagnose(activeProject, pull, controller.signal, ev => {
-					if (!controller.signal.aborted) {
-						setEvents(prev => [...prev, ev]);
-					}
-				});
-				if (controller.signal.aborted) return;
-				if (result.kind === 'matched') {
-					setPhase({kind: 'matched', pull, ratio: result.ratio});
-					return;
-				}
-				setPhase({
-					kind: 'reviewing',
-					pull,
-					report: result.report,
-					currentTemplate: result.currentTemplate,
-					target: result.target,
-					themeJsonText: result.themeJsonText,
-					variablesText: result.variablesText,
-					devAnnotationsText: result.devAnnotationsText,
-					existingVariationsText: result.existingVariationsText,
-				});
-			} catch (err) {
-				if (controller.signal.aborted) return;
-				if (err instanceof AgentAbortedError) return;
-				setPhase({
-					kind: 'error',
-					error: err instanceof Error ? err.message : String(err),
-				});
-			}
-		})();
-	};
-
-	const beginApply = (
-		reviewPhase: Extract<Phase, {kind: 'reviewing'}>,
-		approved: DiffEntry[],
-	) => {
-		if (approved.length === 0) {
-			setPhase({
-				kind: 'matched',
-				pull: reviewPhase.pull,
-				ratio: 0,
-			});
-			return;
-		}
-		setPhase({kind: 'applying', pull: reviewPhase.pull});
-		setEvents([]);
-		const controller = new AbortController();
-		runControllerRef.current?.abort();
-		runControllerRef.current = controller;
-		(async () => {
-			try {
-				const result = await runApply(
-					activeProject,
-					reviewPhase,
-					approved,
-					controller.signal,
-					ev => {
-						if (!controller.signal.aborted) {
-							setEvents(prev => [...prev, ev]);
-						}
-					},
-				);
-				if (controller.signal.aborted) return;
-				setPhase({
-					kind: 'success',
-					resultPath: result.path,
-					size: result.size,
-					applied: result.applied,
-					skipped: result.skipped,
-					themeJsonTouched: result.themeJsonTouched,
-				});
-			} catch (err) {
-				if (controller.signal.aborted) return;
-				if (err instanceof AgentAbortedError) return;
-				setPhase({
-					kind: 'error',
-					error: err instanceof Error ? err.message : String(err),
-				});
-			}
-		})();
-	};
-
-	useInput(
-		(_input, key) => {
-			if (
-				phase.kind === 'message' ||
-				phase.kind === 'success' ||
-				phase.kind === 'matched' ||
-				phase.kind === 'error'
-			) {
-				onDone();
-				return;
-			}
-			if (phase.kind === 'picking' && key.escape) onDone();
-		},
-		{
-			isActive:
-				phase.kind === 'message' ||
-				phase.kind === 'success' ||
-				phase.kind === 'matched' ||
-				phase.kind === 'error' ||
-				phase.kind === 'picking',
-		},
-	);
-
-	if (phase.kind === 'loading') {
-		return (
-			<Box flexDirection="column" padding={1}>
-				<Text bold color="cyan">Refine template</Text>
-				<Text dimColor>Loading pulls…</Text>
-			</Box>
-		);
-	}
-
-	if (phase.kind === 'message') {
-		return (
-			<Box flexDirection="column" padding={1}>
-				<Text bold color="cyan">Refine template</Text>
-				<Box marginTop={1}>
-					<Text color="yellow" bold>{phase.title}</Text>
-				</Box>
-				{phase.subtitle ? <Text dimColor>{phase.subtitle}</Text> : null}
-				<Text dimColor>Press any key to return.</Text>
-			</Box>
-		);
-	}
-
-	if (phase.kind === 'picking') {
-		const items = phase.pulls.map(p => ({
-			key: p.slug,
-			label: `${p.pageName} → ${p.templateFile}`,
-			value: p,
-		}));
-		return (
-			<Box flexDirection="column" padding={1}>
-				<Text bold color="cyan">Refine template</Text>
-				<Box marginTop={1}>
-					<Text bold>Pick a pull to refine:</Text>
-				</Box>
-				<Box marginTop={1}>
-					<Menu items={items} onSelect={item => beginCapture(item.value)} />
-				</Box>
-				<Box marginTop={1}>
-					<Text dimColor>Esc to cancel.</Text>
-				</Box>
-			</Box>
-		);
-	}
-
-	if (phase.kind === 'reviewing') {
-		const items = phase.report.diffs.map(d => ({
-			key: d.id,
-			label: `[${d.severity}] ${d.region} — ${d.description}`,
-			hint: d.block_change ?? d.style_change ?? undefined,
-			value: d,
-		}));
-		return (
-			<Box flexDirection="column" padding={1}>
-				<Text bold color="cyan">Refine template</Text>
-				<Box marginTop={1} flexDirection="column">
-					<Text>{phase.report.summary}</Text>
-					<Text dimColor>
-						{phase.report.diffs.length} diff
-						{phase.report.diffs.length === 1 ? '' : 's'} — toggle to choose what
-						to apply.
-					</Text>
-				</Box>
-				<Box marginTop={1}>
-					<MultiSelect
-						items={items}
-						onSubmit={approved => beginApply(phase, approved)}
-						onCancel={onDone}
-					/>
-				</Box>
-			</Box>
-		);
-	}
-
-	if (phase.kind === 'matched') {
-		return (
-			<Box flexDirection="column" padding={1}>
-				<Text bold color="cyan">Refine template</Text>
-				<Box marginTop={1}>
-					<Text color="green" bold>
-						✓ Live render already matches the design (diff{' '}
-						{phase.ratio.toFixed(2)}%).
-					</Text>
-				</Box>
-				<Text dimColor>Press any key to return.</Text>
-			</Box>
-		);
-	}
-
-	const status = phase.kind === 'success' ? 'success' : phase.kind === 'error' ? 'error' : 'running';
-
-	return (
-		<Box flexDirection="column" padding={1}>
-			<Text bold color="cyan">Refine template</Text>
-			<Box marginTop={1}>
-				<EventList events={events} status={status} />
-			</Box>
-			{phase.kind === 'success' ? (
-				<Box marginTop={1} flexDirection="column">
-					<Text color="green" bold>
-						✓ Applied {phase.applied.length} of{' '}
-						{phase.applied.length + phase.skipped.length} diff
-						{phase.applied.length + phase.skipped.length === 1 ? '' : 's'}
-						{phase.themeJsonTouched.length > 0
-							? `, patched theme.json (${phase.themeJsonTouched.join(', ')})`
-							: ''}{' '}
-						({phase.size} bytes).
-					</Text>
-					{phase.applied.length > 0 ? (
-						<Box flexDirection="column" marginTop={1}>
-							{phase.applied.map(a => (
-								<Text key={a.id} color="green">
-									{'  ✓ '}
-									<Text bold>{a.id}:</Text> {a.summary}
-								</Text>
-							))}
-						</Box>
-					) : null}
-					{phase.skipped.length > 0 ? (
-						<Box flexDirection="column" marginTop={1}>
-							{phase.skipped.map(s => (
-								<Text key={s.id} color="yellow">
-									{'  ! '}
-									<Text bold>{s.id}:</Text> {s.reason}
-								</Text>
-							))}
-						</Box>
-					) : null}
-					<Box marginTop={1}>
-						<Text dimColor>{phase.resultPath}</Text>
-					</Box>
-					<Text dimColor>Press any key to return.</Text>
-				</Box>
-			) : null}
-			{phase.kind === 'error' ? (
-				<Box marginTop={1} flexDirection="column">
-					<Text color="red" bold>✗ Refine failed.</Text>
-					<Text color="red">{phase.error}</Text>
-					<Text dimColor>Press any key to return.</Text>
-				</Box>
-			) : null}
-		</Box>
-	);
-}
-
 type DiagnoseDeps = {
 	runAgent?: typeof runAgent;
 	captureAtSize?: typeof captureAtSize;
 };
 
-type DiagnoseResult =
+export type DiagnoseResult =
 	| {kind: 'matched'; ratio: number}
 	| {
 			kind: 'report';
@@ -460,7 +112,7 @@ type DiagnoseResult =
 
 export async function runDiagnose(
 	loaded: Loaded,
-	pull: PickablePull,
+	pull: DiffPull,
 	signal: AbortSignal,
 	onEvent: (ev: LogEvent) => void,
 	deps: DiagnoseDeps = {},
@@ -485,7 +137,7 @@ export async function runDiagnose(
 	);
 	if (!currentTemplate.trim()) {
 		throw new Error(
-			`No template content found for ${targetLabel(target)}. Run Build template first.`,
+			`No template content found for ${targetLabel(target)}. Run Build templates first.`,
 		);
 	}
 	onEvent({
@@ -696,7 +348,7 @@ export type ApplyEnvelope = {
 export async function runApply(
 	loaded: Loaded,
 	reviewPhase: {
-		pull: PickablePull;
+		pull: DiffPull;
 		currentTemplate: string;
 		target: TemplateTarget;
 		themeJsonText: string | null;
@@ -964,7 +616,7 @@ async function loadCurrentTemplate(
 	} catch (err) {
 		if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
 			throw new Error(
-				`Template ${targetLabel(target)} doesn't exist yet (no DB row, no file at ${filePath}). Run Build template first.`,
+				`Template ${targetLabel(target)} doesn't exist yet (no DB row, no file at ${filePath}). Run Build templates first.`,
 			);
 		}
 		throw err;
@@ -1076,4 +728,3 @@ async function readIfExists(p: string): Promise<string | null> {
 		return null;
 	}
 }
-
