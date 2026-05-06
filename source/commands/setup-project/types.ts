@@ -32,7 +32,6 @@ export type PlaceholderImage = {
 };
 
 export type NeptuneConfig = {
-	version: 1;
 	createdAt: string;
 	updatedAt: string;
 	projectName?: string;
@@ -50,10 +49,3 @@ export type Loaded = {
 	config: NeptuneConfig;
 	mode: 'created' | 'continued';
 };
-
-// Re-exports for backwards-compatibility — preferred import is lib/types.js.
-export type {
-	PullMeta,
-	SpecialPullKind,
-	TitleCardRef,
-} from '../../lib/types.js';

@@ -9,7 +9,7 @@
 // previous Neptune runs) and doesn't pay for a regen they didn't intend.
 import React, {useEffect, useRef, useState} from 'react';
 import {Box, Text, useInput} from 'ink';
-import SelectInput from 'ink-select-input';
+import Menu from '../lib/menu.js';
 import {access, readFile} from 'node:fs/promises';
 import {dirname, join, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -19,11 +19,17 @@ import {
 	type ImageBlock,
 	type TextBlock,
 } from '../lib/agent-stream.js';
-import {listPulls} from '../lib/design-walk.js';
+import {listPulls, sortByTemplatePriority} from '../lib/design-walk.js';
 import {
 	extractDevAnnotations,
 	formatDevAnnotationsSection,
 } from '../lib/dev-annotations.js';
+import {
+	applyBlockStyleVariations,
+	applyThemeJsonPatch,
+	flushThemeJsonCache,
+} from '../lib/theme-json-patch.js';
+import {parseBuildEnvelope} from '../lib/build-envelope.js';
 import EventList, {type LogEvent} from '../lib/event-list.js';
 import {templateRole, type TemplateRole} from '../lib/template-scaffold.js';
 import {
@@ -82,7 +88,10 @@ export default function BuildTemplate({activeProject, onDone}: Props) {
 					});
 					return;
 				}
-				setPhase({kind: 'picking', pulls: pickable});
+				setPhase({
+					kind: 'picking',
+					pulls: sortByTemplatePriority(pickable),
+				});
 			} catch (err) {
 				if (controller.signal.aborted) return;
 				setPhase({
@@ -230,7 +239,7 @@ export default function BuildTemplate({activeProject, onDone}: Props) {
 					<Text bold>Pick a pull to build into the theme:</Text>
 				</Box>
 				<Box marginTop={1}>
-					<SelectInput
+					<Menu
 						items={items}
 						onSelect={item => {
 							void onPickPull(item.value);
@@ -329,7 +338,7 @@ function ConfirmOverwrite({
 				</Box>
 			</Box>
 			<Box marginTop={1}>
-				<SelectInput
+				<Menu
 					items={items}
 					onSelect={item => {
 						if (item.value === 'proceed') onProceed();
@@ -457,19 +466,53 @@ export async function runBuild(
 
 	onEvent({kind: 'step', message: 'Invoking Claude Agent SDK…'});
 
-	const markup = await agentRunner(
+	const responseText = await agentRunner(
 		userContent,
 		{cwd: loaded.dir, pluginPath: PLUGIN_PATH, signal},
 		onEvent,
 	);
 
+	const envelope = parseBuildEnvelope(responseText, 'build-template');
 	const target = templateTargetFor(pull.templateFile, pull.pageName);
-	const out = markup.endsWith('\n') ? markup : markup + '\n';
+	const out = envelope.template_html.endsWith('\n')
+		? envelope.template_html
+		: envelope.template_html + '\n';
 
 	const wpRoot = resolve(loaded.dir, 'wordpress');
+	const themePath = resolve(wpRoot, 'wp-content', 'themes', themeSlug);
 	const session = await openStudioSession({signal});
+	let cacheNeedsFlush = false;
 	try {
 		await writeTemplate(session, wpRoot, target, out);
+		if (envelope.theme_json_patch) {
+			const patchResult = await applyThemeJsonPatch(
+				themeJsonPath,
+				envelope.theme_json_patch,
+			);
+			if (patchResult.wrote) {
+				onEvent({
+					kind: 'success',
+					message: `Patched theme.json (${patchResult.touched.join(', ')})`,
+				});
+				cacheNeedsFlush = true;
+			}
+		}
+		if (envelope.block_style_variations) {
+			const writeResult = await applyBlockStyleVariations(
+				themePath,
+				envelope.block_style_variations,
+			);
+			if (writeResult.written.length > 0) {
+				onEvent({
+					kind: 'success',
+					message: `Registered ${writeResult.written.length} block style variation${writeResult.written.length === 1 ? '' : 's'}`,
+				});
+				cacheNeedsFlush = true;
+			}
+		}
+		if (cacheNeedsFlush) {
+			await flushThemeJsonCache(session, wpRoot);
+		}
 	} finally {
 		session.close();
 	}

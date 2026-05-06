@@ -4,7 +4,7 @@
 // the platform's default image viewer.
 import React, {useEffect, useRef, useState} from 'react';
 import {Box, Text, useInput} from 'ink';
-import SelectInput from 'ink-select-input';
+import Menu from '../lib/menu.js';
 import EventList, {type LogEvent} from '../lib/event-list.js';
 import {listPulls} from '../lib/design-walk.js';
 import {openFileInDefaultApp} from '../lib/open-file.js';
@@ -221,7 +221,7 @@ export default function ViewTemplateDiff({activeProject, onDone}: Props) {
 					<Text bold>Pick a pull to diff:</Text>
 				</Box>
 				<Box marginTop={1}>
-					<SelectInput items={items} onSelect={item => beginCapture(item.value)} />
+					<Menu items={items} onSelect={item => beginCapture(item.value)} />
 				</Box>
 				<Box marginTop={1}>
 					<Text dimColor>Esc to cancel.</Text>

@@ -1,6 +1,6 @@
 import React from 'react';
 import {Box, Text, useInput} from 'ink';
-import SelectInput from 'ink-select-input';
+import Menu from '../../lib/menu.js';
 import type {SelectionMetadata} from '../../integrations/figma/mcp.js';
 import type {TitleCardRef} from '../../lib/types.js';
 import SelectionLine from './selection-line.js';
@@ -88,7 +88,7 @@ export default function PickerView({
 			</Box>
 
 			<Box marginTop={1} flexDirection="column">
-				<SelectInput
+				<Menu
 					items={items}
 					onSelect={item => {
 						switch (item.value.kind) {

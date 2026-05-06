@@ -8,7 +8,7 @@
 // file they want to keep.
 import React, {useEffect, useRef, useState} from 'react';
 import {Box, Text, useInput} from 'ink';
-import SelectInput from 'ink-select-input';
+import Menu from '../lib/menu.js';
 import {access, readFile, mkdir} from 'node:fs/promises';
 import {dirname, join, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -196,7 +196,7 @@ function ConfirmOverwrite({
 				</Box>
 			</Box>
 			<Box marginTop={1}>
-				<SelectInput
+				<Menu
 					items={items}
 					onSelect={item => {
 						if (item.value === 'proceed') onProceed();

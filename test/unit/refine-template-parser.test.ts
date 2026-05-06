@@ -109,54 +109,53 @@ test('treats missing diffs array as empty', t => {
 	t.is(r.diffs.length, 0);
 });
 
-test('parseApplyEnvelope: accepts envelope with template + styles', t => {
+test('parseApplyEnvelope: accepts envelope with template + theme_json_patch', t => {
 	const e = parseApplyEnvelope(
 		JSON.stringify({
 			template_html: '<!-- wp:group -->x<!-- /wp:group -->',
-			block_styles: [
-				{
-					block: 'core/button',
-					name: 'fill-small',
-					label: 'Fill Small',
-					css: '.x { padding: 4px; }',
+			theme_json_patch: {
+				blocks: {
+					'core/button': {
+						variations: {
+							'neptune-fill-small': {css: '.x { padding: 4px; }'},
+						},
+					},
 				},
-			],
+			},
 		}),
 	);
 	t.is(e.template_html, '<!-- wp:group -->x<!-- /wp:group -->');
-	t.is(e.block_styles.length, 1);
-	t.is(e.block_styles[0]!.name, 'fill-small');
+	t.truthy(e.theme_json_patch);
+	t.deepEqual(e.theme_json_patch?.blocks, {
+		'core/button': {
+			variations: {'neptune-fill-small': {css: '.x { padding: 4px; }'}},
+		},
+	});
 });
 
-test('parseApplyEnvelope: accepts empty block_styles', t => {
+test('parseApplyEnvelope: omitted theme_json_patch is undefined', t => {
 	const e = parseApplyEnvelope(
-		JSON.stringify({
-			template_html: '<!-- wp:p --><!-- /wp:p -->',
-			block_styles: [],
-		}),
+		JSON.stringify({template_html: '<!-- wp:p --><!-- /wp:p -->'}),
 	);
-	t.is(e.block_styles.length, 0);
+	t.is(e.theme_json_patch, undefined);
 });
 
-test('parseApplyEnvelope: drops malformed block-style entries silently', t => {
-	const e = parseApplyEnvelope(
-		JSON.stringify({
-			template_html: '<!-- wp:p --><!-- /wp:p -->',
-			block_styles: [
-				{block: 'core/button', name: 'a', label: 'A', css: '.x{}'},
-				{block: 'core/button', name: 'b'}, // missing fields
-				'not an object',
-				null,
-			],
-		}),
+test('parseApplyEnvelope: rejects extra top-level keys in patch', t => {
+	t.throws(
+		() =>
+			parseApplyEnvelope(
+				JSON.stringify({
+					template_html: '<!-- wp:p --><!-- /wp:p -->',
+					theme_json_patch: {blocks: {}, settings: {color: {}}},
+				}),
+			),
+		{message: /may only contain keys: blocks, custom/},
 	);
-	t.is(e.block_styles.length, 1);
-	t.is(e.block_styles[0]!.name, 'a');
 });
 
 test('parseApplyEnvelope: throws on missing template_html', t => {
 	t.throws(
-		() => parseApplyEnvelope(JSON.stringify({block_styles: []})),
+		() => parseApplyEnvelope(JSON.stringify({theme_json_patch: {blocks: {}}})),
 		{message: /missing a non-empty template_html/i},
 	);
 });
@@ -177,7 +176,6 @@ test('parseApplyEnvelope: applied + skipped arrays parse', t => {
 	const e = parseApplyEnvelope(
 		JSON.stringify({
 			template_html: '<!-- wp:p --><!-- /wp:p -->',
-			block_styles: [],
 			applied: [
 				{id: 'a', summary: 'changed paragraph to heading'},
 				{id: 'b', summary: 'set padding preset lg'},
@@ -194,10 +192,7 @@ test('parseApplyEnvelope: applied + skipped arrays parse', t => {
 
 test('parseApplyEnvelope: missing applied/skipped default to empty arrays', t => {
 	const e = parseApplyEnvelope(
-		JSON.stringify({
-			template_html: '<!-- wp:p --><!-- /wp:p -->',
-			block_styles: [],
-		}),
+		JSON.stringify({template_html: '<!-- wp:p --><!-- /wp:p -->'}),
 	);
 	t.deepEqual(e.applied, []);
 	t.deepEqual(e.skipped, []);
@@ -207,7 +202,6 @@ test('parseApplyEnvelope: drops malformed entries from applied/skipped', t => {
 	const e = parseApplyEnvelope(
 		JSON.stringify({
 			template_html: '<!-- wp:p --><!-- /wp:p -->',
-			block_styles: [],
 			applied: [
 				{id: 'good', summary: 'ok'},
 				{id: 'no-summary'},
@@ -231,7 +225,6 @@ test('validateApplyCoverage: passes when every approved id is accounted for', t 
 		validateApplyCoverage(
 			{
 				template_html: 'x',
-				block_styles: [],
 				applied: [{id: 'a', summary: 'x'}],
 				skipped: [{id: 'b', reason: 'y'}],
 			},
@@ -246,7 +239,6 @@ test('validateApplyCoverage: throws when any id is missing', t => {
 			validateApplyCoverage(
 				{
 					template_html: 'x',
-					block_styles: [],
 					applied: [{id: 'a', summary: 'x'}],
 					skipped: [],
 				},
@@ -259,19 +251,17 @@ test('validateApplyCoverage: throws when any id is missing', t => {
 test('validateApplyCoverage: empty approved + empty applied/skipped passes', t => {
 	t.notThrows(() =>
 		validateApplyCoverage(
-			{template_html: 'x', block_styles: [], applied: [], skipped: []},
+			{template_html: 'x', applied: [], skipped: []},
 			[],
 		),
 	);
 });
 
 test('validateApplyCoverage: extra ids in applied that are not approved are fine', t => {
-	// We trust the agent's report; extra ids are informational.
 	t.notThrows(() =>
 		validateApplyCoverage(
 			{
 				template_html: 'x',
-				block_styles: [],
 				applied: [
 					{id: 'a', summary: 'x'},
 					{id: 'extra', summary: 'unrequested'},

@@ -1,6 +1,6 @@
 ---
 name: tsx-to-blocks
-description: Use when converting a Figma-generated React + Tailwind component (code.tsx) into Gutenberg block markup for a WordPress block theme template or template part. Outputs raw block HTML suitable for templates/<file>.html or parts/<file>.html.
+description: Use when converting a Figma-generated React + Tailwind component (code.tsx) into Gutenberg block markup for a WordPress block theme template or template part. Outputs a JSON envelope containing the block markup plus an optional theme.json patch for project-wide style registrations.
 ---
 
 # TSX → Gutenberg block markup
@@ -11,7 +11,7 @@ You convert a single React + Tailwind component (the output of Figma's code gene
 
 - `code.tsx` — the React + Tailwind component to convert. Treat this as the source of truth for layout, hierarchy, and content. It is typically a full page (header + main content + footer).
 - A scope instruction telling you whether to convert the HEADER region only, the FOOTER region only, the PAGE content (everything between the header and footer), or — for templates that embed `wp:post-content` — the WRAPPER chrome only or the POST-CONTENT body only. Honor it strictly. If you are building a page, include header and footer template parts as separate blocks, e.g. `<!-- wp:template-part {"slug":"header"} /-->` and `<!-- wp:template-part {"slug":"footer"} /-->`.
-- Optionally `theme.json` — the active theme's settings. When present, ALWAYS use its preset slugs in preference to inlined raw values.
+- Optionally `theme.json` — the active theme's settings. When present, ALWAYS use its preset slugs in preference to inlined raw values. The theme.json you receive is the single source of truth for what's already registered project-wide.
 - Optionally `variables.json` — the flat token map originally scraped from Figma. Useful when a Tailwind class references a CSS variable that you need to resolve back to a preset.
 - Optionally a screenshot of the intended design, to help disambiguate unclear pieces of TSX. Do not describe the screenshot in your response.
 - Optionally a `=== dev annotations ===` section. These are non-binding designer notes attached to specific TSX nodes (originally `data-development-annotations` in code.tsx). Treat them as designer intent that explains a region's purpose or behavior — they may clarify which content is placeholder vs. final, why a state looks the way it does, or how a region is expected to render once filled in. Use them to inform conversion decisions, not as user-facing text.
@@ -52,13 +52,62 @@ If the scope says you are building the post-content body:
 
 ## Output format
 
-Return ONLY raw Gutenberg block markup. No markdown fences. No preamble. No commentary. No explanation.
+Return ONLY a single JSON object. No markdown fences. No preamble. No commentary. No explanation.
 
-Start with `<!-- wp:` and end with the closing tag or comment of the outermost block. The output is dropped verbatim into `wp-content/themes/<theme>/templates/<file>.html` or `parts/<file>.html`, so:
+```jsonc
+{
+  "template_html": "<!-- wp:group ... --><!-- /wp:group -->",
+  "theme_json_patch": {
+    "blocks": {
+      "core/heading": {
+        "typography": { "letterSpacing": "-0.02em" }
+      }
+    },
+    "custom": {
+      "hero": { "ribbonOffset": "24px" }
+    }
+  },
+  "block_style_variations": [
+    {
+      "slug": "neptune-fill-small",
+      "title": "Fill Small",
+      "blockTypes": ["core/button"],
+      "styles": {
+        "spacing": { "padding": { "top": "8px", "right": "16px", "bottom": "8px", "left": "16px" } },
+        "typography": { "fontSize": "14px" }
+      }
+    }
+  ]
+}
+```
 
-- Do NOT include `<html>`, `<head>`, or `<body>`.
-- Do NOT include the React function signature, props types, imports, or any TS.
-- Do NOT include the `const imgFoo = "http://localhost:3845/..."` declarations.
+### Field rules
+
+- `template_html`: the full block markup. Must start with `<!-- wp:` and have matching opening/closing comments. The string value is dropped verbatim into a `wp_template`/`wp_template_part`/`wp_post` `post_content` field, so:
+  - Do NOT include `<html>`, `<head>`, or `<body>`.
+  - Do NOT include the React function signature, props types, imports, or any TS.
+  - Do NOT include the `const imgFoo = "http://localhost:3845/..."` declarations.
+- `theme_json_patch` (optional): omit entirely when the conversion needs no theme-wide registrations. When present, it must contain `blocks` and/or `custom` and nothing else. Neptune deep-merges these into `theme.json`'s `styles.blocks` and `settings.custom` subtrees respectively. All other theme.json keys are off-limits and preserved. Do NOT put `variations` under `theme_json_patch.blocks.<x>` — variations live in their own field, see below.
+- `block_style_variations` (optional): array of editor-pickable block style variations. Each entry becomes a file at `<theme>/styles/blocks/<slug>.json` that WP 6.6+ auto-registers at theme init. Entry shape:
+  - `slug` — required. Kebab-case, MUST start with `neptune-` (e.g. `neptune-fill-small`). Generates the editor class `is-style-<slug>`.
+  - `title` — required. Human-readable label shown in the editor's style switcher.
+  - `blockTypes` — required. Non-empty array of block names (`core/x` or `vendor/x`); one variation can target multiple blocks.
+  - `styles` — required. theme.json `styles` shape — color / typography / spacing / border / elements / blocks / css. Settings, patterns, and templates are NOT allowed here.
+
+## Where to put style information (priority order)
+
+For every visual styling decision, choose the FIRST option that fits:
+
+1. **A theme.json preset slug** — `{"backgroundColor":"<slug>"}`, `{"textColor":"<slug>"}`, `{"fontSize":"<slug>"}`, `style.spacing` with `var:preset|spacing|<slug>`. Always prefer this when a preset matches.
+2. **A structured property in `theme_json_patch.blocks["core/<x>"]`** — set color/typography/spacing/border declaratively. Use this when a value should apply to every instance of that block project-wide and a preset doesn't already cover it.
+3. **Block-scoped CSS in `theme_json_patch.blocks["core/<x>"].css`** — only when the rule can't be expressed as a structured property (pseudo-selectors, descendant selectors, animations, complex states).
+4. **An editor-pickable variation** in `block_style_variations[]` — register a `neptune-<name>` slug whose `styles` object holds the variation's appearance, and apply the matching `is-style-neptune-<name>` class on the relevant block instance in `template_html`. Use this when one block needs an alternative style the user might want to pick from the editor's style switcher.
+
+NEVER write to `styles.css` or any other top-level theme.json key. NEVER emit raw CSS outside `theme_json_patch.blocks.<x>.css` or a variation's `styles.css`. The site's `style.css` file is off-limits.
+
+## Custom design tokens
+
+When a value isn't a preset and is reused across multiple blocks (e.g. a recurring offset, a custom radius), register it under `theme_json_patch.custom.<group>.<name>` and reference it via `var(--wp--custom--<group>--<name>)` in your block-scoped CSS. Don't inline the same magic number in three places — promote it.
 
 ## Block mapping
 
@@ -86,7 +135,7 @@ When a Tailwind class corresponds to a preset slug in `theme.json`, prefer the n
 - Font size that matches `settings.typography.fontSizes[i].slug` → `{"fontSize":"<slug>"}`
 - Padding/margin that matches `settings.spacing.spacingSizes[i].slug` → use the `style.spacing` shape with `var:preset|spacing|<slug>` references
 
-When no preset matches, fall back to a raw `style` attribute, but only if the value is materially presentational. Drop noise Tailwind utilities that are layout scaffolding without a Gutenberg-side analogue.
+When no preset matches, fall back to a raw `style` attribute (per-instance) only if the value is materially presentational AND only affects this template instance. If the value should apply to every instance of the block, register it via `theme_json_patch.blocks` instead.
 
 When a class uses a CSS variable like `var(--eureka/contrast-1,#21201c)`, resolve via `theme.json` if there's a matching preset; otherwise look up the resolved value in `variables.json` and use that hex/length directly.
 
@@ -96,13 +145,16 @@ When a class uses a CSS variable like `var(--eureka/contrast-1,#21201c)`, resolv
 - JSON in block comment attributes must be valid: no trailing commas, no comments, double-quoted keys.
 - Strip Figma's `data-node-id`, `data-name`, `data-neptune-annotations`, and `data-development-annotations` attributes from the output — they have no value in WordPress. Both annotation kinds still inform the conversion (semantic block selection / designer intent); they just don't appear in the emitted markup.
 - Slugs are kebab-case, lowercase, alphanumeric + hyphens.
+- Variation slugs in `block_style_variations[]` MUST be prefixed `neptune-` so they don't collide with theme defaults.
+- When adding a border to a single edge of a block, ensure other edges are explicitly set to `0px` to avoid unintended borders from theme styles.
 - For `wp:image` blocks: if the user supplies a `=== placeholder image ===` section with an attachment id and URL, use those values for every image block (`"id":<id>` in attrs, `<img src="<url>" class="wp-image-<id>">`). If no placeholder is supplied, leave `src=""` and omit the id. Never use Figma's local asset URLs (`http://localhost:3845/...`) and never invent file paths.
 - Never wrap the response in markdown code fences.
 
 ## Self-check before responding
 
-1. The first non-whitespace characters are `<!-- wp:`.
-2. Every `<!-- wp:foo ... -->` has a matching `<!-- /wp:foo -->`.
+1. Output is exactly one JSON object, valid, no fences, no prose.
+2. `template_html` starts with `<!-- wp:` and balances opening/closing block comments.
 3. JSON inside every block comment attribute parses.
-4. No `function`, `import`, `const imgFoo`, or TypeScript syntax remains.
-5. No prose, no fences.
+4. If `theme_json_patch` is present, it has only `blocks` and/or `custom` keys at the top level — no `variations` anywhere inside.
+5. If `block_style_variations` is present, every entry's slug starts with `neptune-` AND its `is-style-<slug>` class appears on at least one block in `template_html`.
+6. No `function`, `import`, `const imgFoo`, or TypeScript syntax remains.

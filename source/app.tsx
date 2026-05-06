@@ -7,13 +7,15 @@
 //     (it runs the variables merge as a preamble).
 import React, {useEffect, useState} from 'react';
 import {Box, Text, useApp} from 'ink';
-import SelectInput from 'ink-select-input';
+import Menu from './lib/menu.js';
 import PullTemplate from './commands/pull-template.js';
 import ExtractPatterns from './commands/extract-patterns.js';
 import VerifyScreenshots from './commands/verify-screenshots.js';
 import BuildTemplate from './commands/build-template.js';
 import BuildContent from './commands/build-content.js';
+import BuildAll from './commands/build-all.js';
 import RefineTemplate from './commands/refine-template.js';
+import RefineAll from './commands/refine-all.js';
 import ViewTemplateDiff from './commands/view-template-diff.js';
 import BuildThemeJson from './commands/build-theme-json.js';
 import SetupProject, {type Loaded} from './commands/setup-project.js';
@@ -37,8 +39,10 @@ type View =
 	| 'extractPatterns'
 	| 'verifyScreenshots'
 	| 'buildTemplate'
+	| 'buildAll'
 	| 'buildContent'
 	| 'refineTemplate'
+	| 'refineAll'
 	| 'viewTemplateDiff'
 	| 'buildTheme';
 
@@ -245,7 +249,7 @@ export default function App({name, startCwd}: Props) {
 			<Box marginTop={1} flexDirection="column">
 				<Text bold>What would you like to do?</Text>
 				<Box marginTop={1}>
-					<SelectInput items={items} onSelect={handleSelect} />
+					<Menu items={items} onSelect={handleSelect} />
 				</Box>
 			</Box>
 		</Box>
@@ -313,21 +317,25 @@ function buildMenuItems({
 				label: '  ↳ Verify screenshots',
 				value: 'verifyScreenshots',
 			});
+		}
+		if (hasPulls && hasTheme) {
+			items.push({label: 'Build theme.json', value: 'buildTheme'});
+		}
+		if (hasNonSpecialPulls) {
 			items.push({label: 'Extract patterns', value: 'extractPatterns'});
 		}
 		if (hasNonSpecialPulls && hasTheme) {
 			items.push({label: 'Build template', value: 'buildTemplate'});
+			items.push({label: '  ↳ Build all templates', value: 'buildAll'});
 			if (hasPostContentPulls) {
 				items.push({label: 'Build content', value: 'buildContent'});
 			}
 			items.push({label: 'Refine template', value: 'refineTemplate'});
+			items.push({label: '  ↳ Refine all templates', value: 'refineAll'});
 			items.push({
 				label: '  ↳ View template diff',
 				value: 'viewTemplateDiff',
 			});
-		}
-		if (hasPulls && hasTheme) {
-			items.push({label: 'Build theme.json', value: 'buildTheme'});
 		}
 	}
 	items.push({label: 'Quit', value: 'quit'});
@@ -380,6 +388,13 @@ function renderView(
 					onDone={() => onDone(false)}
 				/>
 			);
+		case 'buildAll':
+			return (
+				<BuildAll
+					activeProject={activeProject}
+					onDone={() => onDone(false)}
+				/>
+			);
 		case 'buildContent':
 			return (
 				<BuildContent
@@ -390,6 +405,13 @@ function renderView(
 		case 'refineTemplate':
 			return (
 				<RefineTemplate
+					activeProject={activeProject}
+					onDone={() => onDone(false)}
+				/>
+			);
+		case 'refineAll':
+			return (
+				<RefineAll
 					activeProject={activeProject}
 					onDone={() => onDone(false)}
 				/>

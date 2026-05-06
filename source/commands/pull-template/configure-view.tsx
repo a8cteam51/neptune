@@ -1,6 +1,6 @@
 import React, {useState} from 'react';
 import {Box, Text, useInput} from 'ink';
-import SelectInput from 'ink-select-input';
+import Menu from '../../lib/menu.js';
 import TextInput from 'ink-text-input';
 import type {SelectionMetadata} from '../../integrations/figma/mcp.js';
 import {templateSubdir} from '../../lib/template-scaffold.js';
@@ -269,7 +269,7 @@ export default function ConfigureView({
 						will be built into a page post via build-content.
 					</Text>
 					<Box marginTop={1}>
-						<SelectInput
+						<Menu
 							items={[
 								{key: 'no', label: 'No — full template (current behavior)', value: 'no'},
 								{key: 'yes', label: 'Yes — wrapper + page post-content', value: 'yes'},

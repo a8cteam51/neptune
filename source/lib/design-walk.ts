@@ -75,6 +75,25 @@ export async function findSpecialPull(
 	return pulls.find(p => p.special === kind) ?? null;
 }
 
+// Stable sort that puts header.html first, footer.html second, and
+// everything else after in original order. Header and footer are
+// referenced as template parts by every other template, so building /
+// refining them first means downstream templates render correctly when
+// it's their turn.
+export function sortByTemplatePriority<T extends {templateFile?: string}>(
+	pulls: ReadonlyArray<T>,
+): T[] {
+	const priority = (file?: string): number => {
+		const lower = file?.toLowerCase();
+		if (lower === 'header.html') return 0;
+		if (lower === 'footer.html') return 1;
+		return 2;
+	};
+	return [...pulls].sort(
+		(a, b) => priority(a.templateFile) - priority(b.templateFile),
+	);
+}
+
 export async function writePullMeta(
 	projectDir: string,
 	slug: string,

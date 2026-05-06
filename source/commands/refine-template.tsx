@@ -20,7 +20,7 @@
 // the design screenshot for inspection.
 import React, {useEffect, useRef, useState} from 'react';
 import {Box, Text, useInput} from 'ink';
-import SelectInput from 'ink-select-input';
+import Menu from '../lib/menu.js';
 import {access, readFile} from 'node:fs/promises';
 import {dirname, join, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -35,29 +35,26 @@ import {
 	CaptureAbortedError,
 	type DiffPull,
 } from '../lib/template-diff.js';
+import {listPulls, sortByTemplatePriority} from '../lib/design-walk.js';
 import {
-	readBlockStyles,
-	upsertBlockStyle,
-	writeBlockStyles,
-} from '../lib/block-styles-config.js';
+	applyBlockStyleVariations,
+	applyThemeJsonPatch,
+	flushThemeJsonCache,
+	type BlockStyleVariation,
+	type ThemeJsonPatch,
+} from '../lib/theme-json-patch.js';
 import {
-	parseCustomCss,
-	readCustomCss,
-	serializeCustomCss,
-	upsertSection,
-	writeCustomCss,
-} from '../lib/custom-css-sections.js';
-import {listPulls} from '../lib/design-walk.js';
+	parseAgentJson,
+	parseBlockStyleVariationsField,
+	parseThemeJsonPatchField,
+} from '../lib/build-envelope.js';
 import {
 	extractDevAnnotations,
 	formatDevAnnotationsSection,
 } from '../lib/dev-annotations.js';
 import EventList, {type LogEvent} from '../lib/event-list.js';
 import MultiSelect from '../lib/multi-select.js';
-import {
-	openStudioSession,
-	type StudioSession,
-} from '../integrations/studio/mcp.js';
+import {openStudioSession} from '../integrations/studio/mcp.js';
 import {
 	dArrayLenient,
 	dBoolean,
@@ -127,7 +124,7 @@ type Phase =
 			size: number;
 			applied: AppliedEntry[];
 			skipped: SkippedEntry[];
-			appliedStyles: number;
+			themeJsonTouched: string[];
 	  }
 	| {kind: 'matched'; pull: PickablePull; ratio: number}
 	| {kind: 'error'; error: string}
@@ -147,6 +144,7 @@ export default function RefineTemplate({activeProject, onDone}: Props) {
 				const pickable = pulls.filter(
 					(p): p is PickablePull =>
 						p.special === undefined &&
+						p.contentOnly !== true &&
 						typeof p.templateFile === 'string' &&
 						p.templateFile.length > 0,
 				);
@@ -155,11 +153,14 @@ export default function RefineTemplate({activeProject, onDone}: Props) {
 						kind: 'message',
 						title: 'No pulls available to refine.',
 						subtitle:
-							'Pull a non-special template with a templateFile first.',
+							'Pull a non-special template with a templateFile first. Content-only pulls are refined via build-content + a future refine-content flow.',
 					});
 					return;
 				}
-				setPhase({kind: 'picking', pulls: pickable});
+				setPhase({
+					kind: 'picking',
+					pulls: sortByTemplatePriority(pickable),
+				});
 			} catch (err) {
 				if (controller.signal.aborted) return;
 				setPhase({
@@ -255,7 +256,7 @@ export default function RefineTemplate({activeProject, onDone}: Props) {
 					size: result.size,
 					applied: result.applied,
 					skipped: result.skipped,
-					appliedStyles: result.appliedStyles,
+					themeJsonTouched: result.themeJsonTouched,
 				});
 			} catch (err) {
 				if (controller.signal.aborted) return;
@@ -326,7 +327,7 @@ export default function RefineTemplate({activeProject, onDone}: Props) {
 					<Text bold>Pick a pull to refine:</Text>
 				</Box>
 				<Box marginTop={1}>
-					<SelectInput items={items} onSelect={item => beginCapture(item.value)} />
+					<Menu items={items} onSelect={item => beginCapture(item.value)} />
 				</Box>
 				<Box marginTop={1}>
 					<Text dimColor>Esc to cancel.</Text>
@@ -393,10 +394,8 @@ export default function RefineTemplate({activeProject, onDone}: Props) {
 						✓ Applied {phase.applied.length} of{' '}
 						{phase.applied.length + phase.skipped.length} diff
 						{phase.applied.length + phase.skipped.length === 1 ? '' : 's'}
-						{phase.appliedStyles > 0
-							? `, persisted ${phase.appliedStyles} block style${
-									phase.appliedStyles === 1 ? '' : 's'
-								}`
+						{phase.themeJsonTouched.length > 0
+							? `, patched theme.json (${phase.themeJsonTouched.join(', ')})`
 							: ''}{' '}
 						({phase.size} bytes).
 					</Text>
@@ -661,12 +660,8 @@ export type SkippedEntry = {
 
 export type ApplyEnvelope = {
 	template_html: string;
-	block_styles: Array<{
-		block: string;
-		name: string;
-		label: string;
-		css: string;
-	}>;
+	theme_json_patch?: ThemeJsonPatch;
+	block_style_variations?: BlockStyleVariation[];
 	applied: AppliedEntry[];
 	skipped: SkippedEntry[];
 };
@@ -690,7 +685,7 @@ export async function runApply(
 	size: number;
 	applied: AppliedEntry[];
 	skipped: SkippedEntry[];
-	appliedStyles: number;
+	themeJsonTouched: string[];
 }> {
 	const agentRunner = deps.runAgent ?? runAgent;
 
@@ -728,7 +723,7 @@ export async function runApply(
 				text:
 					`Apply this list of approved visual diffs to the existing Gutenberg block markup template (${reviewPhase.pull.templateFile}). ` +
 					`Use the apply-diff skill. Apply only the supplied diffs; do not introduce new ones. ` +
-					`Return the JSON envelope described in the skill — Neptune persists block styles via wp-cli; do NOT call any tools yourself.`,
+					`Return the JSON envelope described in the skill. Neptune persists the template and applies the optional theme.json patch directly — do NOT call any tools yourself.`,
 			},
 			{type: 'text', text: sections.join('\n')},
 		],
@@ -763,17 +758,56 @@ export async function runApply(
 		: envelope.template_html + '\n';
 
 	const wpRoot = resolve(loaded.dir, 'wordpress');
+	const themeSlug = loaded.config.themeSlug;
+	if (!themeSlug) {
+		throw new Error(
+			'themeSlug missing from neptune-config.json — finish theme setup first.',
+		);
+	}
+	const themeJsonPath = resolve(
+		wpRoot,
+		'wp-content',
+		'themes',
+		themeSlug,
+		'theme.json',
+	);
+
+	let themeJsonTouched: string[] = [];
+	const themePath = resolve(wpRoot, 'wp-content', 'themes', themeSlug);
 	const session = await openStudioSession({signal});
+	let cacheNeedsFlush = false;
 	try {
-		if (envelope.block_styles.length > 0) {
-			await persistBlockStylesInSession(
-				session,
-				wpRoot,
-				envelope.block_styles,
-				onEvent,
-			);
-		}
 		await writeTemplate(session, wpRoot, reviewPhase.target, out);
+		if (envelope.theme_json_patch) {
+			const patchResult = await applyThemeJsonPatch(
+				themeJsonPath,
+				envelope.theme_json_patch,
+			);
+			if (patchResult.wrote) {
+				themeJsonTouched = patchResult.touched;
+				onEvent({
+					kind: 'success',
+					message: `Patched theme.json (${patchResult.touched.join(', ')})`,
+				});
+				cacheNeedsFlush = true;
+			}
+		}
+		if (envelope.block_style_variations) {
+			const writeResult = await applyBlockStyleVariations(
+				themePath,
+				envelope.block_style_variations,
+			);
+			if (writeResult.written.length > 0) {
+				onEvent({
+					kind: 'success',
+					message: `Registered ${writeResult.written.length} block style variation${writeResult.written.length === 1 ? '' : 's'}`,
+				});
+				cacheNeedsFlush = true;
+			}
+		}
+		if (cacheNeedsFlush) {
+			await flushThemeJsonCache(session, wpRoot);
+		}
 	} finally {
 		session.close();
 	}
@@ -789,23 +823,18 @@ export async function runApply(
 		size: out.length,
 		applied: envelope.applied,
 		skipped: envelope.skipped,
-		appliedStyles: envelope.block_styles.length,
+		themeJsonTouched,
 	};
 }
 
 const dApplyEntry = dObject({id: dString, summary: dString});
 const dSkipEntry = dObject({id: dString, reason: dString});
-const dBlockStyle = dObject({
-	block: dString,
-	name: dString,
-	label: dString,
-	css: dString,
-});
 
-// Validates the apply-diff agent's JSON envelope. Throws with a
-// truncated preview on top-level schema mismatches; per-entry failures
-// in block_styles / applied / skipped are reported via onWarn and the
-// entry is dropped (one bad entry shouldn't kill the whole apply).
+// Validates the apply-diff agent's JSON envelope. Throws on top-level
+// schema mismatches; per-entry failures in applied / skipped are
+// reported via onWarn and the entry is dropped. theme_json_patch is
+// validated structurally (object or absent) but its inner shape is
+// trusted — applyThemeJsonPatch enforces what subtrees are reachable.
 export function parseApplyEnvelope(
 	input: string,
 	onWarn?: (msg: string) => void,
@@ -825,11 +854,6 @@ export function parseApplyEnvelope(
 		onWarn?.(`Dropped ${kind} entry at ${path}: ${err.message}`);
 	};
 
-	const block_styles = decode(
-		dArrayLenient(dBlockStyle, drop('block_styles')),
-		obj['block_styles'] ?? [],
-		'apply-diff.block_styles',
-	);
 	const applied = decode(
 		dArrayLenient(dApplyEntry, drop('applied')),
 		obj['applied'] ?? [],
@@ -841,8 +865,24 @@ export function parseApplyEnvelope(
 		'apply-diff.skipped',
 	);
 
-	return {template_html: html, block_styles, applied, skipped};
+	const theme_json_patch = parseThemeJsonPatchField(
+		obj['theme_json_patch'],
+		'apply-diff',
+	);
+	const block_style_variations = parseBlockStyleVariationsField(
+		obj['block_style_variations'],
+		'apply-diff',
+	);
+
+	return {
+		template_html: html,
+		applied,
+		skipped,
+		theme_json_patch,
+		block_style_variations,
+	};
 }
+
 
 // Verifies the agent accounted for every approved diff (each id appears
 // in either `applied` or `skipped`). Throws if any are unaccounted for —
@@ -864,57 +904,6 @@ export function validateApplyCoverage(
 		}: ${missing.join(', ')}. ` +
 			'Each approved diff must appear in "applied" or "skipped".',
 	);
-}
-
-// Routes the agent's block-style edits to wp-config (constant) and
-// Customizer custom_css (theme mod) via Studio's wp_cli MCP tool.
-// Operates inside a caller-owned session so the runApply flow can
-// also write the template post in the same session without paying
-// the studio-mcp spawn cost twice.
-async function persistBlockStylesInSession(
-	session: StudioSession,
-	nameOrPath: string,
-	entries: ApplyEnvelope['block_styles'],
-	onEvent: (ev: LogEvent) => void,
-): Promise<void> {
-	onEvent({
-		kind: 'step',
-		message: `Persisting ${entries.length} block style${
-			entries.length === 1 ? '' : 's'
-		} via wp-cli…`,
-	});
-
-	// 1) Block-style metadata → NEPTUNE_BLOCK_STYLES constant.
-	let constantArr = await readBlockStyles(session, nameOrPath);
-	for (const entry of entries) {
-		constantArr = upsertBlockStyle(constantArr, {
-			block: entry.block,
-			name: entry.name,
-			label: entry.label,
-		});
-	}
-	await writeBlockStyles(session, nameOrPath, constantArr);
-	onEvent({
-		kind: 'step',
-		message: `Updated NEPTUNE_BLOCK_STYLES (${constantArr.length} entries).`,
-	});
-
-	// 2) CSS → Customizer additional CSS, section-marked per style.
-	const currentCss = await readCustomCss(session, nameOrPath);
-	let parsed = parseCustomCss(currentCss);
-	for (const entry of entries) {
-		parsed = upsertSection(parsed, {
-			block: entry.block,
-			style: entry.name,
-			css: entry.css,
-		});
-	}
-	const nextCss = serializeCustomCss(parsed);
-	await writeCustomCss(session, nameOrPath, nextCss);
-	onEvent({
-		kind: 'step',
-		message: `Updated Customizer custom_css (${parsed.sections.size} sections).`,
-	});
 }
 
 // Loads the current template content from the database first (where
@@ -1016,18 +1005,6 @@ export function parseDiffReport(
 	}
 
 	return {summary, matches_design: false, diffs};
-}
-
-function parseAgentJson(input: string, label: string): unknown {
-	try {
-		return JSON.parse(input);
-	} catch (err) {
-		throw new Error(
-			`${label} response was not valid JSON: ${
-				err instanceof Error ? err.message : String(err)
-			}\n\nFirst 500 chars: ${input.slice(0, 500)}`,
-		);
-	}
 }
 
 function templatePath(

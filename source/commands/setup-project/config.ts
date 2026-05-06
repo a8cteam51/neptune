@@ -2,10 +2,6 @@
 // slug, git repo, setup step progress, variablesBuiltAt). Does NOT hold
 // per-pull state — that's on disk under design/<slug>/meta.json. See
 // design-walk.ts for the rationale.
-//
-// Older configs may carry orphan keys (e.g. an inline `pulls` array)
-// from before the move to disk-as-truth. normalizeConfig drops them on
-// read; the next write through applyUpdate strips them from the file.
 import {mkdir, readdir, readFile, stat} from 'node:fs/promises';
 import {resolve} from 'node:path';
 import {writeFileAtomic} from '../../lib/atomic-write.js';
@@ -74,7 +70,6 @@ function normalizeConfig(
 ): NeptuneConfig {
 	const ts = now();
 	return {
-		version: 1,
 		createdAt: parsed.createdAt ?? ts,
 		updatedAt: parsed.updatedAt ?? ts,
 		projectName: parsed.projectName,
@@ -106,7 +101,6 @@ export async function markVariablesBuilt(
 function newConfig(now: Clock): NeptuneConfig {
 	const ts = now();
 	return {
-		version: 1,
 		createdAt: ts,
 		updatedAt: ts,
 		design: {pagesDir: 'design'},

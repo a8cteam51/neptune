@@ -11,7 +11,7 @@ You compare three screenshots of the same WordPress page — the Figma design (t
 
 - `design.png` — target. The Figma design.
 - `live.png` — current. The live WordPress render of the same template part.
-- `diff.png` — pixel-diff highlight: differences are coloured, matches are faded.
+- `diff.png` — pixel-diff highlight: differing pixels are painted **red** (`#ff0000`), matching pixels are faded. The red is a marker, NOT a design colour. Never report a colour change because something is red in `diff.png` — read every actual colour value (text, background, border) from `design.png`. Use `diff.png` only to find WHERE differences are, not WHAT they are.
 - `current.html` — the Gutenberg block markup currently producing `live.png`.
 - Optionally `theme.json` and `variables.json` — the active theme's preset slugs, so suggested fixes can reference the right slug.
 - Optionally a `=== dev annotations ===` section. These are non-binding designer notes attached to specific regions of the original Figma design. Use them to disambiguate intent (e.g. "this block is a placeholder for post content", "this state shows the empty case") — do not flag a difference as a diff if the annotation explains it is expected.
@@ -62,6 +62,7 @@ Set `matches_design: true` ONLY when the live and design are visually equivalent
 - Order entries from highest to lowest severity, then by reading order on the page.
 - Do NOT propose changes the diff doesn't justify. Refinement, not rewrite.
 - Do NOT emit fixes. The fix agent does the actual editing; your job is the diagnosis.
+- For any colour-related finding (`style_change` mentioning a hex value or palette slug, or any description that talks about "red", "blue", etc.), the colour MUST come from `design.png` — never from `diff.png`. The red overlay in `diff.png` is just a difference marker.
 
 ## Self-check before responding
 
