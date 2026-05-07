@@ -1,7 +1,8 @@
 // Compares each non-special pull's screenshot.png pixel dimensions
-// against the width/height declared on the top-level <instance> in
-// metadata.xml. Figma's MCP sometimes returns scaled-down screenshots,
-// which this command surfaces.
+// against the width/height declared on the first element in
+// metadata.xml (currently either <instance> or <frame> depending on
+// what the user selected in Figma). Figma's MCP sometimes returns
+// scaled-down screenshots, which this command surfaces.
 import React, {useEffect, useState} from 'react';
 import {Box, Text, useInput} from 'ink';
 import {readFile} from 'node:fs/promises';
@@ -117,11 +118,11 @@ async function* verifyScreenshots(
 			throw err;
 		}
 
-		const expected = parseInstanceSize(xml);
+		const expected = parseRootElementSize(xml);
 		if (!expected) {
 			yield {
 				kind: 'warn',
-				message: `${pull.slug}: top-level <instance> missing width/height`,
+				message: `${pull.slug}: first element in metadata.xml missing width/height`,
 			};
 			continue;
 		}
@@ -181,10 +182,15 @@ async function* verifyScreenshots(
 	};
 }
 
-export function parseInstanceSize(
+// Reads width/height from the first element in metadata.xml. The
+// element is whatever the user selected in Figma — currently either
+// <instance> (component instance) or <frame> (raw frame). XML prolog
+// (<?xml … ?>), DOCTYPE, and comments are skipped because the leading
+// `<?` / `<!` are excluded by the [a-zA-Z] anchor on the tag name.
+export function parseRootElementSize(
 	xml: string,
 ): {width: number; height: number} | null {
-	const m = /<instance\b[^>]*>/i.exec(xml);
+	const m = /<([a-zA-Z][\w-]*)\b[^>]*>/.exec(xml);
 	if (!m) return null;
 	const tag = m[0];
 	const w = /\bwidth="([0-9.]+)"/.exec(tag)?.[1];

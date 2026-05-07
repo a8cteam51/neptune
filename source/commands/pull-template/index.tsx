@@ -3,9 +3,12 @@
 // Phases:
 //   loading      — fetching selection + disk pull state in parallel.
 //   gate         — one or both of styleGuide/templates not yet pulled.
-//                  User picks which special to pull next.
-//   picking      — gate satisfied. User picks a title card (from the
-//                  templates pull) or "Custom" to enter free-form mode.
+//                  User picks which special to pull next, or skips the
+//                  gate when the design has no Style Guide / Templates
+//                  layer (jumps straight to picking with no title cards).
+//   picking      — gate satisfied (or skipped). User picks a title card
+//                  (from the templates pull) or "Custom" to enter
+//                  free-form mode.
 //   configuring  — pageName + WordPress template file entry. PageName is
 //                  locked when arrived from a title-card pick.
 //   pulling      — FigmaPull renders; onSuccess does asset download,
@@ -63,6 +66,7 @@ type Phase =
 			selectionError: Error | null;
 			hasStyleGuide: boolean;
 			hasTemplates: boolean;
+			pulledSlugs: ReadonlySet<string>;
 	  }
 	| {
 			kind: 'picking';
@@ -137,6 +141,7 @@ export default function PullTemplate({activeProject, onDone}: Props) {
 						selectionError,
 						hasStyleGuide,
 						hasTemplates,
+						pulledSlugs,
 					});
 				}
 			} catch (err) {
@@ -226,6 +231,15 @@ export default function PullTemplate({activeProject, onDone}: Props) {
 						selection: phase.selection,
 					});
 				}}
+				onSkip={() =>
+					setPhase({
+						kind: 'picking',
+						selection: phase.selection,
+						selectionError: phase.selectionError,
+						titleCards: [],
+						pulledSlugs: phase.pulledSlugs,
+					})
+				}
 				onCancel={onDone}
 				onRefresh={refresh}
 			/>

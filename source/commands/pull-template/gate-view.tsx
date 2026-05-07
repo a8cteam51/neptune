@@ -7,6 +7,7 @@ import SelectionLine from './selection-line.js';
 
 type ItemValue =
 	| {kind: 'special'; special: SpecialPullKind}
+	| {kind: 'skip'}
 	| {kind: 'cancel'};
 
 export default function GateView({
@@ -15,6 +16,7 @@ export default function GateView({
 	hasStyleGuide,
 	hasTemplates,
 	onSelect,
+	onSkip,
 	onCancel,
 	onRefresh,
 }: {
@@ -23,6 +25,7 @@ export default function GateView({
 	hasStyleGuide: boolean;
 	hasTemplates: boolean;
 	onSelect: (kind: SpecialPullKind) => void;
+	onSkip: () => void;
 	onCancel: () => void;
 	onRefresh: () => void;
 }) {
@@ -52,6 +55,11 @@ export default function GateView({
 		});
 	}
 	items.push({
+		key: 'skip',
+		label: 'Skip — design has no Style Guide / Templates layer',
+		value: {kind: 'skip'},
+	});
+	items.push({
 		key: 'cancel',
 		label: 'Cancel',
 		value: {kind: 'cancel'},
@@ -73,8 +81,9 @@ export default function GateView({
 
 			<Box marginTop={1} flexDirection="column">
 				<Text>
-					Before pulling additional templates, the Style Guide template and
-					Templates layer must be pulled first.
+					Pull the Style Guide template and Templates layer first when the
+					design includes them. Designs without these layers can skip
+					straight to a custom pull.
 				</Text>
 			</Box>
 
@@ -117,6 +126,9 @@ export default function GateView({
 						switch (item.value.kind) {
 							case 'special':
 								onSelect(item.value.special);
+								return;
+							case 'skip':
+								onSkip();
 								return;
 							case 'cancel':
 								onCancel();
