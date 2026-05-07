@@ -15,7 +15,10 @@ You revise an existing WordPress block-theme template to apply a specific list o
   - `block_change` (optional)
   - `style_change` (optional)
   - `affects_layout` (boolean)
-- Optionally `theme.json` — the active theme's settings. The single source of truth for what's already registered project-wide. Use its presets when they match.
+- Optionally `theme.json` — the active theme's settings AND existing styles. Single source of truth for what's already registered project-wide. Read three subtrees deliberately:
+  - `settings.color.palette` / `settings.typography.fontSizes` / `settings.spacing.spacingSizes` — preset slugs to prefer over inlined raw values.
+  - `styles.blocks["core/<x>"]` — what's already styled at the block level. Your `theme_json_patch.blocks["core/<x>"]` EXTENDS this subtree (Neptune deep-merges); it does not overwrite. Read it before patching so you know what's already covered.
+  - `settings.blocks["core/<x>"]` — per-block setting overrides; if a structured property isn't enabled, the editor won't surface the control.
 - Optionally `variables.json` — the original Figma token map.
 - Optionally `=== existing block style variations ===` — a JSON array of variations already registered for this theme (slug, title, blockTypes, styles). When a diff implies an alternative block style and one of these matches, REUSE it by applying the existing `is-style-<slug>` class — do NOT redeclare it in `block_style_variations[]`.
 - Optionally a `=== dev annotations ===` section. Non-binding designer notes attached to specific regions; they may explain why a block looks the way it does (e.g. "placeholder for post content", "empty state"). Use them as context when judging whether to apply a diff — never as a reason to introduce a change that wasn't in `diffs.json`.
@@ -74,15 +77,24 @@ Return ONLY a single JSON object. No markdown fences. No prose. Shape:
 - **Coverage is enforced.** Every diff id in the input `diffs.json` MUST appear in either `applied` or `skipped`. Neptune validates this and fails the run if any id is unaccounted for. Do NOT silently drop diffs.
 - An id appears at most once across `applied` + `skipped`.
 
-## Where to put style information (priority order)
+## Where to put style information
 
-For each style change implied by a diff, choose the FIRST option that fits. The cardinal rule is: prefer pre-exposed structured properties over CSS, and prefer reusing an existing variation over declaring a new one.
+The default channel for styling a block is `theme_json_patch.blocks["core/<x>"]` — extending what's already in `theme.json.styles.blocks`. Inline `style` attributes on individual blocks are an exception, not a fallback, and require justification at three checks (see step 6). When in doubt, register; don't inline.
 
-1. **A theme.json preset slug already in `theme.json`** — `{"backgroundColor":"<slug>"}`, `{"fontSize":"<slug>"}`, `style.spacing` with `var:preset|spacing|<slug>`. Always prefer this when a preset matches.
-2. **A structured property under `theme_json_patch.blocks["core/<x>"]`** — pre-exposed block properties (color/typography/spacing/border/elements). Use this whenever the change should apply to every instance of that block project-wide. Manipulating these pre-exposed properties through `theme_json_patch.blocks` is the preferred way to style a block — it inherits cleanly, stays editable in the Site Editor, and never duplicates between templates.
-3. **An existing block style variation** — if the `=== existing block style variations ===` inventory contains an entry whose `styles` already matches (or substantially matches) what the diff calls for, apply its `is-style-<slug>` class to the block in `template_html` and do NOT emit anything in `block_style_variations[]`. Two templates that need the same alternate style MUST share one variation, not two.
-4. **A new block style variation** in `block_style_variations[]` — only when steps 2 and 3 cannot express what's needed and the block needs an alternative the editor user might switch to. Register a `neptune-<name>` slug whose `styles` object uses pre-exposed structured properties (color/typography/spacing/border/elements). Apply the matching `is-style-neptune-<name>` class on the relevant block instance in `template_html`.
-5. **CSS — last resort.** Use a `.css` field (either `theme_json_patch.blocks["core/<x>"].css` for project-wide rules or a variation's `styles.css` for scoped rules) ONLY when the rule cannot be expressed as a structured property — pseudo-selectors, descendant selectors, animations, complex states. If you can express it with a structured property, you must.
+### Priority order
+
+For each style change implied by a diff, work top-down and stop at the first option that fits.
+
+1. **A theme.json preset slug** already in `theme.json` — `{"backgroundColor":"<slug>"}`, `{"fontSize":"<slug>"}`, `style.spacing` with `var:preset|spacing|<slug>`. Always prefer this when a preset matches.
+2. **A structured property under `theme_json_patch.blocks["core/<x>"]`** — pre-exposed block properties (color/typography/spacing/border/elements). DEFAULT channel for any value that isn't a preset slug. Read what's already at `theme.json.styles.blocks["core/<x>"]` first; your patch extends that subtree. Inherits cleanly, stays editable in the Site Editor, never duplicates across templates.
+3. **An existing block style variation** — if `=== existing block style variations ===` contains an entry whose `styles` already matches what the diff calls for, apply its `is-style-<slug>` class. Do NOT redeclare in `block_style_variations[]`.
+4. **A new block style variation** in `block_style_variations[]` — register one whenever the same constellation of styles will (or already does) appear on multiple instances of the same block type with a coherent visual identity. Forcing question: "would I otherwise inline these same styles on a sibling block of the same type?" If yes, register the variation. The criterion is recurrence + coherence, NOT whether an editor user might switch styles.
+5. **CSS** in a `.css` field — only when the rule cannot be expressed as a structured property (pseudo-selectors, descendant selectors, animations, complex states). Use `theme_json_patch.blocks["core/<x>"].css` for project-wide rules or a variation's `styles.css` for scoped ones.
+6. **Raw inline `style` attribute on a block** — exception path. Allowed only when ALL THREE hold:
+   - (a) No preset matches (step 1 fails).
+   - (b) The value is unique to this single block instance — does NOT appear on any sibling block of the same type in `current.html`, and you would not write the same value on a future sibling.
+   - (c) The value would not naturally extend `theme.json.styles.blocks["core/<x>"]` for this block type — i.e. it's genuinely instance-specific, not a default the block type should inherit.
+   If any of (a)–(c) fails, promote to step 2 or step 4.
 
 NEVER write to `styles.css` or any other top-level theme.json key. NEVER emit raw CSS outside `theme_json_patch.blocks.<x>.css` or a variation's `styles.css`. The site's `style.css` file is off-limits.
 
@@ -118,4 +130,5 @@ When a diff implies a value that's reused across multiple blocks (a recurring of
 7. Every entry in `block_style_variations` has its matching `is-style-<slug>` class somewhere in `template_html`.
 8. Every `is-style-neptune-<slug>` class on a block in `template_html` is backed EITHER by an entry in the existing-variations inventory OR by a new entry in `block_style_variations[]` — never both.
 9. CSS only used when no pre-exposed structured property could express the rule.
-10. No prose, no fences.
+10. For every inline `style` attribute on a block in `template_html`, all three checks pass: (a) no theme.json preset matches, (b) no sibling block of the same type carries the same inline value, (c) the value would not naturally extend `theme.json.styles.blocks["core/<x>"]` for that block type. Any failure means promote to `theme_json_patch.blocks` or a `block_style_variations[]` entry.
+11. No prose, no fences.
