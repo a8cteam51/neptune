@@ -330,11 +330,11 @@ export function placeholderInstructions(placeholder: {
 
 export function roleScopeNote(role: TemplateRole): string {
 	if (role === 'header') {
-		return 'Convert ONLY the header region of the source page (site title, primary nav, top bar). Ignore main content and footer.';
+		return 'Convert ONLY the header region of the source page (site title, primary nav, top bar). The header region is marked with `data-neptune-annotations="header"`; when present, scope strictly to that subtree. Ignore main content and footer.';
 	}
 	if (role === 'footer') {
-		return 'Convert ONLY the footer region of the source page (site info, secondary nav, copyright). Ignore header and main content.';
+		return 'Convert ONLY the footer region of the source page (site info, secondary nav, copyright). The footer region is marked with `data-neptune-annotations="footer"`; when present, scope strictly to that subtree. Ignore header and main content.';
 	}
-	return 'Convert ONLY the main content region of the source page. Header and footer are rendered separately by parts/header.html and parts/footer.html — skip them.';
+	return 'Convert the main content region of the source page. Header and footer live in separate template parts (parts/header.html, parts/footer.html); when code.tsx contains `data-neptune-annotations="header"` or `data-neptune-annotations="footer"` subtrees, emit `<!-- wp:template-part {"slug":"header"} /-->` / `<!-- wp:template-part {"slug":"footer"} /-->` references at their position rather than inlining their contents.';
 }
 

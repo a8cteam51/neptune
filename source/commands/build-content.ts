@@ -279,7 +279,7 @@ function buildUserContent(
 	content.push({
 		type: 'text',
 		text:
-			'Convert the post-content body of this Figma-generated React + Tailwind component (code.tsx) to Gutenberg block markup for a WordPress page post. Use the tsx-to-blocks skill. SCOPE: convert ONLY the subtree marked with data-neptune-annotations="post-content" (the page body). Do NOT include header, footer, post-title, post-date, comments, or any wrapper chrome — those belong to the surrounding template. Do NOT emit any wp:template-part references. Do NOT emit wp:post-content (this output IS the post content).',
+			'Convert the post-content body of this Figma-generated React + Tailwind component (code.tsx) to Gutenberg block markup for a WordPress page post. Use the tsx-to-blocks skill. SCOPE: convert ONLY the subtree marked with data-neptune-annotations="post-content" (the page body). Do NOT include header, footer, post-title, post-date, comments, or any wrapper chrome — those belong to the surrounding template. Header and footer subtrees, when present, are marked with data-neptune-annotations="header" and data-neptune-annotations="footer"; ignore them entirely. Do NOT emit any wp:template-part references. Do NOT emit wp:post-content (this output IS the post content).',
 	});
 
 	if (screenshotBase64) {
