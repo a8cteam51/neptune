@@ -15,7 +15,13 @@ export default function Page() {
 		['Card', 'Page'],
 	);
 	const card = result.functions.find(f => f.name === 'Card')!;
-	t.is(src.slice(card.start, card.end + 1).trim().endsWith('}'), true);
+	t.is(
+		src
+			.slice(card.start, card.end + 1)
+			.trim()
+			.endsWith('}'),
+		true,
+	);
 });
 
 test('handles trailing `export default Foo;` form', t => {
@@ -94,5 +100,11 @@ test('preserves correct end index across nested braces', t => {
 	const result = parseTopLevelFunctions(src);
 	const fn = result.functions[0]!;
 	t.is(src[fn.end], '}');
-	t.is(src.slice(fn.start, fn.end + 1).trim().endsWith('};\n}'), false);
+	t.is(
+		src
+			.slice(fn.start, fn.end + 1)
+			.trim()
+			.endsWith('};\n}'),
+		false,
+	);
 });

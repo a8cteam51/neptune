@@ -68,7 +68,8 @@ export default function PullPattern({activeProject, onDone}: Props) {
 				setPhase({
 					kind: 'message',
 					title: 'No patterns selected.',
-					subtitle: 'Run Extract patterns first to choose which patterns to pull.',
+					subtitle:
+						'Run Extract patterns first to choose which patterns to pull.',
 				});
 				return;
 			}
@@ -76,9 +77,7 @@ export default function PullPattern({activeProject, onDone}: Props) {
 			const [selResult, alreadyPulledFlags] = await Promise.all([
 				getSelectionMetadata({signal: controller.signal}),
 				Promise.all(
-					names.map(n =>
-						hasCodeTsx(join(activeProject.dir, 'patterns', n)),
-					),
+					names.map(n => hasCodeTsx(join(activeProject.dir, 'patterns', n))),
 				),
 			]);
 			if (controller.signal.aborted) return;
@@ -123,7 +122,9 @@ export default function PullPattern({activeProject, onDone}: Props) {
 	if (phase.kind === 'loading') {
 		return (
 			<Box flexDirection="column" padding={1}>
-				<Text bold color="cyan">Pull pattern</Text>
+				<Text bold color="cyan">
+					Pull pattern
+				</Text>
 				<Box marginTop={1}>
 					<Text dimColor>Reading patterns and Figma selection…</Text>
 				</Box>
@@ -134,9 +135,13 @@ export default function PullPattern({activeProject, onDone}: Props) {
 	if (phase.kind === 'message') {
 		return (
 			<Box flexDirection="column" padding={1}>
-				<Text bold color="cyan">Pull pattern</Text>
+				<Text bold color="cyan">
+					Pull pattern
+				</Text>
 				<Box marginTop={1}>
-					<Text color="yellow" bold>{phase.title}</Text>
+					<Text color="yellow" bold>
+						{phase.title}
+					</Text>
 				</Box>
 				{phase.subtitle ? <Text dimColor>{phase.subtitle}</Text> : null}
 				<Text dimColor>Press any key to return.</Text>
@@ -152,7 +157,9 @@ export default function PullPattern({activeProject, onDone}: Props) {
 		}));
 		return (
 			<Box flexDirection="column" padding={1}>
-				<Text bold color="cyan">Pull pattern</Text>
+				<Text bold color="cyan">
+					Pull pattern
+				</Text>
 				<SelectionLine
 					selection={phase.selection}
 					selectionError={phase.selectionError}

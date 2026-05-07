@@ -68,8 +68,7 @@ export default function RefineContents({activeProject, onDone}: Props) {
 					setPhase({
 						kind: 'message',
 						title: 'No content-bearing pulls available.',
-						subtitle:
-							'Pull a template flagged as uses post_content first.',
+						subtitle: 'Pull a template flagged as uses post_content first.',
 					});
 					return;
 				}
@@ -212,7 +211,9 @@ export default function RefineContents({activeProject, onDone}: Props) {
 	if (phase.kind === 'loading') {
 		return (
 			<Box flexDirection="column" padding={1}>
-				<Text bold color="cyan">Refine contents</Text>
+				<Text bold color="cyan">
+					Refine contents
+				</Text>
 				<Box marginTop={1}>
 					<Text dimColor>Loading pulls…</Text>
 				</Box>
@@ -223,9 +224,13 @@ export default function RefineContents({activeProject, onDone}: Props) {
 	if (phase.kind === 'message') {
 		return (
 			<Box flexDirection="column" padding={1}>
-				<Text bold color="cyan">Refine contents</Text>
+				<Text bold color="cyan">
+					Refine contents
+				</Text>
 				<Box marginTop={1}>
-					<Text color="yellow" bold>{phase.title}</Text>
+					<Text color="yellow" bold>
+						{phase.title}
+					</Text>
 				</Box>
 				{phase.subtitle ? <Text dimColor>{phase.subtitle}</Text> : null}
 				<Text dimColor>Press any key to return.</Text>
@@ -241,20 +246,22 @@ export default function RefineContents({activeProject, onDone}: Props) {
 		}));
 		return (
 			<Box flexDirection="column" padding={1}>
-				<Text bold color="cyan">Refine contents</Text>
+				<Text bold color="cyan">
+					Refine contents
+				</Text>
 				<Box marginTop={1} flexDirection="column">
 					<Text color="yellow" bold>
-						All {phase.pulls.length} page{phase.pulls.length === 1 ? '' : 's'} are selected by default.
+						All {phase.pulls.length} page{phase.pulls.length === 1 ? '' : 's'}{' '}
+						are selected by default.
 					</Text>
 					<Text>
-						Toggle off any you don&apos;t want to refine and press Enter. For each
-						selected page, Neptune captures a screenshot, diffs against the
+						Toggle off any you don&apos;t want to refine and press Enter. For
+						each selected page, Neptune captures a screenshot, diffs against the
 						design, and AUTO-APPLIES every visual difference the diff agent
-						reports — no per-diff review. The diff agent is scoped to the
-						page body only; wrapper chrome (header, footer, post-title) is
-						refined via Refine templates. Existing page content will be
-						overwritten. Each refine is two paid Claude Agent SDK calls plus
-						a browser capture.
+						reports — no per-diff review. The diff agent is scoped to the page
+						body only; wrapper chrome (header, footer, post-title) is refined
+						via Refine templates. Existing page content will be overwritten.
+						Each refine is two paid agent provider calls plus a browser capture.
 					</Text>
 					<Box marginTop={1}>
 						<Text dimColor>
@@ -284,7 +291,9 @@ export default function RefineContents({activeProject, onDone}: Props) {
 	if (phase.kind === 'running') {
 		return (
 			<Box flexDirection="column" padding={1}>
-				<Text bold color="cyan">Refine contents</Text>
+				<Text bold color="cyan">
+					Refine contents
+				</Text>
 				<Box marginTop={1}>
 					<EventList events={events} status="running" />
 				</Box>
@@ -297,7 +306,9 @@ export default function RefineContents({activeProject, onDone}: Props) {
 	const applied = phase.outcomes.filter(o => o.kind === 'applied').length;
 	return (
 		<Box flexDirection="column" padding={1}>
-			<Text bold color="cyan">Refine contents</Text>
+			<Text bold color="cyan">
+				Refine contents
+			</Text>
 			<Box marginTop={1}>
 				<EventList
 					events={events}
@@ -312,21 +323,21 @@ export default function RefineContents({activeProject, onDone}: Props) {
 					if (o.kind === 'matched') {
 						return (
 							<Text key={o.slug} color="green">
-								  ✓ {o.slug}: matched ({o.ratio.toFixed(2)}%)
+								✓ {o.slug}: matched ({o.ratio.toFixed(2)}%)
 							</Text>
 						);
 					}
 					if (o.kind === 'applied') {
 						return (
 							<Text key={o.slug} color="green">
-								  ✓ {o.slug} → {o.label} (applied {o.applied}, skipped{' '}
-								{o.skipped})
+								✓ {o.slug} → {o.label} (applied {o.applied}, skipped {o.skipped}
+								)
 							</Text>
 						);
 					}
 					return (
 						<Text key={o.slug} color="red">
-							  ✗ {o.slug}: {o.error}
+							✗ {o.slug}: {o.error}
 						</Text>
 					);
 				})}

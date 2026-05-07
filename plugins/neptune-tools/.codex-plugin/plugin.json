@@ -1,0 +1,16 @@
+{
+	"name": "neptune-tools",
+	"version": "0.1.0",
+	"description": "Skills for Neptune WordPress theme generation, Figma-to-block-markup conversion, and visual refinement.",
+	"license": "MIT",
+	"keywords": ["wordpress", "figma", "gutenberg", "theme-generation"],
+	"skills": "./skills/",
+	"interface": {
+		"displayName": "Neptune Tools",
+		"shortDescription": "WordPress block-theme generation skills for Neptune.",
+		"longDescription": "Provides the tsx-to-blocks, tsx-to-pattern, theme-json, visual-diff, and apply-diff skills used by Neptune agent workflows.",
+		"developerName": "Neptune",
+		"category": "Developer Tools",
+		"capabilities": ["Interactive"]
+	}
+}

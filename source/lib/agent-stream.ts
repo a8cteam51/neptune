@@ -1,4 +1,4 @@
-// Shared driver for Claude Agent SDK invocations. Handles the streaming
+// Shared driver for agent SDK invocations. Handles the streaming
 // message loop and surfaces a consistent set of progress events through
 // `onEvent`:
 //   - "Session ready — model …, plugins …, N skills available" on init.
@@ -13,9 +13,14 @@
 // check, etc.) and for writing the result.
 //
 // The `signal` option aborts the underlying SDK stream. It is wired into
-// `query()` via the SDK's AbortController, so callers (typically
-// EventStep) can cancel a paid run when the user backs out.
+// the provider SDK, so callers (typically EventStep) can cancel a paid
+// run when the user backs out.
+import {mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 import {AbortError, query} from '@anthropic-ai/claude-agent-sdk';
+import {Codex} from '@openai/codex-sdk';
+import {normalizeAgentProvider, type AgentProvider} from './agent-provider.js';
 import type {LogEvent} from './event-list.js';
 
 // Block shapes the agent SDK accepts for image+text user content. Kept
@@ -33,6 +38,7 @@ export type AgentInput = string | ContentBlock[];
 export type AgentRunOptions = {
 	cwd: string;
 	pluginPath: string;
+	provider?: AgentProvider;
 	maxTurns?: number;
 	signal?: AbortSignal;
 	// Defaults to '*' (allow all tools the plugin declares). Pass an
@@ -42,6 +48,7 @@ export type AgentRunOptions = {
 
 const PARTIAL_EMIT_INTERVAL_MS = 1500;
 const DEFAULT_ALLOWED_TOOLS: string[] = ['*'];
+const CONFIG_FILENAME = 'neptune-config.json';
 
 export class AgentAbortedError extends Error {
 	constructor() {
@@ -51,6 +58,19 @@ export class AgentAbortedError extends Error {
 }
 
 export async function runAgent(
+	input: AgentInput,
+	options: AgentRunOptions,
+	onEvent: (ev: LogEvent) => void,
+): Promise<string> {
+	const provider =
+		options.provider ?? (await readProviderFromConfig(options.cwd));
+	if (provider === 'codex') {
+		return runCodexAgent(input, options, onEvent);
+	}
+	return runClaudeAgent(input, options, onEvent);
+}
+
+async function runClaudeAgent(
 	input: AgentInput,
 	options: AgentRunOptions,
 	onEvent: (ev: LogEvent) => void,
@@ -192,6 +212,239 @@ export async function runAgent(
 		cacheCreationTokens,
 	});
 	return stripFences(finalText);
+}
+
+type CodexInput = string | CodexInputItem[];
+
+type CodexInputItem =
+	| {type: 'text'; text: string}
+	| {type: 'local_image'; path: string};
+
+async function runCodexAgent(
+	input: AgentInput,
+	options: AgentRunOptions,
+	onEvent: (ev: LogEvent) => void,
+): Promise<string> {
+	if (options.signal?.aborted) throw new AgentAbortedError();
+
+	let tempDir: string | undefined;
+	let finalText = '';
+	let inputTokens: number | undefined;
+	let outputTokens: number | undefined;
+	let cacheReadTokens: number | undefined;
+	let generationStarted = false;
+
+	try {
+		const prepared = await prepareCodexInput(
+			input,
+			options.pluginPath,
+			async () => {
+				tempDir ??= await mkdtemp(join(tmpdir(), 'neptune-codex-images-'));
+				return tempDir;
+			},
+		);
+		onEvent({
+			kind: 'step',
+			message: `Session ready — provider codex${
+				prepared.skillName ? `, skill: ${prepared.skillName}` : ''
+			}`,
+		});
+
+		const codex = new Codex();
+		const thread = codex.startThread({
+			workingDirectory: options.cwd,
+			skipGitRepoCheck: true,
+			sandboxMode: 'read-only',
+			approvalPolicy: 'never',
+			networkAccessEnabled: false,
+			webSearchMode: 'disabled',
+		});
+		const {events} = await thread.runStreamed(prepared.input, {
+			signal: options.signal,
+		});
+
+		for await (const event of events) {
+			if (options.signal?.aborted) throw new AgentAbortedError();
+
+			if (event.type === 'item.started') {
+				emitCodexItemStarted(event.item, onEvent);
+			} else if (event.type === 'item.completed') {
+				if (event.item.type === 'agent_message') {
+					if (!generationStarted) {
+						generationStarted = true;
+						onEvent({kind: 'step', message: 'Generating response…'});
+					}
+					finalText = event.item.text;
+				} else {
+					emitCodexItemCompleted(event.item, onEvent);
+				}
+			} else if (event.type === 'turn.completed') {
+				inputTokens = event.usage.input_tokens;
+				outputTokens = event.usage.output_tokens;
+				cacheReadTokens = event.usage.cached_input_tokens;
+			} else if (event.type === 'turn.failed') {
+				throw new Error(`Codex SDK returned failure: ${event.error.message}`);
+			} else if (event.type === 'error') {
+				throw new Error(`Codex SDK error: ${event.message}`);
+			}
+		}
+	} catch (err) {
+		if (
+			options.signal?.aborted ||
+			(err instanceof Error && err.name === 'AbortError')
+		) {
+			throw new AgentAbortedError();
+		}
+		throw err;
+	} finally {
+		if (tempDir) {
+			try {
+				await rm(tempDir, {recursive: true, force: true});
+			} catch {
+				// Temporary image cleanup should not mask the agent result.
+			}
+		}
+	}
+
+	if (!finalText) throw new Error('Empty response from Codex.');
+
+	emitTally(onEvent, {
+		cost: undefined,
+		inputTokens,
+		outputTokens,
+		cacheReadTokens,
+		cacheCreationTokens: undefined,
+	});
+	return stripFences(finalText);
+}
+
+function emitCodexItemStarted(
+	item: {type: string; command?: string; server?: string; tool?: string},
+	onEvent: (ev: LogEvent) => void,
+) {
+	if (item.type === 'command_execution' && item.command) {
+		onEvent({kind: 'step', message: `Tool call: shell (${item.command})`});
+	} else if (item.type === 'mcp_tool_call' && item.server && item.tool) {
+		onEvent({
+			kind: 'step',
+			message: `Tool call: ${item.server}.${item.tool}`,
+		});
+	} else if (item.type === 'web_search') {
+		onEvent({kind: 'step', message: 'Tool call: web_search'});
+	}
+}
+
+function emitCodexItemCompleted(
+	item: {
+		type: string;
+		status?: string;
+		command?: string;
+		changes?: Array<{path: string; kind: string}>;
+		message?: string;
+	},
+	onEvent: (ev: LogEvent) => void,
+) {
+	if (item.type === 'command_execution' && item.status === 'failed') {
+		onEvent({
+			kind: 'warn',
+			message: `Shell command failed${item.command ? `: ${item.command}` : ''}`,
+		});
+	} else if (item.type === 'file_change') {
+		const count = item.changes?.length ?? 0;
+		onEvent({
+			kind: item.status === 'failed' ? 'warn' : 'step',
+			message: `Codex reported ${count} file change${count === 1 ? '' : 's'}`,
+		});
+	} else if (item.type === 'error' && item.message) {
+		onEvent({kind: 'warn', message: item.message});
+	}
+}
+
+async function prepareCodexInput(
+	input: AgentInput,
+	pluginPath: string,
+	makeTempDir: () => Promise<string>,
+): Promise<{input: CodexInput; skillName: string | undefined}> {
+	const skillName = extractSkillName(input);
+	const promptParts: string[] = [];
+	if (skillName) {
+		promptParts.push(await codexSkillPrompt(pluginPath, skillName));
+	}
+
+	if (typeof input === 'string') {
+		promptParts.push(input);
+		return {input: promptParts.join('\n\n'), skillName};
+	}
+
+	const imageItems: CodexInputItem[] = [];
+	let imageIndex = 0;
+	for (const block of input) {
+		if (block.type === 'text') {
+			promptParts.push(block.text);
+		} else if (block.type === 'image') {
+			const dir = await makeTempDir();
+			const path = join(dir, `image-${imageIndex++}.png`);
+			await writeFile(path, Buffer.from(block.source.data, 'base64'));
+			imageItems.push({type: 'local_image', path});
+		}
+	}
+
+	const text = promptParts.join('\n\n');
+	return {
+		input:
+			imageItems.length === 0 ? text : [{type: 'text', text}, ...imageItems],
+		skillName,
+	};
+}
+
+async function codexSkillPrompt(
+	pluginPath: string,
+	skillName: string,
+): Promise<string> {
+	const skillPath = join(pluginPath, 'skills', skillName, 'SKILL.md');
+	let skillText: string;
+	try {
+		skillText = await readFile(skillPath, 'utf8');
+	} catch (err) {
+		throw new Error(
+			`Codex provider could not load the "${skillName}" skill at ${skillPath}: ${
+				err instanceof Error ? err.message : String(err)
+			}`,
+		);
+	}
+	return [
+		`Use the following Neptune skill instructions for this run.`,
+		`<neptune_skill name="${skillName}">`,
+		skillText.trim(),
+		`</neptune_skill>`,
+		`Follow that skill's output contract exactly. Do not modify files or call tools; Neptune will persist the returned content itself.`,
+	].join('\n');
+}
+
+export function extractSkillName(input: AgentInput): string | undefined {
+	const text =
+		typeof input === 'string'
+			? input
+			: input
+					.filter((block): block is TextBlock => block.type === 'text')
+					.map(block => block.text)
+					.join('\n');
+	const match = /\bUse the ([a-z][a-z0-9-]*) skill\b/i.exec(text);
+	return match?.[1]?.toLowerCase();
+}
+
+async function readProviderFromConfig(cwd: string): Promise<AgentProvider> {
+	try {
+		const raw = await readFile(join(cwd, CONFIG_FILENAME), 'utf8');
+		const parsed = JSON.parse(raw) as {provider?: unknown};
+		return normalizeAgentProvider(
+			parsed.provider,
+			`${CONFIG_FILENAME} provider`,
+		);
+	} catch (err) {
+		if ((err as NodeJS.ErrnoException).code === 'ENOENT') return 'claude';
+		throw err;
+	}
 }
 
 type Tally = {

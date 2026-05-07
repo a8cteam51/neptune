@@ -66,7 +66,9 @@ export function formatDevAnnotationsSection(
 	);
 	lines.push('');
 	for (const ann of annotations) {
-		const header = ann.nodeId ? `On node ${ann.nodeId}:` : 'On an unidentified node:';
+		const header = ann.nodeId
+			? `On node ${ann.nodeId}:`
+			: 'On an unidentified node:';
 		lines.push(header);
 		for (const note of ann.notes) {
 			lines.push(`  - ${note}`);

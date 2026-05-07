@@ -16,9 +16,7 @@
 //     prereq check enforces "every selected pattern is pulled")
 import React, {useEffect, useState} from 'react';
 import {Box, Text, useApp} from 'ink';
-import SectionedMenu, {
-	type SectionedItem,
-} from './lib/sectioned-menu.js';
+import SectionedMenu, {type SectionedItem} from './lib/sectioned-menu.js';
 import PullTemplate from './commands/pull-template.js';
 import ExtractPatterns from './commands/extract-patterns.js';
 import PullPattern from './commands/pull-pattern.js';
@@ -74,9 +72,9 @@ export default function App({name, startCwd}: Props) {
 	const [hasPatternSources, setHasPatternSources] = useState(false);
 	const [autoLoadError, setAutoLoadError] = useState<string | null>(null);
 	const [autoLoaded, setAutoLoaded] = useState(false);
-	const [siteStatus, setSiteStatus] = useState<
-		'pending' | SiteStatus | null
-	>(null);
+	const [siteStatus, setSiteStatus] = useState<'pending' | SiteStatus | null>(
+		null,
+	);
 	const hasTheme = Boolean(activeProject?.config.themeSlug);
 
 	useEffect(() => {
@@ -156,8 +154,7 @@ export default function App({name, startCwd}: Props) {
 		return () => controller.abort();
 	}, [activeProject, projectVersion]);
 
-	const hasSelectedPatterns =
-		(activeProject?.config.patterns?.length ?? 0) > 0;
+	const hasSelectedPatterns = (activeProject?.config.patterns?.length ?? 0) > 0;
 
 	const items = buildMenuItems({
 		hasActive: Boolean(activeProject),
@@ -212,27 +209,64 @@ export default function App({name, startCwd}: Props) {
 				alignItems="center"
 			>
 				<Box flexDirection="column" marginRight={2}>
-					<Text color="cyan" bold>{'  ^  ^  ^ '}</Text>
-					<Text color="cyan" bold>{'  |  |  | '}</Text>
-					<Text color="cyan" bold>{'   \\_|_/   '}</Text>
-					<Text color="cyan" bold>{'     |     '}</Text>
-					<Text color="cyan" bold>{'     |    '}</Text>
-					<Text color="cyan" bold>{'     |    '}</Text>
+					<Text color="cyan" bold>
+						{'  ^  ^  ^ '}
+					</Text>
+					<Text color="cyan" bold>
+						{'  |  |  | '}
+					</Text>
+					<Text color="cyan" bold>
+						{'   \\_|_/   '}
+					</Text>
+					<Text color="cyan" bold>
+						{'     |     '}
+					</Text>
+					<Text color="cyan" bold>
+						{'     |    '}
+					</Text>
+					<Text color="cyan" bold>
+						{'     |    '}
+					</Text>
 				</Box>
 				<Box flexDirection="column">
-					<Text color="cyan" bold>{'    _   __           __                  '}</Text>
-					<Text color="cyan" bold>{'   / | / /__  ____  / /___  ______  ___  '}</Text>
-					<Text color="cyan" bold>{'  /  |/ / _ \\/ __ \\/ __/ / / / __ \\/ _ \\ '}</Text>
-					<Text color="cyan" bold>{' / /|  /  __/ /_/ / /_/ /_/ / / / /  __/ '}</Text>
-					<Text color="cyan" bold>{'/_/ |_/\\___/ .___/\\__/\\__,_/_/ /_/\\___/  '}</Text>
-					<Text color="cyan" bold>{'          /_/                            '}</Text>
+					<Text color="cyan" bold>
+						{'    _   __           __                  '}
+					</Text>
+					<Text color="cyan" bold>
+						{'   / | / /__  ____  / /___  ______  ___  '}
+					</Text>
+					<Text color="cyan" bold>
+						{'  /  |/ / _ \\/ __ \\/ __/ / / / __ \\/ _ \\ '}
+					</Text>
+					<Text color="cyan" bold>
+						{' / /|  /  __/ /_/ / /_/ /_/ / / / /  __/ '}
+					</Text>
+					<Text color="cyan" bold>
+						{'/_/ |_/\\___/ .___/\\__/\\__,_/_/ /_/\\___/  '}
+					</Text>
+					<Text color="cyan" bold>
+						{'          /_/                            '}
+					</Text>
 				</Box>
 			</Box>
 
 			<Box marginTop={1} flexDirection="column" alignItems="center">
 				<Text>
-					Welcome to <Text color="cyan" bold>Neptune</Text>
-					{name ? <>, <Text color="green" bold>{name}</Text></> : ''}.
+					Welcome to{' '}
+					<Text color="cyan" bold>
+						Neptune
+					</Text>
+					{name ? (
+						<>
+							,{' '}
+							<Text color="green" bold>
+								{name}
+							</Text>
+						</>
+					) : (
+						''
+					)}
+					.
 				</Text>
 				{activeProject ? (
 					<Text>
@@ -242,34 +276,23 @@ export default function App({name, startCwd}: Props) {
 						</Text>
 					</Text>
 				) : (
-					<Text dimColor>
-						No active project — run Setup / Load Project.
-					</Text>
+					<Text dimColor>No active project — run Setup / Load Project.</Text>
 				)}
 				{activeProject ? <SiteStatusLine status={siteStatus} /> : null}
-				{autoLoadError ? (
-					<Text color="yellow">{autoLoadError}</Text>
-				) : null}
+				{autoLoadError ? <Text color="yellow">{autoLoadError}</Text> : null}
 			</Box>
 
 			<Box marginTop={1} flexDirection="column">
 				<Text bold>What would you like to do?</Text>
 				<Box marginTop={1}>
-					<SectionedMenu
-						items={items}
-						onSelect={handleSelect}
-					/>
+					<SectionedMenu items={items} onSelect={handleSelect} />
 				</Box>
 			</Box>
 		</Box>
 	);
 }
 
-function SiteStatusLine({
-	status,
-}: {
-	status: 'pending' | SiteStatus | null;
-}) {
+function SiteStatusLine({status}: {status: 'pending' | SiteStatus | null}) {
 	if (status === null || status === 'pending') {
 		return <Text dimColor>Studio site: checking…</Text>;
 	}
@@ -277,7 +300,9 @@ function SiteStatusLine({
 		return (
 			<Text>
 				Studio site:{' '}
-				<Text color="green" bold>● running</Text>{' '}
+				<Text color="green" bold>
+					● running
+				</Text>{' '}
 				<Text dimColor>({status.url})</Text>
 			</Text>
 		);
@@ -286,7 +311,9 @@ function SiteStatusLine({
 		return (
 			<Text>
 				Studio site:{' '}
-				<Text color="yellow" bold>● stopped</Text>{' '}
+				<Text color="yellow" bold>
+					● stopped
+				</Text>{' '}
 				<Text dimColor>
 					({status.url}). Start it in Studio to use Pull / Build / Refine.
 				</Text>
@@ -296,7 +323,9 @@ function SiteStatusLine({
 	return (
 		<Text>
 			Studio site:{' '}
-			<Text color="yellow" bold>● unknown</Text>{' '}
+			<Text color="yellow" bold>
+				● unknown
+			</Text>{' '}
 			<Text dimColor>{status.reason}</Text>
 		</Text>
 	);
@@ -555,12 +584,7 @@ function renderView(
 				/>
 			);
 		case 'e2e':
-			return (
-				<E2E
-					activeProject={activeProject}
-					onDone={() => onDone(true)}
-				/>
-			);
+			return <E2E activeProject={activeProject} onDone={() => onDone(true)} />;
 		default:
 			return null;
 	}

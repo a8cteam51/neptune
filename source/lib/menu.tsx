@@ -28,9 +28,7 @@ function CyanItem({
 	isSelected?: boolean;
 	label: string;
 }) {
-	return (
-		<Text color={isSelected ? ACTIVE_COLOR : undefined}>{label}</Text>
-	);
+	return <Text color={isSelected ? ACTIVE_COLOR : undefined}>{label}</Text>;
 }
 
 // Re-derive the generic prop shape from SelectInput so callers keep

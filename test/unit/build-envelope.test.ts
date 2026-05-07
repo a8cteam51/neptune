@@ -12,10 +12,9 @@ test('parseAgentJson: round-trips valid JSON', t => {
 });
 
 test('parseAgentJson: throws with label + preview on invalid JSON', t => {
-	t.throws(
-		() => parseAgentJson('not json at all', 'tsx-to-blocks'),
-		{message: /tsx-to-blocks response was not valid JSON/},
-	);
+	t.throws(() => parseAgentJson('not json at all', 'tsx-to-blocks'), {
+		message: /tsx-to-blocks response was not valid JSON/,
+	});
 });
 
 test('parseBuildEnvelope: minimum valid envelope', t => {
@@ -51,10 +50,7 @@ test('parseBuildEnvelope: rejects non-object response', t => {
 test('parseBuildEnvelope: rejects empty template_html', t => {
 	t.throws(
 		() =>
-			parseBuildEnvelope(
-				JSON.stringify({template_html: ''}),
-				'build-template',
-			),
+			parseBuildEnvelope(JSON.stringify({template_html: ''}), 'build-template'),
 		{message: /missing a non-empty template_html/},
 	);
 });
@@ -82,17 +78,15 @@ test('parseThemeJsonPatchField: rejects array as patch', t => {
 });
 
 test('parseThemeJsonPatchField: rejects non-object blocks', t => {
-	t.throws(
-		() => parseThemeJsonPatchField({blocks: 'oops'}, 'build-template'),
-		{message: /\.blocks must be an object/},
-	);
+	t.throws(() => parseThemeJsonPatchField({blocks: 'oops'}, 'build-template'), {
+		message: /\.blocks must be an object/,
+	});
 });
 
 test('parseThemeJsonPatchField: rejects non-object custom', t => {
-	t.throws(
-		() => parseThemeJsonPatchField({custom: 42}, 'build-template'),
-		{message: /\.custom must be an object/},
-	);
+	t.throws(() => parseThemeJsonPatchField({custom: 42}, 'build-template'), {
+		message: /\.custom must be an object/,
+	});
 });
 
 test('parseThemeJsonPatchField: empty patch object → undefined', t => {

@@ -25,10 +25,7 @@ import {
 	parseBlockStyleVariationsField,
 	parseThemeJsonPatchField,
 } from './build-envelope.js';
-import type {
-	BlockStyleVariation,
-	ThemeJsonPatch,
-} from './theme-json-patch.js';
+import type {BlockStyleVariation, ThemeJsonPatch} from './theme-json-patch.js';
 
 // One source pattern living under <project>/patterns/<Name>/code.tsx.
 // The folder name doubles as the PascalCase function name. The sibling
@@ -254,8 +251,14 @@ export function parsePatternEnvelope(
 		throw new Error(`${label} envelope is missing a non-empty template_html.`);
 	}
 
-	const description = optionalString(obj['description'], `${label}.description`);
-	const categories = optionalSlugArray(obj['categories'], `${label}.categories`);
+	const description = optionalString(
+		obj['description'],
+		`${label}.description`,
+	);
+	const categories = optionalSlugArray(
+		obj['categories'],
+		`${label}.categories`,
+	);
 	const keywords = optionalStringArray(obj['keywords'], `${label}.keywords`);
 	const block_types = optionalStringArray(
 		obj['block_types'],
@@ -323,10 +326,18 @@ export function serializePatternPhp({
 		headers.push('Inserter: no');
 	}
 	if (envelope.description) {
-		headers.push(`Description: ${envelope.description.replaceAll(/\s+/g, ' ').trim()}`);
+		headers.push(
+			`Description: ${envelope.description.replaceAll(/\s+/g, ' ').trim()}`,
+		);
 	}
 
-	const headerBlock = ['<?php', '/**', ...headers.map(h => ` * ${h}`), ' */', '?>'].join('\n');
+	const headerBlock = [
+		'<?php',
+		'/**',
+		...headers.map(h => ` * ${h}`),
+		' */',
+		'?>',
+	].join('\n');
 	const body = envelope.template_html.endsWith('\n')
 		? envelope.template_html
 		: envelope.template_html + '\n';

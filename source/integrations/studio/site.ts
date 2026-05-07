@@ -2,10 +2,7 @@
 // project's wordpress/ directory, install required plugins, and activate
 // the configured theme. Requires `studio` on PATH.
 import {resolve} from 'node:path';
-import {
-	attachAbortSignal,
-	trackChild,
-} from '../../lib/process-tracker.js';
+import {attachAbortSignal, trackChild} from '../../lib/process-tracker.js';
 import {defaultSpawn, type Spawn} from '../../lib/spawn.js';
 import {stripAnsi} from '../../lib/strip-ansi.js';
 import type {LogEvent} from '../../lib/event-list.js';
@@ -107,8 +104,7 @@ function runStudioCommand(
 				rej(new Error(`studio ${args[0] ?? ''} aborted.`));
 				return;
 			}
-			const detail =
-				stripAnsi((stderr.trim() || stdout.trim()) || '(no output)');
+			const detail = stripAnsi(stderr.trim() || stdout.trim() || '(no output)');
 			rej(
 				new Error(
 					`studio ${args.join(' ')} exited with code ${

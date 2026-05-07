@@ -62,8 +62,7 @@ export default function RefineTemplates({activeProject, onDone}: Props) {
 					setPhase({
 						kind: 'message',
 						title: 'No pulls available to refine.',
-						subtitle:
-							'Pull a non-special template with a templateFile first.',
+						subtitle: 'Pull a non-special template with a templateFile first.',
 					});
 					return;
 				}
@@ -207,7 +206,9 @@ export default function RefineTemplates({activeProject, onDone}: Props) {
 	if (phase.kind === 'loading') {
 		return (
 			<Box flexDirection="column" padding={1}>
-				<Text bold color="cyan">Refine templates</Text>
+				<Text bold color="cyan">
+					Refine templates
+				</Text>
 				<Box marginTop={1}>
 					<Text dimColor>Loading pulls…</Text>
 				</Box>
@@ -218,9 +219,13 @@ export default function RefineTemplates({activeProject, onDone}: Props) {
 	if (phase.kind === 'message') {
 		return (
 			<Box flexDirection="column" padding={1}>
-				<Text bold color="cyan">Refine templates</Text>
+				<Text bold color="cyan">
+					Refine templates
+				</Text>
 				<Box marginTop={1}>
-					<Text color="yellow" bold>{phase.title}</Text>
+					<Text color="yellow" bold>
+						{phase.title}
+					</Text>
 				</Box>
 				{phase.subtitle ? <Text dimColor>{phase.subtitle}</Text> : null}
 				<Text dimColor>Press any key to return.</Text>
@@ -236,25 +241,30 @@ export default function RefineTemplates({activeProject, onDone}: Props) {
 		}));
 		return (
 			<Box flexDirection="column" padding={1}>
-				<Text bold color="cyan">Refine templates</Text>
+				<Text bold color="cyan">
+					Refine templates
+				</Text>
 				<Box marginTop={1} flexDirection="column">
 					<Text color="yellow" bold>
-						All {phase.pulls.length} template{phase.pulls.length === 1 ? '' : 's'} are selected by default.
+						All {phase.pulls.length} template
+						{phase.pulls.length === 1 ? '' : 's'} are selected by default.
 					</Text>
 					<Text>
 						Toggle off any you don't want to refine and press Enter. For each
-						selected template, Neptune captures a screenshot, diffs against
-						the design, and AUTO-APPLIES every visual difference the diff
-						agent reports — no per-diff review. Existing template posts will
-						be overwritten. Each refine is two paid Claude Agent SDK calls
-						plus a browser capture.
+						selected template, Neptune captures a screenshot, diffs against the
+						design, and AUTO-APPLIES every visual difference the diff agent
+						reports — no per-diff review. Existing template posts will be
+						overwritten. Each refine is two paid agent provider calls plus a
+						browser capture.
 					</Text>
 					<Box marginTop={1}>
 						<Text dimColor>
 							Heads up: the visual-diff agent sometimes flags subpixel /
 							anti-aliasing noise as a low-severity diff. Without per-diff
 							review those get applied too. If that becomes a problem, refine
-							individually via &quot;View template diff&quot; to inspect drift without paying for an agent call, then re-run with only the relevant row toggled on.
+							individually via &quot;View template diff&quot; to inspect drift
+							without paying for an agent call, then re-run with only the
+							relevant row toggled on.
 						</Text>
 					</Box>
 				</Box>
@@ -278,7 +288,9 @@ export default function RefineTemplates({activeProject, onDone}: Props) {
 	if (phase.kind === 'running') {
 		return (
 			<Box flexDirection="column" padding={1}>
-				<Text bold color="cyan">Refine templates</Text>
+				<Text bold color="cyan">
+					Refine templates
+				</Text>
 				<Box marginTop={1}>
 					<EventList events={events} status="running" />
 				</Box>
@@ -291,7 +303,9 @@ export default function RefineTemplates({activeProject, onDone}: Props) {
 	const applied = phase.outcomes.filter(o => o.kind === 'applied').length;
 	return (
 		<Box flexDirection="column" padding={1}>
-			<Text bold color="cyan">Refine templates</Text>
+			<Text bold color="cyan">
+				Refine templates
+			</Text>
 			<Box marginTop={1}>
 				<EventList
 					events={events}
@@ -306,21 +320,21 @@ export default function RefineTemplates({activeProject, onDone}: Props) {
 					if (o.kind === 'matched') {
 						return (
 							<Text key={o.slug} color="green">
-								  ✓ {o.slug}: matched ({o.ratio.toFixed(2)}%)
+								✓ {o.slug}: matched ({o.ratio.toFixed(2)}%)
 							</Text>
 						);
 					}
 					if (o.kind === 'applied') {
 						return (
 							<Text key={o.slug} color="green">
-								  ✓ {o.slug} → {o.label} (applied {o.applied}, skipped{' '}
-								{o.skipped})
+								✓ {o.slug} → {o.label} (applied {o.applied}, skipped {o.skipped}
+								)
 							</Text>
 						);
 					}
 					return (
 						<Text key={o.slug} color="red">
-							  ✗ {o.slug}: {o.error}
+							✗ {o.slug}: {o.error}
 						</Text>
 					);
 				})}

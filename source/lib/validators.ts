@@ -4,9 +4,7 @@
 import {homedir} from 'node:os';
 import {resolve} from 'node:path';
 
-export type Validation =
-	| {ok: true; value: string}
-	| {ok: false; error: string};
+export type Validation = {ok: true; value: string} | {ok: false; error: string};
 
 export function validateProjectName(raw: string): Validation {
 	const trimmed = raw.trim();
@@ -41,8 +39,7 @@ export function validateThemeSlug(raw: string): Validation {
 
 // Accept HTTPS, SSH (git@host:org/repo.git), and git:// forms. We do not
 // expand short forms (gh:org/repo); keep the surface small.
-const GIT_URL_RE =
-	/^(?:(?:https?|git|ssh):\/\/[^\s]+|git@[^\s:]+:[^\s]+)$/;
+const GIT_URL_RE = /^(?:(?:https?|git|ssh):\/\/[^\s]+|git@[^\s:]+:[^\s]+)$/;
 
 export function validateGitRepo(raw: string): Validation {
 	const trimmed = raw.trim();

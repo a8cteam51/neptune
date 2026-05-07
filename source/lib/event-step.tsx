@@ -69,7 +69,9 @@ export default function EventStep({
 			</Box>
 			{status === 'error' ? (
 				<Box marginTop={1} flexDirection="column">
-					<Text color="red" bold>✗ {error}</Text>
+					<Text color="red" bold>
+						✗ {error}
+					</Text>
 					<Text dimColor>Press any key to return.</Text>
 				</Box>
 			) : null}

@@ -10,7 +10,7 @@ import React from 'react';
 import {Box, Text} from 'ink';
 import Spinner from 'ink-spinner';
 
-// `usage` carries Claude Agent SDK token + cost numbers from one
+// `usage` carries agent SDK token + cost numbers from one
 // `runAgent` call. EventList renders it like a step — same dot, same
 // formatted message — but aggregators (e.g. the E2E orchestrator) can
 // pick out the structured numeric fields by checking `kind === 'usage'`.

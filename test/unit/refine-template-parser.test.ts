@@ -61,9 +61,26 @@ test('skips entries missing required fields', t => {
 		summary: '',
 		matches_design: false,
 		diffs: [
-			{id: 'ok', region: 'r', severity: 'high', description: 'd', affects_layout: true},
-			{id: 'no-region', severity: 'high', description: 'd', affects_layout: true},
-			{id: 'bad-severity', region: 'r', severity: 'extreme', description: 'd', affects_layout: true},
+			{
+				id: 'ok',
+				region: 'r',
+				severity: 'high',
+				description: 'd',
+				affects_layout: true,
+			},
+			{
+				id: 'no-region',
+				severity: 'high',
+				description: 'd',
+				affects_layout: true,
+			},
+			{
+				id: 'bad-severity',
+				region: 'r',
+				severity: 'extreme',
+				description: 'd',
+				affects_layout: true,
+			},
 			{id: 'no-affects', region: 'r', severity: 'low', description: 'd'},
 			'not even an object',
 			null,
@@ -79,8 +96,20 @@ test('dedupes duplicate ids; first wins', t => {
 		summary: '',
 		matches_design: false,
 		diffs: [
-			{id: 'dup', region: 'a', severity: 'high', description: 'first', affects_layout: false},
-			{id: 'dup', region: 'b', severity: 'low', description: 'second', affects_layout: true},
+			{
+				id: 'dup',
+				region: 'a',
+				severity: 'high',
+				description: 'first',
+				affects_layout: false,
+			},
+			{
+				id: 'dup',
+				region: 'b',
+				severity: 'low',
+				description: 'second',
+				affects_layout: true,
+			},
 		],
 	});
 	const r = parseDiffReport(input);
@@ -219,10 +248,7 @@ test('parseApplyEnvelope: drops malformed entries from applied/skipped', t => {
 				'string',
 				null,
 			],
-			skipped: [
-				{id: 'good2', reason: 'because'},
-				{summary: 'wrong field'},
-			],
+			skipped: [{id: 'good2', reason: 'because'}, {summary: 'wrong field'}],
 		}),
 	);
 	t.is(e.applied.length, 1);
@@ -261,10 +287,7 @@ test('validateApplyCoverage: throws when any id is missing', t => {
 
 test('validateApplyCoverage: empty approved + empty applied/skipped passes', t => {
 	t.notThrows(() =>
-		validateApplyCoverage(
-			{template_html: 'x', applied: [], skipped: []},
-			[],
-		),
+		validateApplyCoverage({template_html: 'x', applied: [], skipped: []}, []),
 	);
 });
 

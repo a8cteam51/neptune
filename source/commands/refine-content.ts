@@ -128,9 +128,7 @@ export async function runDiagnoseContent(
 	const {designBuf, liveBuf, diffPath, outcome, sizeNote} = captured;
 
 	if (!outcome.ok) {
-		throw new Error(
-			`odiff failed: ${outcome.reason} ${outcome.file ?? ''}`,
-		);
+		throw new Error(`odiff failed: ${outcome.reason} ${outcome.file ?? ''}`);
 	}
 
 	if (outcome.match) {
@@ -177,13 +175,11 @@ export async function runDiagnoseContent(
 		'themes',
 		themeSlug,
 	);
-	const existingVariations = await readBlockStyleVariations(
-		themePath,
-		msg => onEvent({kind: 'warn', message: msg}),
+	const existingVariations = await readBlockStyleVariations(themePath, msg =>
+		onEvent({kind: 'warn', message: msg}),
 	);
-	const existingVariationsText = formatBlockStyleVariationsContext(
-		existingVariations,
-	);
+	const existingVariationsText =
+		formatBlockStyleVariationsContext(existingVariations);
 	if (existingVariationsText) {
 		onEvent({
 			kind: 'step',
@@ -352,7 +348,11 @@ export async function runApplyContent(
 	}
 	const placeholder = loaded.config.placeholderImage;
 	if (placeholder) {
-		sections.push('', '=== placeholder image ===', placeholderInstructions(placeholder));
+		sections.push(
+			'',
+			'=== placeholder image ===',
+			placeholderInstructions(placeholder),
+		);
 	}
 
 	onEvent({kind: 'step', message: 'Invoking apply-diff agent…'});
@@ -380,7 +380,10 @@ export async function runApplyContent(
 	const envelope = parseApplyEnvelope(responseText, msg =>
 		onEvent({kind: 'warn', message: msg}),
 	);
-	validateApplyCoverage(envelope, approved.map(a => a.id));
+	validateApplyCoverage(
+		envelope,
+		approved.map(a => a.id),
+	);
 
 	for (const entry of envelope.applied) {
 		onEvent({
@@ -520,4 +523,3 @@ function buildContextSection(
 	}
 	return parts.join('\n');
 }
-

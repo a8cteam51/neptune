@@ -6,11 +6,7 @@
 import React, {useEffect, useRef, useState} from 'react';
 import {Box, Text, useInput} from 'ink';
 import EventList, {type LogEvent} from '../../lib/event-list.js';
-import {
-	openMcpSession,
-	pullFromFigma,
-	type McpSession,
-} from './mcp.js';
+import {openMcpSession, pullFromFigma, type McpSession} from './mcp.js';
 
 type Props = {
 	pageName: string;

@@ -54,9 +54,7 @@ export async function findPullBySlug(
 	}
 }
 
-export async function getSpecialPullsStatus(
-	projectDir: string,
-): Promise<{
+export async function getSpecialPullsStatus(projectDir: string): Promise<{
 	hasStyleGuide: boolean;
 	hasTemplates: boolean;
 }> {

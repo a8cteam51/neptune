@@ -9,8 +9,7 @@
 // `;`, `<`, `=`, `>`, `?`), then intermediate bytes (0x20-0x2F: space,
 // `!`-`/`), then a final byte (0x40-0x7E: `@`, A-Z, `[`-`` ` ``, a-z,
 // `{`-`~`). We don't try to validate semantics — strip and move on.
-const ANSI_RE =
-	/\x1B\[[\x30-\x3F]*[\x20-\x2F]*[\x40-\x7E]|\x1B\][^\x07]*\x07/g;
+const ANSI_RE = /\x1B\[[\x30-\x3F]*[\x20-\x2F]*[\x40-\x7E]|\x1B\][^\x07]*\x07/g;
 
 export function stripAnsi(input: string): string {
 	return input.replace(ANSI_RE, '');
@@ -20,8 +19,5 @@ export function stripAnsi(input: string): string {
 // https://***:***@host/.... Best-effort; only catches forms that match
 // the URL parser, which is what git echoes on clone failure.
 export function redactUrlCredentials(input: string): string {
-	return input.replace(
-		/(https?:\/\/)([^/\s@:]+):([^/\s@]+)@/g,
-		'$1***:***@',
-	);
+	return input.replace(/(https?:\/\/)([^/\s@:]+):([^/\s@]+)@/g, '$1***:***@');
 }

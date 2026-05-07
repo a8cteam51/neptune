@@ -23,6 +23,7 @@ async function setupProject(
 		config: {
 			createdAt: '2026-05-06T00:00:00Z',
 			updatedAt: '2026-05-06T00:00:00Z',
+			provider: 'claude',
 			design: {pagesDir: 'design'},
 			steps: {
 				initialized: true,
@@ -39,10 +40,7 @@ async function setupProject(
 	};
 }
 
-async function writePullMeta(
-	dir: string,
-	meta: PullMeta,
-): Promise<void> {
+async function writePullMeta(dir: string, meta: PullMeta): Promise<void> {
 	const pullDir = join(dir, 'design', meta.slug);
 	await mkdir(pullDir, {recursive: true});
 	await writeFile(
@@ -166,10 +164,7 @@ test('checkPrereqs: partitions content vs template pulls correctly', async t => 
 		['about', 'home'],
 		'contentOnly pull excluded from templates',
 	);
-	t.deepEqual(
-		plan.contentPulls.map(p => p.slug).sort(),
-		['blog', 'home'],
-	);
+	t.deepEqual(plan.contentPulls.map(p => p.slug).sort(), ['blog', 'home']);
 });
 
 test('checkPrereqs: skips special pulls', async t => {

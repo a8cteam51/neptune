@@ -42,13 +42,10 @@ test('applyThemeJsonPatch: deep-merges into styles.blocks', async t => {
 	t.deepEqual(result.touched, ['styles.blocks']);
 
 	const written = await readThemeJson(path);
-	t.deepEqual(
-		(written.styles as Record<string, unknown>).blocks,
-		{
-			'core/paragraph': {color: {text: '#000', background: '#fff'}},
-			'core/button': {variations: {'neptune-fill-small': {css: '.x{}'}}},
-		} as unknown,
-	);
+	t.deepEqual((written.styles as Record<string, unknown>).blocks, {
+		'core/paragraph': {color: {text: '#000', background: '#fff'}},
+		'core/button': {variations: {'neptune-fill-small': {css: '.x{}'}}},
+	} as unknown);
 });
 
 test('applyThemeJsonPatch: deep-merges into settings.custom', async t => {
@@ -65,13 +62,10 @@ test('applyThemeJsonPatch: deep-merges into settings.custom', async t => {
 	t.deepEqual(result.touched, ['settings.custom']);
 
 	const written = await readThemeJson(path);
-	t.deepEqual(
-		(written.settings as Record<string, unknown>).custom,
-		{
-			hero: {height: '500px', ribbonOffset: '24px'},
-			cards: {radius: '12px'},
-		},
-	);
+	t.deepEqual((written.settings as Record<string, unknown>).custom, {
+		hero: {height: '500px', ribbonOffset: '24px'},
+		cards: {radius: '12px'},
+	});
 });
 
 test('applyThemeJsonPatch: preserves untouched top-level keys', async t => {
@@ -112,10 +106,9 @@ test('applyThemeJsonPatch: creates styles/blocks subtree if missing', async t =>
 		blocks: {'core/paragraph': {color: {text: '#222'}}},
 	});
 	const written = await readThemeJson(path);
-	t.deepEqual(
-		(written.styles as Record<string, unknown>).blocks,
-		{'core/paragraph': {color: {text: '#222'}}},
-	);
+	t.deepEqual((written.styles as Record<string, unknown>).blocks, {
+		'core/paragraph': {color: {text: '#222'}},
+	});
 });
 
 test('applyThemeJsonPatch: applying both subtrees reports both touched', async t => {
@@ -319,7 +312,11 @@ test('readBlockStyleVariations: skips files missing required fields', async t =>
 	// Missing styles
 	await writeFile(
 		join(blocksDir, 'partial.json'),
-		JSON.stringify({slug: 'neptune-x', title: 'X', blockTypes: ['core/button']}),
+		JSON.stringify({
+			slug: 'neptune-x',
+			title: 'X',
+			blockTypes: ['core/button'],
+		}),
 		'utf8',
 	);
 	const warnings: string[] = [];

@@ -91,10 +91,14 @@ export default function SetupProject({onDone, onProjectReady}: Props) {
 		return (
 			<FrameTitle subtitle="Project ready">
 				<Text color="green" bold>
-					✓ {loaded.mode === 'created' ? 'Setup complete.' : 'Project up to date.'}
+					✓{' '}
+					{loaded.mode === 'created'
+						? 'Setup complete.'
+						: 'Project up to date.'}
 				</Text>
 				<Text>
-					Project: <Text color="cyan">{loaded.config.projectName ?? '(unnamed)'}</Text>
+					Project:{' '}
+					<Text color="cyan">{loaded.config.projectName ?? '(unnamed)'}</Text>
 				</Text>
 				{loaded.config.gitRepo ? (
 					<Text>
@@ -109,7 +113,9 @@ export default function SetupProject({onDone, onProjectReady}: Props) {
 
 	return (
 		<FrameTitle subtitle="Error">
-			<Text color="red" bold>✗ {phase.message}</Text>
+			<Text color="red" bold>
+				✗ {phase.message}
+			</Text>
 			<Text dimColor>Press any key to return.</Text>
 		</FrameTitle>
 	);

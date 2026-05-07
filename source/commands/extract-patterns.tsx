@@ -112,7 +112,9 @@ export default function ExtractPatterns({activeProject, onDone}: Props) {
 	if (phase.kind === 'loading') {
 		return (
 			<Box flexDirection="column" padding={1}>
-				<Text bold color="cyan">Extract patterns</Text>
+				<Text bold color="cyan">
+					Extract patterns
+				</Text>
 				<Box marginTop={1}>
 					<EventList events={phase.events} status="running" />
 				</Box>
@@ -123,9 +125,13 @@ export default function ExtractPatterns({activeProject, onDone}: Props) {
 	if (phase.kind === 'message') {
 		return (
 			<Box flexDirection="column" padding={1}>
-				<Text bold color="cyan">Extract patterns</Text>
+				<Text bold color="cyan">
+					Extract patterns
+				</Text>
 				<Box marginTop={1}>
-					<Text color="yellow" bold>{phase.title}</Text>
+					<Text color="yellow" bold>
+						{phase.title}
+					</Text>
 				</Box>
 				{phase.subtitle ? <Text dimColor>{phase.subtitle}</Text> : null}
 				<Text dimColor>Press any key to return.</Text>
@@ -146,10 +152,16 @@ export default function ExtractPatterns({activeProject, onDone}: Props) {
 		}));
 		return (
 			<Box flexDirection="column" padding={1}>
-				<Text bold color="cyan">Extract patterns</Text>
+				<Text bold color="cyan">
+					Extract patterns
+				</Text>
 				<Box marginTop={1} flexDirection="column">
 					<Text>
-						Found {phase.candidates.length} candidate{phase.candidates.length === 1 ? '' : 's'} across your design pulls. Toggle the patterns you want to keep and press Enter — your selection is saved to neptune-config and drives the Pull pattern picker. Names already saved are pre-checked.
+						Found {phase.candidates.length} candidate
+						{phase.candidates.length === 1 ? '' : 's'} across your design pulls.
+						Toggle the patterns you want to keep and press Enter — your
+						selection is saved to neptune-config and drives the Pull pattern
+						picker. Names already saved are pre-checked.
 					</Text>
 				</Box>
 				<Box marginTop={1}>
@@ -167,7 +179,9 @@ export default function ExtractPatterns({activeProject, onDone}: Props) {
 	if (phase.kind === 'saving') {
 		return (
 			<Box flexDirection="column" padding={1}>
-				<Text bold color="cyan">Extract patterns</Text>
+				<Text bold color="cyan">
+					Extract patterns
+				</Text>
 				<Box marginTop={1}>
 					<Text dimColor>Saving selection…</Text>
 				</Box>
@@ -178,10 +192,13 @@ export default function ExtractPatterns({activeProject, onDone}: Props) {
 	if (phase.kind === 'success') {
 		return (
 			<Box flexDirection="column" padding={1}>
-				<Text bold color="cyan">Extract patterns</Text>
+				<Text bold color="cyan">
+					Extract patterns
+				</Text>
 				<Box marginTop={1}>
 					<Text color="green" bold>
-						✓ Saved {phase.saved} pattern name{phase.saved === 1 ? '' : 's'} to neptune-config.
+						✓ Saved {phase.saved} pattern name{phase.saved === 1 ? '' : 's'} to
+						neptune-config.
 					</Text>
 				</Box>
 				<Text dimColor>Pull each pattern from Figma via Pull pattern.</Text>
@@ -192,9 +209,13 @@ export default function ExtractPatterns({activeProject, onDone}: Props) {
 
 	return (
 		<Box flexDirection="column" padding={1}>
-			<Text bold color="cyan">Extract patterns</Text>
+			<Text bold color="cyan">
+				Extract patterns
+			</Text>
 			<Box marginTop={1} flexDirection="column">
-				<Text color="red" bold>✗ Extraction failed.</Text>
+				<Text color="red" bold>
+					✗ Extraction failed.
+				</Text>
 				<Text color="red">{phase.message}</Text>
 				<Text dimColor>Press any key to return.</Text>
 			</Box>

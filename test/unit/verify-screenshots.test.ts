@@ -51,17 +51,11 @@ test('parseRootElementSize: returns null when no element is present', t => {
 });
 
 test('parseRootElementSize: returns null when one attr is missing', t => {
-	t.is(
-		parseRootElementSize('<instance id="1" width="1440" />'),
-		null,
-	);
+	t.is(parseRootElementSize('<instance id="1" width="1440" />'), null);
 });
 
 test('parseRootElementSize: rejects non-numeric values', t => {
-	t.is(
-		parseRootElementSize('<instance width="abc" height="100" />'),
-		null,
-	);
+	t.is(parseRootElementSize('<instance width="abc" height="100" />'), null);
 });
 
 test('parseRootElementSize: matches the FIRST element only', t => {

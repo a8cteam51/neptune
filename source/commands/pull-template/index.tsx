@@ -41,10 +41,7 @@ import {openStudioSession} from '../../integrations/studio/mcp.js';
 import {ensureTemplate, templateTargetFor} from '../../lib/wp-templates.js';
 import {ensurePage, pageTargetFor} from '../../lib/wp-pages.js';
 import {resolve} from 'node:path';
-import type {
-	SpecialPullKind,
-	TitleCardRef,
-} from '../../lib/types.js';
+import type {SpecialPullKind, TitleCardRef} from '../../lib/types.js';
 import type {Loaded} from '../setup-project/types.js';
 import ConfigureView from './configure-view.js';
 import type {ConfigureSubmit} from './configure-view.js';
@@ -116,9 +113,7 @@ export default function PullTemplate({activeProject, onDone}: Props) {
 				if (controller.signal.aborted) return;
 				const sel = selResult.ok ? selResult.selection : null;
 				const selectionError = selResult.ok ? null : selResult.error;
-				const hasStyleGuide = allPulls.some(
-					p => p.special === 'styleGuide',
-				);
+				const hasStyleGuide = allPulls.some(p => p.special === 'styleGuide');
 				const hasTemplates = allPulls.some(p => p.special === 'templates');
 				const templatesPull =
 					allPulls.find(p => p.special === 'templates') ?? null;
@@ -190,7 +185,9 @@ export default function PullTemplate({activeProject, onDone}: Props) {
 	if (phase.kind === 'loading') {
 		return (
 			<Box flexDirection="column" padding={1}>
-				<Text bold color="cyan">Pull template</Text>
+				<Text bold color="cyan">
+					Pull template
+				</Text>
 				<Box marginTop={1}>
 					<Text color="cyan">
 						<Spinner type="dots" />
@@ -204,9 +201,13 @@ export default function PullTemplate({activeProject, onDone}: Props) {
 	if (phase.kind === 'message') {
 		return (
 			<Box flexDirection="column" padding={1}>
-				<Text bold color="cyan">Pull template</Text>
+				<Text bold color="cyan">
+					Pull template
+				</Text>
 				<Box marginTop={1}>
-					<Text color="red" bold>{phase.title}</Text>
+					<Text color="red" bold>
+						{phase.title}
+					</Text>
 				</Box>
 				{phase.subtitle ? <Text dimColor>{phase.subtitle}</Text> : null}
 				<Text dimColor>Press any key to return to the menu.</Text>
@@ -373,10 +374,7 @@ export default function PullTemplate({activeProject, onDone}: Props) {
 							scaffolded = result.created;
 						}
 						if (phase.usesPostContent && phase.pageSlug) {
-							const pageTarget = pageTargetFor(
-								phase.pageSlug,
-								phase.pageName,
-							);
+							const pageTarget = pageTargetFor(phase.pageSlug, phase.pageName);
 							const ensured = await ensurePage(studio, wpRoot, pageTarget);
 							pageId = ensured.id;
 							emit({

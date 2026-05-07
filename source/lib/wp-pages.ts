@@ -16,7 +16,9 @@ const SLUG_RE = /^[a-z0-9][a-z0-9_-]*$/;
 
 export function pageTargetFor(slug: string, pageName: string): PageTarget {
 	if (!SLUG_RE.test(slug)) {
-		throw new Error(`Page slug "${slug}" does not match ^[a-z0-9][a-z0-9_-]*$.`);
+		throw new Error(
+			`Page slug "${slug}" does not match ^[a-z0-9][a-z0-9_-]*$.`,
+		);
 	}
 	return {slug, title: pageName || defaultTitleFromSlug(slug)};
 }

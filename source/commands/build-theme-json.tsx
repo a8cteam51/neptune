@@ -1,5 +1,5 @@
 // First merges design/*/variables.json into variables/all-variables.json,
-// then feeds that to the Claude Agent SDK with the neptune-tools plugin
+// then feeds that to the configured agent provider with the theme-json skill
 // (which exposes a theme-json skill) and writes the result to
 // wp-content/themes/<theme>/theme.json. Streams progress events throughout.
 //
@@ -107,15 +107,16 @@ export default function BuildThemeJson({activeProject, onDone}: Props) {
 			onDone();
 		},
 		{
-			isActive:
-				phase.kind === 'success' || phase.kind === 'error',
+			isActive: phase.kind === 'success' || phase.kind === 'error',
 		},
 	);
 
 	if (phase.kind === 'checking') {
 		return (
 			<Box flexDirection="column" padding={1}>
-				<Text bold color="cyan">Build theme.json</Text>
+				<Text bold color="cyan">
+					Build theme.json
+				</Text>
 				<Text dimColor>Checking for existing theme.json…</Text>
 			</Box>
 		);
@@ -140,20 +141,26 @@ export default function BuildThemeJson({activeProject, onDone}: Props) {
 
 	return (
 		<Box flexDirection="column" padding={1}>
-			<Text bold color="cyan">Build theme.json</Text>
+			<Text bold color="cyan">
+				Build theme.json
+			</Text>
 			<Box marginTop={1}>
 				<EventList events={events} status={status} />
 			</Box>
 			{phase.kind === 'success' ? (
 				<Box marginTop={1} flexDirection="column">
-					<Text color="green" bold>✓ theme.json written.</Text>
+					<Text color="green" bold>
+						✓ theme.json written.
+					</Text>
 					<Text dimColor>{phase.resultPath}</Text>
 					<Text dimColor>Press any key to return.</Text>
 				</Box>
 			) : null}
 			{phase.kind === 'error' ? (
 				<Box marginTop={1} flexDirection="column">
-					<Text color="red" bold>✗ Build failed.</Text>
+					<Text color="red" bold>
+						✗ Build failed.
+					</Text>
 					<Text color="red">{phase.error}</Text>
 					<Text dimColor>Press any key to return.</Text>
 				</Box>
@@ -176,7 +183,11 @@ function ConfirmOverwrite({
 	});
 
 	const items = [
-		{key: 'cancel', label: 'Cancel — keep existing theme.json', value: 'cancel'},
+		{
+			key: 'cancel',
+			label: 'Cancel — keep existing theme.json',
+			value: 'cancel',
+		},
 		{
 			key: 'proceed',
 			label: 'Overwrite and run the build',
@@ -186,14 +197,18 @@ function ConfirmOverwrite({
 
 	return (
 		<Box flexDirection="column" padding={1}>
-			<Text bold color="cyan">Build theme.json</Text>
+			<Text bold color="cyan">
+				Build theme.json
+			</Text>
 			<Box marginTop={1} flexDirection="column">
-				<Text color="yellow" bold>theme.json already exists.</Text>
+				<Text color="yellow" bold>
+					theme.json already exists.
+				</Text>
 				<Text dimColor>{targetPath}</Text>
 				<Box marginTop={1}>
 					<Text>
-						Running the build will overwrite this file and consume a paid
-						Claude Agent SDK call.
+						Running the build will overwrite this file and consume a paid agent
+						provider call.
 					</Text>
 				</Box>
 			</Box>
@@ -263,7 +278,7 @@ export async function buildThemeJson(
 		message: `Loaded variables/all-variables.json (${variablesText.length} bytes)`,
 	});
 
-	onEvent({kind: 'step', message: 'Invoking Claude Agent SDK…'});
+	onEvent({kind: 'step', message: 'Invoking configured agent provider…'});
 
 	// Lead sentence carries the trigger words from the theme-json skill's
 	// description so the SDK auto-invokes it; the skill body owns the

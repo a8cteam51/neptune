@@ -10,8 +10,7 @@ test('extractDevAnnotations: single note, no separator', t => {
 });
 
 test('extractDevAnnotations: splits on " | " and trims', t => {
-	const code =
-		`<div data-node-id="5:6" data-development-annotations="First note | Second note  |  Third"></div>`;
+	const code = `<div data-node-id="5:6" data-development-annotations="First note | Second note  |  Third"></div>`;
 	t.deepEqual(extractDevAnnotations(code), [
 		{nodeId: '5:6', notes: ['First note', 'Second note', 'Third']},
 	]);

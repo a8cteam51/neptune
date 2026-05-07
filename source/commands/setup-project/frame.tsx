@@ -10,7 +10,9 @@ export default function FrameTitle({
 }) {
 	return (
 		<Box flexDirection="column" padding={1}>
-			<Text bold color="cyan">Setup / Load Project</Text>
+			<Text bold color="cyan">
+				Setup / Load Project
+			</Text>
 			<Text dimColor>{subtitle}</Text>
 			<Box marginTop={1} flexDirection="column">
 				{children}

@@ -1,7 +1,7 @@
 // Shared core for the page-content build flow. Feeds one
 // usesPostContent pull's design/<slug>/code.tsx (plus theme.json,
 // variables/all-variables.json, and any existing block style
-// variations) to the Claude Agent SDK with the tsx-to-blocks skill,
+// variations) to the configured agent provider with the tsx-to-blocks skill,
 // then writes the resulting Gutenberg block markup to the matching
 // wp_post (page) via the page-set wp neptune CLI.
 //
@@ -38,11 +38,7 @@ import {
 	listRegisteredPatterns,
 } from '../lib/patterns.js';
 import type {LogEvent} from '../lib/event-list.js';
-import {
-	pageTargetFor,
-	pageTargetLabel,
-	writePage,
-} from '../lib/wp-pages.js';
+import {pageTargetFor, pageTargetLabel, writePage} from '../lib/wp-pages.js';
 import {openStudioSession} from '../integrations/studio/mcp.js';
 import {placeholderInstructions} from './build-template.js';
 import type {Loaded} from './setup-project/types.js';
@@ -94,7 +90,10 @@ export async function runBuildContent(
 			message: `Loaded theme.json (${themeJsonText.length} bytes)`,
 		});
 	} else {
-		onEvent({kind: 'warn', message: 'No theme.json found — proceeding without it'});
+		onEvent({
+			kind: 'warn',
+			message: 'No theme.json found — proceeding without it',
+		});
 	}
 
 	const variablesPath = join(loaded.dir, 'variables', 'all-variables.json');
@@ -113,13 +112,11 @@ export async function runBuildContent(
 
 	const wpRoot = resolve(loaded.dir, 'wordpress');
 	const themePath = resolve(wpRoot, 'wp-content', 'themes', themeSlug);
-	const existingVariations = await readBlockStyleVariations(
-		themePath,
-		msg => onEvent({kind: 'warn', message: msg}),
+	const existingVariations = await readBlockStyleVariations(themePath, msg =>
+		onEvent({kind: 'warn', message: msg}),
 	);
-	const variationsContext = formatBlockStyleVariationsContext(
-		existingVariations,
-	);
+	const variationsContext =
+		formatBlockStyleVariationsContext(existingVariations);
 	if (variationsContext) {
 		onEvent({
 			kind: 'step',
@@ -180,7 +177,11 @@ export async function runBuildContent(
 	}
 	const placeholder = loaded.config.placeholderImage;
 	if (placeholder) {
-		baseSections.push('', '=== placeholder image ===', placeholderInstructions(placeholder));
+		baseSections.push(
+			'',
+			'=== placeholder image ===',
+			placeholderInstructions(placeholder),
+		);
 	}
 	const baseContext = baseSections.join('\n');
 
@@ -208,7 +209,7 @@ export async function runBuildContent(
 
 	const userContent = buildUserContent(baseContext, screenshotBase64);
 
-	onEvent({kind: 'step', message: 'Invoking Claude Agent SDK…'});
+	onEvent({kind: 'step', message: 'Invoking configured agent provider…'});
 
 	const responseText = await agentRunner(
 		userContent,
@@ -278,8 +279,7 @@ function buildUserContent(
 
 	content.push({
 		type: 'text',
-		text:
-			'Convert the post-content body of this Figma-generated React + Tailwind component (code.tsx) to Gutenberg block markup for a WordPress page post. Use the tsx-to-blocks skill. SCOPE: convert ONLY the subtree marked with data-neptune-annotations="post-content" (the page body). Do NOT include header, footer, post-title, post-date, comments, or any wrapper chrome — those belong to the surrounding template. Header and footer subtrees, when present, are marked with data-neptune-annotations="header" and data-neptune-annotations="footer"; ignore them entirely. Do NOT emit any wp:template-part references. Do NOT emit wp:post-content (this output IS the post content).',
+		text: 'Convert the post-content body of this Figma-generated React + Tailwind component (code.tsx) to Gutenberg block markup for a WordPress page post. Use the tsx-to-blocks skill. SCOPE: convert ONLY the subtree marked with data-neptune-annotations="post-content" (the page body). Do NOT include header, footer, post-title, post-date, comments, or any wrapper chrome — those belong to the surrounding template. Header and footer subtrees, when present, are marked with data-neptune-annotations="header" and data-neptune-annotations="footer"; ignore them entirely. Do NOT emit any wp:template-part references. Do NOT emit wp:post-content (this output IS the post content).',
 	});
 
 	if (screenshotBase64) {
@@ -301,4 +301,3 @@ function buildUserContent(
 
 	return content;
 }
-

@@ -8,10 +8,7 @@
 // Both require the named site to be running.
 import {type ChildProcess} from 'node:child_process';
 import {Buffer} from 'node:buffer';
-import {
-	attachAbortSignal,
-	trackChild,
-} from '../../lib/process-tracker.js';
+import {attachAbortSignal, trackChild} from '../../lib/process-tracker.js';
 import {defaultSpawn, type Spawn} from '../../lib/spawn.js';
 
 const PROTOCOL_VERSION = '2025-06-18';
@@ -213,9 +210,7 @@ export async function openStudioSession(
 	});
 	if (initResp.error) {
 		killChild(child);
-		throw new Error(
-			`studio mcp initialize failed: ${initResp.error.message}`,
-		);
+		throw new Error(`studio mcp initialize failed: ${initResp.error.message}`);
 	}
 	await send({jsonrpc: '2.0', method: 'notifications/initialized'});
 

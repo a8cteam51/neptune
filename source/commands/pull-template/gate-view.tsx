@@ -77,13 +77,15 @@ export default function GateView({
 
 	return (
 		<Box flexDirection="column" padding={1}>
-			<Text bold color="cyan">Pull template</Text>
+			<Text bold color="cyan">
+				Pull template
+			</Text>
 
 			<Box marginTop={1} flexDirection="column">
 				<Text>
 					Pull the Style Guide template and Templates layer first when the
-					design includes them. Designs without these layers can skip
-					straight to a custom pull.
+					design includes them. Designs without these layers can skip straight
+					to a custom pull.
 				</Text>
 			</Box>
 
@@ -91,9 +93,9 @@ export default function GateView({
 				{checklist.map(item => (
 					<Text key={item.label}>
 						{item.done ? (
-							<Text color="green">  ✓ </Text>
+							<Text color="green"> ✓ </Text>
 						) : (
-							<Text color="yellow">  ✗ </Text>
+							<Text color="yellow"> ✗ </Text>
 						)}
 						{item.label}
 						{item.done ? (
@@ -114,9 +116,7 @@ export default function GateView({
 						hasCoords={hasCoords}
 					/>
 				</Box>
-				<Text dimColor>
-					Select the matching frame in Figma before pulling.
-				</Text>
+				<Text dimColor>Select the matching frame in Figma before pulling.</Text>
 			</Box>
 
 			<Box marginTop={1} flexDirection="column">

@@ -47,10 +47,9 @@ test('templateTargetFor: rejects non-html files', t => {
 	// .html extension is required to land in templates/parts subdirs;
 	// templateTargetFor only sees a slug after .html strip, but
 	// extension-less inputs produce a slug from the whole filename.
-	t.throws(
-		() => templateTargetFor('Not_A_Slug.html', 'Bad'),
-		{message: /does not produce a valid slug/i},
-	);
+	t.throws(() => templateTargetFor('Not_A_Slug.html', 'Bad'), {
+		message: /does not produce a valid slug/i,
+	});
 });
 
 test('targetLabel: formats type:slug', t => {

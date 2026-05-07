@@ -1,8 +1,5 @@
 import test from 'ava';
-import {
-	redactUrlCredentials,
-	stripAnsi,
-} from '../../source/lib/strip-ansi.js';
+import {redactUrlCredentials, stripAnsi} from '../../source/lib/strip-ansi.js';
 
 test('stripAnsi: removes CSI colour codes', t => {
 	t.is(stripAnsi('\x1B[31mred\x1B[0m'), 'red');
@@ -27,7 +24,9 @@ test('stripAnsi: leaves stray ESC alone if no terminator follows', t => {
 
 test('redactUrlCredentials: masks user:token in https URL', t => {
 	t.is(
-		redactUrlCredentials('https://x-access-token:GHTOKEN@github.com/org/repo.git'),
+		redactUrlCredentials(
+			'https://x-access-token:GHTOKEN@github.com/org/repo.git',
+		),
 		'https://***:***@github.com/org/repo.git',
 	);
 });

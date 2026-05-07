@@ -93,7 +93,7 @@ export default function SectionedMenu<V>({
 							)}
 						</Box>
 						<Text color={isCursor ? ACTIVE_COLOR : undefined}>
-							  {item.label}
+							{item.label}
 						</Text>
 					</Box>
 				);

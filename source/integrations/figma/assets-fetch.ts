@@ -51,9 +51,7 @@ export async function downloadCodeAssets(
 
 	onEvent?.({
 		kind: 'step',
-		message: `Downloading ${urls.length} asset${
-			urls.length === 1 ? '' : 's'
-		}…`,
+		message: `Downloading ${urls.length} asset${urls.length === 1 ? '' : 's'}…`,
 	});
 
 	let downloaded = 0;
@@ -87,9 +85,7 @@ export async function downloadCodeAssets(
 			} catch (err) {
 				failed++;
 				const message = err instanceof Error ? err.message : String(err);
-				failures.push(
-					err instanceof Error ? err : new Error(message),
-				);
+				failures.push(err instanceof Error ? err : new Error(message));
 				onEvent?.({
 					kind: 'warn',
 					message: `${filename}: ${message}`,
@@ -132,7 +128,9 @@ async function fetchAsset(
 		else parentSignal.addEventListener('abort', onParentAbort, {once: true});
 	}
 	const timer = setTimeout(() => {
-		controller.abort(new Error(`Asset fetch timed out after ${ASSET_TIMEOUT_MS}ms`));
+		controller.abort(
+			new Error(`Asset fetch timed out after ${ASSET_TIMEOUT_MS}ms`),
+		);
 	}, ASSET_TIMEOUT_MS);
 	try {
 		const resp = await fetch(url, {signal: controller.signal});

@@ -23,9 +23,7 @@ test('extractAssetUrls ignores non-localhost URLs', t => {
 const imgRemote = "https://example.com/assets/aaa.png";
 const imgLocal = "http://localhost:3845/assets/bbb.svg";
 `;
-	t.deepEqual(extractAssetUrls(code), [
-		'http://localhost:3845/assets/bbb.svg',
-	]);
+	t.deepEqual(extractAssetUrls(code), ['http://localhost:3845/assets/bbb.svg']);
 });
 
 test('extractAssetUrls ignores let/var/inline URLs (anchored to const at line start)', t => {
@@ -35,9 +33,7 @@ var imgB = "http://localhost:3845/assets/bbb.svg";
 const imgC = "http://localhost:3845/assets/ccc.svg";
 const inJsx = <img src="http://localhost:3845/assets/ddd.svg" />;
 `;
-	t.deepEqual(extractAssetUrls(code), [
-		'http://localhost:3845/assets/ccc.svg',
-	]);
+	t.deepEqual(extractAssetUrls(code), ['http://localhost:3845/assets/ccc.svg']);
 });
 
 test('parseTitleCards extracts inner text element name', t => {

@@ -177,7 +177,9 @@ export default function BuildPatterns({activeProject, onDone}: Props) {
 	if (phase.kind === 'loading') {
 		return (
 			<Box flexDirection="column" padding={1}>
-				<Text bold color="cyan">Build patterns</Text>
+				<Text bold color="cyan">
+					Build patterns
+				</Text>
 				<Box marginTop={1}>
 					<Text dimColor>Loading patterns…</Text>
 				</Box>
@@ -188,9 +190,13 @@ export default function BuildPatterns({activeProject, onDone}: Props) {
 	if (phase.kind === 'message') {
 		return (
 			<Box flexDirection="column" padding={1}>
-				<Text bold color="cyan">Build patterns</Text>
+				<Text bold color="cyan">
+					Build patterns
+				</Text>
 				<Box marginTop={1}>
-					<Text color="yellow" bold>{phase.title}</Text>
+					<Text color="yellow" bold>
+						{phase.title}
+					</Text>
 				</Box>
 				{phase.subtitle ? <Text dimColor>{phase.subtitle}</Text> : null}
 				<Text dimColor>Press any key to return.</Text>
@@ -206,15 +212,18 @@ export default function BuildPatterns({activeProject, onDone}: Props) {
 		}));
 		return (
 			<Box flexDirection="column" padding={1}>
-				<Text bold color="cyan">Build patterns</Text>
+				<Text bold color="cyan">
+					Build patterns
+				</Text>
 				<Box marginTop={1} flexDirection="column">
 					<Text color="yellow" bold>
-						All {phase.sources.length} pattern{phase.sources.length === 1 ? '' : 's'} are selected by default.
+						All {phase.sources.length} pattern
+						{phase.sources.length === 1 ? '' : 's'} are selected by default.
 					</Text>
 					<Text>
 						Toggle off any you don&apos;t want to build and press Enter. Each
-						selected pattern is one paid Claude Agent SDK call. Existing
-						pattern PHP files at the same slug will be overwritten.
+						selected pattern is one paid agent provider call. Existing pattern
+						PHP files at the same slug will be overwritten.
 					</Text>
 				</Box>
 				<Box marginTop={1}>
@@ -237,7 +246,9 @@ export default function BuildPatterns({activeProject, onDone}: Props) {
 	if (phase.kind === 'running') {
 		return (
 			<Box flexDirection="column" padding={1}>
-				<Text bold color="cyan">Build patterns</Text>
+				<Text bold color="cyan">
+					Build patterns
+				</Text>
 				<Box marginTop={1}>
 					<EventList events={events} status="running" />
 				</Box>
@@ -249,9 +260,14 @@ export default function BuildPatterns({activeProject, onDone}: Props) {
 	const failed = phase.outcomes.filter(o => o.kind === 'err').length;
 	return (
 		<Box flexDirection="column" padding={1}>
-			<Text bold color="cyan">Build patterns</Text>
+			<Text bold color="cyan">
+				Build patterns
+			</Text>
 			<Box marginTop={1}>
-				<EventList events={events} status={failed === 0 ? 'success' : 'error'} />
+				<EventList
+					events={events}
+					status={failed === 0 ? 'success' : 'error'}
+				/>
 			</Box>
 			<Box marginTop={1} flexDirection="column">
 				<Text color={failed === 0 ? 'green' : 'yellow'} bold>
@@ -260,11 +276,11 @@ export default function BuildPatterns({activeProject, onDone}: Props) {
 				{phase.outcomes.map(o =>
 					o.kind === 'ok' ? (
 						<Text key={o.name} color="green">
-							  ✓ {o.name} → {o.slug}.php ({o.size} bytes)
+							✓ {o.name} → {o.slug}.php ({o.size} bytes)
 						</Text>
 					) : (
 						<Text key={o.name} color="red">
-							  ✗ {o.name}: {o.error}
+							✗ {o.name}: {o.error}
 						</Text>
 					),
 				)}

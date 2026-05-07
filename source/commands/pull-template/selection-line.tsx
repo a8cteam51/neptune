@@ -30,9 +30,14 @@ export default function SelectionLine({
 	}
 	return (
 		<Text>
-			<Text color="green" bold>{selection.name}</Text>
+			<Text color="green" bold>
+				{selection.name}
+			</Text>
 			{hasCoords ? (
-				<Text dimColor> {selection.x}:{selection.y}</Text>
+				<Text dimColor>
+					{' '}
+					{selection.x}:{selection.y}
+				</Text>
 			) : null}
 		</Text>
 	);

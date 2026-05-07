@@ -13,9 +13,10 @@ export default function FolderPicker({
 	return (
 		<FrameTitle subtitle="Choose a project folder">
 			<Text>
-				Pick a folder. If it contains <Text color="cyan">{CONFIG_FILENAME}</Text>,
-				Neptune will resume that project. Otherwise the folder must be empty
-				and Neptune will initialize it.
+				Pick a folder. If it contains{' '}
+				<Text color="cyan">{CONFIG_FILENAME}</Text>, Neptune will resume that
+				project. Otherwise the folder must be empty and Neptune will initialize
+				it.
 			</Text>
 			<Box marginTop={1}>
 				<TextStep

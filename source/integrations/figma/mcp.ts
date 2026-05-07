@@ -88,8 +88,7 @@ export class FigmaRateLimitError extends Error {
 		const rateLimitType =
 			respHeaders.get('x-figma-rate-limit-type') ?? undefined;
 		const planTier = respHeaders.get('x-figma-plan-tier') ?? undefined;
-		const upgradeLink =
-			respHeaders.get('x-figma-upgrade-link') ?? undefined;
+		const upgradeLink = respHeaders.get('x-figma-upgrade-link') ?? undefined;
 
 		const parts = [`Figma rate limit (HTTP ${status})`];
 		if (rateLimitType) parts.push(`type: ${rateLimitType}`);
@@ -131,7 +130,9 @@ export async function getSelectionMetadata(
 			if (resp?.error) {
 				return {
 					ok: false,
-					error: new Error(`MCP error ${resp.error.code}: ${resp.error.message}`),
+					error: new Error(
+						`MCP error ${resp.error.code}: ${resp.error.message}`,
+					),
 				};
 			}
 			if (figmaIsToolError(resp)) {
@@ -153,8 +154,7 @@ export async function getSelectionMetadata(
 }
 
 export function parseSelectionMetadata(rawXml: string): SelectionMetadata {
-	const firstLine =
-		rawXml.split('\n').find(line => line.trim() !== '') ?? '';
+	const firstLine = rawXml.split('\n').find(line => line.trim() !== '') ?? '';
 	const meta: SelectionMetadata = {rawXml};
 
 	const nameMatch = /\sname="([^"]*)"/.exec(firstLine);
@@ -302,24 +302,28 @@ async function initializeSession(
 	url: string,
 	signal?: AbortSignal,
 ): Promise<string> {
-	const initResp = await fetchWithTimeout(url, {
-		method: 'POST',
-		headers: {
-			'Content-Type': 'application/json',
-			Accept: 'application/json, text/event-stream',
-			'MCP-Protocol-Version': PROTOCOL_VERSION,
-		},
-		body: JSON.stringify({
-			jsonrpc: '2.0',
-			id: 1,
-			method: 'initialize',
-			params: {
-				protocolVersion: PROTOCOL_VERSION,
-				capabilities: {},
-				clientInfo: {name: 'neptune-figma-pull', version: '0.1'},
+	const initResp = await fetchWithTimeout(
+		url,
+		{
+			method: 'POST',
+			headers: {
+				'Content-Type': 'application/json',
+				Accept: 'application/json, text/event-stream',
+				'MCP-Protocol-Version': PROTOCOL_VERSION,
 			},
-		} satisfies JsonRpcRequest),
-	}, signal);
+			body: JSON.stringify({
+				jsonrpc: '2.0',
+				id: 1,
+				method: 'initialize',
+				params: {
+					protocolVersion: PROTOCOL_VERSION,
+					capabilities: {},
+					clientInfo: {name: 'neptune-figma-pull', version: '0.1'},
+				},
+			} satisfies JsonRpcRequest),
+		},
+		signal,
+	);
 
 	if (initResp.status === 429) {
 		const body = await initResp.text();
@@ -357,16 +361,20 @@ async function mcpCall(
 	payload: JsonRpcRequest,
 	signal: AbortSignal | undefined,
 ): Promise<JsonRpcResponse | undefined> {
-	const resp = await fetchWithTimeout(url, {
-		method: 'POST',
-		headers: {
-			'Content-Type': 'application/json',
-			Accept: 'application/json, text/event-stream',
-			'Mcp-Session-Id': sessionId,
-			'MCP-Protocol-Version': PROTOCOL_VERSION,
+	const resp = await fetchWithTimeout(
+		url,
+		{
+			method: 'POST',
+			headers: {
+				'Content-Type': 'application/json',
+				Accept: 'application/json, text/event-stream',
+				'Mcp-Session-Id': sessionId,
+				'MCP-Protocol-Version': PROTOCOL_VERSION,
+			},
+			body: JSON.stringify(payload),
 		},
-		body: JSON.stringify(payload),
-	}, signal);
+		signal,
+	);
 
 	if (resp.status === 429) {
 		const body = await resp.text();
@@ -404,7 +412,9 @@ async function fetchWithTimeout(
 	}
 	const timer = setTimeout(() => {
 		controller.abort(
-			new Error(`Figma MCP request timed out after ${MCP_REQUEST_TIMEOUT_MS}ms`),
+			new Error(
+				`Figma MCP request timed out after ${MCP_REQUEST_TIMEOUT_MS}ms`,
+			),
 		);
 	}, MCP_REQUEST_TIMEOUT_MS);
 	try {

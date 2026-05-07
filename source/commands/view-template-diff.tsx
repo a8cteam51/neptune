@@ -193,7 +193,9 @@ export default function ViewTemplateDiff({activeProject, onDone}: Props) {
 	if (phase.kind === 'loading') {
 		return (
 			<Box flexDirection="column" padding={1}>
-				<Text bold color="cyan">View template diff</Text>
+				<Text bold color="cyan">
+					View template diff
+				</Text>
 				<Text dimColor>Loading pulls…</Text>
 			</Box>
 		);
@@ -202,9 +204,13 @@ export default function ViewTemplateDiff({activeProject, onDone}: Props) {
 	if (phase.kind === 'message') {
 		return (
 			<Box flexDirection="column" padding={1}>
-				<Text bold color="cyan">View template diff</Text>
+				<Text bold color="cyan">
+					View template diff
+				</Text>
 				<Box marginTop={1}>
-					<Text color="yellow" bold>{phase.title}</Text>
+					<Text color="yellow" bold>
+						{phase.title}
+					</Text>
 				</Box>
 				{phase.subtitle ? <Text dimColor>{phase.subtitle}</Text> : null}
 				<Text dimColor>Press any key to return.</Text>
@@ -220,7 +226,9 @@ export default function ViewTemplateDiff({activeProject, onDone}: Props) {
 		}));
 		return (
 			<Box flexDirection="column" padding={1}>
-				<Text bold color="cyan">View template diff</Text>
+				<Text bold color="cyan">
+					View template diff
+				</Text>
 				<Box marginTop={1}>
 					<Text bold>Pick a pull to diff:</Text>
 				</Box>
@@ -237,11 +245,12 @@ export default function ViewTemplateDiff({activeProject, onDone}: Props) {
 	if (phase.kind === 'matched') {
 		return (
 			<Box flexDirection="column" padding={1}>
-				<Text bold color="cyan">View template diff</Text>
+				<Text bold color="cyan">
+					View template diff
+				</Text>
 				<Box marginTop={1}>
 					<Text color="green" bold>
-						✓ Live render matches the design (diff{' '}
-						{phase.ratio.toFixed(2)}%).
+						✓ Live render matches the design (diff {phase.ratio.toFixed(2)}%).
 					</Text>
 				</Box>
 				<Box marginTop={1} flexDirection="column">
@@ -256,7 +265,9 @@ export default function ViewTemplateDiff({activeProject, onDone}: Props) {
 	if (phase.kind === 'differs') {
 		return (
 			<Box flexDirection="column" padding={1}>
-				<Text bold color="cyan">View template diff</Text>
+				<Text bold color="cyan">
+					View template diff
+				</Text>
 				<Box marginTop={1}>
 					<Text color="yellow" bold>
 						● Live render differs from design ({phase.pixelCount} px,{' '}
@@ -283,12 +294,16 @@ export default function ViewTemplateDiff({activeProject, onDone}: Props) {
 	if (phase.kind === 'error') {
 		return (
 			<Box flexDirection="column" padding={1}>
-				<Text bold color="cyan">View template diff</Text>
+				<Text bold color="cyan">
+					View template diff
+				</Text>
 				<Box marginTop={1}>
 					<EventList events={events} status="error" />
 				</Box>
 				<Box marginTop={1} flexDirection="column">
-					<Text color="red" bold>✗ Diff failed.</Text>
+					<Text color="red" bold>
+						✗ Diff failed.
+					</Text>
 					<Text color="red">{phase.error}</Text>
 					<Text dimColor>Press any key to return.</Text>
 				</Box>
@@ -298,7 +313,9 @@ export default function ViewTemplateDiff({activeProject, onDone}: Props) {
 
 	return (
 		<Box flexDirection="column" padding={1}>
-			<Text bold color="cyan">View template diff</Text>
+			<Text bold color="cyan">
+				View template diff
+			</Text>
 			<Box marginTop={1}>
 				<EventList events={events} status="running" />
 			</Box>

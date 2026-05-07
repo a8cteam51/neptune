@@ -148,9 +148,7 @@ export default function E2E({activeProject, onDone}: Props) {
 				if (controller.signal.aborted) return;
 				setPhase({
 					kind: 'gated',
-					missing: [
-						err instanceof Error ? err.message : String(err),
-					],
+					missing: [err instanceof Error ? err.message : String(err)],
 				});
 			}
 		})();
@@ -167,10 +165,7 @@ export default function E2E({activeProject, onDone}: Props) {
 
 	useInput(
 		(_input, key) => {
-			if (
-				phase.kind === 'gated' ||
-				phase.kind === 'done'
-			) {
+			if (phase.kind === 'gated' || phase.kind === 'done') {
 				onDone();
 				return;
 			}
@@ -253,8 +248,7 @@ export default function E2E({activeProject, onDone}: Props) {
 			if (ev.kind === 'usage') {
 				tally.agentCalls += 1;
 				if (ev.costUsd !== undefined) tally.costUsd += ev.costUsd;
-				if (ev.inputTokens !== undefined)
-					tally.inputTokens += ev.inputTokens;
+				if (ev.inputTokens !== undefined) tally.inputTokens += ev.inputTokens;
 				if (ev.outputTokens !== undefined)
 					tally.outputTokens += ev.outputTokens;
 				if (ev.cacheReadInputTokens !== undefined)
@@ -294,8 +288,7 @@ export default function E2E({activeProject, onDone}: Props) {
 				// so catch blocks just have to know "is this an abort?"
 				// rather than rethrowing.
 				const isAbort = (err: unknown): boolean =>
-					controller.signal.aborted ||
-					err instanceof AgentAbortedError;
+					controller.signal.aborted || err instanceof AgentAbortedError;
 
 				// Each phase pushes its (possibly partial) result before
 				// the runLoop break check, so the done screen still shows
@@ -644,7 +637,9 @@ export default function E2E({activeProject, onDone}: Props) {
 	if (phase.kind === 'loading') {
 		return (
 			<Box flexDirection="column" padding={1}>
-				<Text bold color="cyan">End-to-end build</Text>
+				<Text bold color="cyan">
+					End-to-end build
+				</Text>
 				<Box marginTop={1}>
 					<Text dimColor>Checking prerequisites…</Text>
 				</Box>
@@ -655,7 +650,9 @@ export default function E2E({activeProject, onDone}: Props) {
 	if (phase.kind === 'gated') {
 		return (
 			<Box flexDirection="column" padding={1}>
-				<Text bold color="cyan">End-to-end build</Text>
+				<Text bold color="cyan">
+					End-to-end build
+				</Text>
 				<Box marginTop={1} flexDirection="column">
 					<Text color="yellow" bold>
 						Cannot run end-to-end yet. Missing:
@@ -679,20 +676,16 @@ export default function E2E({activeProject, onDone}: Props) {
 		const agentCalls = 1 + p + c + t + c * 2 + t * 2;
 		return (
 			<Box flexDirection="column" padding={1}>
-				<Text bold color="cyan">End-to-end build</Text>
+				<Text bold color="cyan">
+					End-to-end build
+				</Text>
 				<Box marginTop={1} flexDirection="column">
-					<Text>
-						The full pipeline will run in this order:
-					</Text>
-					<Text>
-						{'  1. Build theme.json'}
-					</Text>
+					<Text>The full pipeline will run in this order:</Text>
+					<Text>{'  1. Build theme.json'}</Text>
 					<Text>
 						{`  2. Build patterns for ${p} pattern${p === 1 ? '' : 's'}`}
 					</Text>
-					<Text>
-						{`  3. Build content for ${c} page${c === 1 ? '' : 's'}`}
-					</Text>
+					<Text>{`  3. Build content for ${c} page${c === 1 ? '' : 's'}`}</Text>
 					<Text>
 						{`  4. Build templates for ${t} template${t === 1 ? '' : 's'}`}
 					</Text>
@@ -704,11 +697,14 @@ export default function E2E({activeProject, onDone}: Props) {
 					</Text>
 					<Box marginTop={1}>
 						<Text color="yellow" bold>
-							Up to {agentCalls} paid Claude Agent SDK call{agentCalls === 1 ? '' : 's'}.
+							Up to {agentCalls} paid agent provider call
+							{agentCalls === 1 ? '' : 's'}.
 						</Text>
 					</Box>
 					<Text dimColor>
-						Existing theme.json, patterns, templates and page posts will be overwritten. Diffs are auto-approved — no per-diff review. Per-pull failures are tallied, not fatal.
+						Existing theme.json, patterns, templates and page posts will be
+						overwritten. Diffs are auto-approved — no per-diff review. Per-pull
+						failures are tallied, not fatal.
 					</Text>
 				</Box>
 				<Box marginTop={1}>
@@ -721,7 +717,9 @@ export default function E2E({activeProject, onDone}: Props) {
 	if (phase.kind === 'running') {
 		return (
 			<Box flexDirection="column" padding={1}>
-				<Text bold color="cyan">End-to-end build</Text>
+				<Text bold color="cyan">
+					End-to-end build
+				</Text>
 				<Box marginTop={1} flexDirection="column">
 					<Text bold>{phase.currentLabel}</Text>
 					<Text dimColor>
@@ -798,7 +796,9 @@ export default function E2E({activeProject, onDone}: Props) {
 			: '✓ Completed.';
 	return (
 		<Box flexDirection="column" padding={1}>
-			<Text bold color="cyan">End-to-end build</Text>
+			<Text bold color="cyan">
+				End-to-end build
+			</Text>
 			<Box marginTop={1} flexDirection="column">
 				<Text color={headlineColor} bold>
 					{headline}
@@ -807,9 +807,7 @@ export default function E2E({activeProject, onDone}: Props) {
 			<Box marginTop={1} flexDirection="column">
 				<Text bold>Phases</Text>
 				{themeResult ? (
-					<Text
-						color={themeResult.outcome === 'ok' ? 'green' : 'red'}
-					>
+					<Text color={themeResult.outcome === 'ok' ? 'green' : 'red'}>
 						{`  ${themeResult.outcome === 'ok' ? '✓' : '✗'} theme.json${
 							themeResult.outcome === 'fail'
 								? ` — ${themeResult.error ?? 'unknown'}`
@@ -869,20 +867,14 @@ export default function E2E({activeProject, onDone}: Props) {
 				</Text>
 			</Box>
 			<Box marginTop={1} flexDirection="column">
-				<Text bold>
-					Total cost: ${phase.tally.costUsd.toFixed(4)}
-				</Text>
-				<Text>
-					Agent calls: {phase.tally.agentCalls}
-				</Text>
-				<Text>
-					Runtime: {formatElapsed(phase.elapsedMs)}
-				</Text>
+				<Text bold>Total cost: ${phase.tally.costUsd.toFixed(4)}</Text>
+				<Text>Agent calls: {phase.tally.agentCalls}</Text>
+				<Text>Runtime: {formatElapsed(phase.elapsedMs)}</Text>
 				{anyFailures || phase.cancelled ? (
 					<Text dimColor>
-						Note: token + cost totals can undercount when an agent call
-						fails or is cancelled — the SDK doesn&apos;t always report
-						usage on non-success results.
+						Note: token + cost totals can undercount when an agent call fails or
+						is cancelled — the SDK doesn&apos;t always report usage on
+						non-success results.
 					</Text>
 				) : null}
 			</Box>

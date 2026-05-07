@@ -36,9 +36,7 @@ export default function MultiSelect<T>({
 	const [selected, setSelected] = useState<Set<string>>(() => {
 		if (initialSelectedKeys) {
 			const allowed = new Set(items.map(i => i.key));
-			return new Set(
-				initialSelectedKeys.filter(k => allowed.has(k)),
-			);
+			return new Set(initialSelectedKeys.filter(k => allowed.has(k)));
 		}
 		return new Set(items.map(i => i.key));
 	});
@@ -56,7 +54,9 @@ export default function MultiSelect<T>({
 			return;
 		}
 		if (key.upArrow) {
-			setCursor(c => (items.length === 0 ? 0 : (c - 1 + items.length) % items.length));
+			setCursor(c =>
+				items.length === 0 ? 0 : (c - 1 + items.length) % items.length,
+			);
 			return;
 		}
 		if (key.downArrow) {

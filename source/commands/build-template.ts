@@ -1,7 +1,7 @@
 // Shared core for the template-build flow. Feeds one pull's
 // design/<slug>/code.tsx (plus the theme's theme.json,
 // variables/all-variables.json, and any existing block style
-// variations) to the Claude Agent SDK with the tsx-to-blocks skill,
+// variations) to the configured agent provider with the tsx-to-blocks skill,
 // then writes the resulting Gutenberg block markup to the pull's
 // wp_template / wp_template_part post in the WordPress database via
 // Studio's wp-cli.
@@ -86,7 +86,10 @@ export async function runBuild(
 			message: `Loaded theme.json (${themeJsonText.length} bytes)`,
 		});
 	} else {
-		onEvent({kind: 'warn', message: 'No theme.json found — proceeding without it'});
+		onEvent({
+			kind: 'warn',
+			message: 'No theme.json found — proceeding without it',
+		});
 	}
 
 	const variablesPath = join(loaded.dir, 'variables', 'all-variables.json');
@@ -105,13 +108,11 @@ export async function runBuild(
 
 	const wpRoot = resolve(loaded.dir, 'wordpress');
 	const themePath = resolve(wpRoot, 'wp-content', 'themes', themeSlug);
-	const existingVariations = await readBlockStyleVariations(
-		themePath,
-		msg => onEvent({kind: 'warn', message: msg}),
+	const existingVariations = await readBlockStyleVariations(themePath, msg =>
+		onEvent({kind: 'warn', message: msg}),
 	);
-	const variationsContext = formatBlockStyleVariationsContext(
-		existingVariations,
-	);
+	const variationsContext =
+		formatBlockStyleVariationsContext(existingVariations);
 	if (variationsContext) {
 		onEvent({
 			kind: 'step',
@@ -172,7 +173,11 @@ export async function runBuild(
 	}
 	const placeholder = loaded.config.placeholderImage;
 	if (placeholder) {
-		baseSections.push('', '=== placeholder image ===', placeholderInstructions(placeholder));
+		baseSections.push(
+			'',
+			'=== placeholder image ===',
+			placeholderInstructions(placeholder),
+		);
 	}
 	const baseContext = baseSections.join('\n');
 
@@ -205,7 +210,7 @@ export async function runBuild(
 		pull.usesPostContent === true,
 	);
 
-	onEvent({kind: 'step', message: 'Invoking Claude Agent SDK…'});
+	onEvent({kind: 'step', message: 'Invoking configured agent provider…'});
 
 	const responseText = await agentRunner(
 		userContent,
@@ -287,8 +292,7 @@ function buildUserContent(
 
 	content.push({
 		type: 'text',
-		text:
-			`Convert this Figma-generated React + Tailwind component (code.tsx) to Gutenberg block markup for the WordPress block theme template ${templateFile} (role: ${role}). Use the tsx-to-blocks skill. ${roleScopeNote(role)}${wrapperNote}`,
+		text: `Convert this Figma-generated React + Tailwind component (code.tsx) to Gutenberg block markup for the WordPress block theme template ${templateFile} (role: ${role}). Use the tsx-to-blocks skill. ${roleScopeNote(role)}${wrapperNote}`,
 	});
 
 	if (screenshotBase64) {
@@ -337,4 +341,3 @@ export function roleScopeNote(role: TemplateRole): string {
 	}
 	return 'Convert the main content region of the source page. Header and footer live in separate template parts (parts/header.html, parts/footer.html); when code.tsx contains `data-neptune-annotations="header"` or `data-neptune-annotations="footer"` subtrees, emit `<!-- wp:template-part {"slug":"header"} /-->` / `<!-- wp:template-part {"slug":"footer"} /-->` references at their position rather than inlining their contents.';
 }
-

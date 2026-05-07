@@ -117,6 +117,10 @@ export function dObject<T extends Record<string, unknown>>(
 
 // Top-level entry point. Provided so call sites read consistently:
 //   const result = decode(dShape, raw, 'agent-response');
-export function decode<T>(decoder: Decoder<T>, value: unknown, label: string): T {
+export function decode<T>(
+	decoder: Decoder<T>,
+	value: unknown,
+	label: string,
+): T {
 	return decoder(value, label);
 }

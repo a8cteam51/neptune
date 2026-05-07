@@ -69,7 +69,9 @@ export default function PickerView({
 
 	return (
 		<Box flexDirection="column" padding={1}>
-			<Text bold color="cyan">Pull template</Text>
+			<Text bold color="cyan">
+				Pull template
+			</Text>
 
 			<Box marginTop={1} flexDirection="column">
 				<Text bold>Current Figma selection</Text>
@@ -80,9 +82,7 @@ export default function PickerView({
 						hasCoords={hasCoords}
 					/>
 				</Box>
-				<Text dimColor>
-					Select the matching frame in Figma before pulling.
-				</Text>
+				<Text dimColor>Select the matching frame in Figma before pulling.</Text>
 			</Box>
 
 			<Box marginTop={1} flexDirection="column">

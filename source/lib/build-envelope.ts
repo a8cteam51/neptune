@@ -4,10 +4,7 @@
 // reuses `parseAgentJson`, `parseThemeJsonPatchField`, and
 // `parseBlockStyleVariationsField` while adding its own applied/skipped
 // fields.
-import type {
-	BlockStyleVariation,
-	ThemeJsonPatch,
-} from './theme-json-patch.js';
+import type {BlockStyleVariation, ThemeJsonPatch} from './theme-json-patch.js';
 
 export type BuildEnvelope = {
 	template_html: string;

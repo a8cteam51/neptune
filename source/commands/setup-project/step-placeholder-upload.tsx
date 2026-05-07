@@ -77,7 +77,10 @@ async function* runUpload(
 		);
 	}
 
-	yield {kind: 'step', message: `Importing ${sourceRel} into the media library…`};
+	yield {
+		kind: 'step',
+		message: `Importing ${sourceRel} into the media library…`,
+	};
 
 	const session = await openStudioSession({signal});
 	try {
@@ -93,11 +96,7 @@ async function* runUpload(
 			);
 		}
 
-		const urlRaw = await wpCli(
-			session,
-			wpRoot,
-			`post get ${id} --field=guid`,
-		);
+		const urlRaw = await wpCli(session, wpRoot, `post get ${id} --field=guid`);
 		const url = urlRaw.trim();
 		if (url === '') {
 			throw new Error(`wp post get returned empty guid for id=${id}`);

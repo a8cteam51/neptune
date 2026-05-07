@@ -1,6 +1,6 @@
 # Neptune
 
-Neptune is an interactive CLI that turns Figma designs into working WordPress block themes. It pulls a page from Figma (Tailwind TSX + variables + screenshot), runs a local WordPress site under [Studio](https://developer.wordpress.com/studio/), and uses the Claude Agent SDK to convert each pull into Gutenberg block markup, a `theme.json`, and any block style variations the design needs. Refinements happen by capturing the live render, diffing it against the design, and applying only the differences.
+Neptune is an interactive CLI that turns Figma designs into working WordPress block themes. It pulls a page from Figma (Tailwind TSX + variables + screenshot), runs a local WordPress site under [Studio](https://developer.wordpress.com/studio/), and uses the configured agent provider to convert each pull into Gutenberg block markup, a `theme.json`, and any block style variations the design needs. Refinements happen by capturing the live render, diffing it against the design, and applying only the differences.
 
 The intent is to keep the human at the menu — Neptune drives Figma, the file system, the Studio site, and the agents. Failures stop early and surface in the UI, so a paid agent call only fires when its inputs are good.
 
@@ -18,27 +18,27 @@ You'll also need:
 
 - Studio for Mac/Windows running, with at least one site created (for local WP).
 - Figma's MCP server enabled (the plugin pulls TSX, assets, dev notes via MCP).
-- An Anthropic API key in your environment so the Claude Agent SDK can run.
+- An Anthropic API key for the default Claude provider, or Codex authentication / API key if `neptune-config.json` sets `"provider": "codex"`.
 
 ## What it does
 
 The menu is grouped into Figma → Styles → Patterns → Content → Templates → End-to-end, matching the order you'd typically work through a project.
 
-| Step | What you do | What Neptune does |
-| --- | --- | --- |
-| Setup / Load Project | Pick a folder, name the project, point at the WordPress repo | Initialises `neptune-config.json`, clones `wp-content`, creates the Studio site, uploads a placeholder image |
-| Pull template | Select a frame in Figma, fill in the page name + WP template file (`index.html`, `header.html`, …) | Asks Figma's MCP for `code.tsx`, `screenshot.png`, `variables.json`, `metadata.xml`, dev notes; writes `design/<slug>/` |
-| Verify screenshots | — | Re-renders each design and re-captures so you know the source-of-truth screenshot still matches what Figma gives you |
-| Build theme.json | — | Merges every pull's `variables.json` into `variables/all-variables.json`, then asks the `theme-json` skill to map tokens onto a block-theme `theme.json` |
-| Extract patterns | — | Scans every pull's `code.tsx` for non-default top-level functions, presents a checkbox list of unique names, persists your selection to `config.patterns` |
-| Pull pattern | Pick a pattern from your config, select its Figma frame, press Enter | Pulls the four Figma artifacts into `patterns/<Name>/`. R re-reads the Figma selection from the picker; rows already pulled show as `(pulled)`. |
-| Build patterns | Toggle off any patterns you don't want (every row starts checked) | For each `patterns/<Name>/code.tsx`, runs the `tsx-to-pattern` skill (with the pattern's screenshot, theme.json, variables, and existing variations inventory) and writes `<theme>/patterns/<kebab-slug>.php` |
-| Build contents | Toggle off any pulls you don't want | For each `usesPostContent` pull, sends `code.tsx`, `theme.json`, variables, screenshot, dev notes, and existing block style variations to the `tsx-to-blocks` skill; writes the `data-neptune-annotations="post-content"` subtree as the body of the matching `wp_post` (page) |
-| Refine contents | Toggle off any pulls you don't want | For each `usesPostContent` pull, captures the live page in headless Chromium, diffs against `screenshot.png` with [odiff](https://github.com/dmtrKovalenko/odiff), runs the `visual-diff` skill scoped to the post-content body, then `apply-diff` to update the page. Auto-approves every diff. |
-| Build templates | Toggle off any pulls you don't want | For each non-content-only pull, sends the same context to `tsx-to-blocks` and writes the resulting block markup into the `wp_template` / `wp_template_part` row. `usesPostContent` pulls emit a wrapper around a `wp:post-content` placeholder. |
-| Refine templates | Toggle off any pulls you don't want | Same capture/diff/apply pipeline as Refine contents but against the wrapper template's `wp_template` / `wp_template_part` |
-| View template diff | Pick a pull | Re-runs only the capture+odiff step so you can inspect drift without paying for an agent call |
-| End-to-end build | Confirm | Runs the full pipeline in order — `theme.json → patterns → content → templates → refine content → refine templates` — auto-approving every diff. Reports total tokens, USD cost, and runtime at the end. |
+| Step                 | What you do                                                                                        | What Neptune does                                                                                                                                                                                                                                                                                |
+| -------------------- | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Setup / Load Project | Pick a folder, name the project, point at the WordPress repo                                       | Initialises `neptune-config.json`, clones `wp-content`, creates the Studio site, uploads a placeholder image                                                                                                                                                                                     |
+| Pull template        | Select a frame in Figma, fill in the page name + WP template file (`index.html`, `header.html`, …) | Asks Figma's MCP for `code.tsx`, `screenshot.png`, `variables.json`, `metadata.xml`, dev notes; writes `design/<slug>/`                                                                                                                                                                          |
+| Verify screenshots   | —                                                                                                  | Re-renders each design and re-captures so you know the source-of-truth screenshot still matches what Figma gives you                                                                                                                                                                             |
+| Build theme.json     | —                                                                                                  | Merges every pull's `variables.json` into `variables/all-variables.json`, then asks the `theme-json` skill to map tokens onto a block-theme `theme.json`                                                                                                                                         |
+| Extract patterns     | —                                                                                                  | Scans every pull's `code.tsx` for non-default top-level functions, presents a checkbox list of unique names, persists your selection to `config.patterns`                                                                                                                                        |
+| Pull pattern         | Pick a pattern from your config, select its Figma frame, press Enter                               | Pulls the four Figma artifacts into `patterns/<Name>/`. R re-reads the Figma selection from the picker; rows already pulled show as `(pulled)`.                                                                                                                                                  |
+| Build patterns       | Toggle off any patterns you don't want (every row starts checked)                                  | For each `patterns/<Name>/code.tsx`, runs the `tsx-to-pattern` skill (with the pattern's screenshot, theme.json, variables, and existing variations inventory) and writes `<theme>/patterns/<kebab-slug>.php`                                                                                    |
+| Build contents       | Toggle off any pulls you don't want                                                                | For each `usesPostContent` pull, sends `code.tsx`, `theme.json`, variables, screenshot, dev notes, and existing block style variations to the `tsx-to-blocks` skill; writes the `data-neptune-annotations="post-content"` subtree as the body of the matching `wp_post` (page)                   |
+| Refine contents      | Toggle off any pulls you don't want                                                                | For each `usesPostContent` pull, captures the live page in headless Chromium, diffs against `screenshot.png` with [odiff](https://github.com/dmtrKovalenko/odiff), runs the `visual-diff` skill scoped to the post-content body, then `apply-diff` to update the page. Auto-approves every diff. |
+| Build templates      | Toggle off any pulls you don't want                                                                | For each non-content-only pull, sends the same context to `tsx-to-blocks` and writes the resulting block markup into the `wp_template` / `wp_template_part` row. `usesPostContent` pulls emit a wrapper around a `wp:post-content` placeholder.                                                  |
+| Refine templates     | Toggle off any pulls you don't want                                                                | Same capture/diff/apply pipeline as Refine contents but against the wrapper template's `wp_template` / `wp_template_part`                                                                                                                                                                        |
+| View template diff   | Pick a pull                                                                                        | Re-runs only the capture+odiff step so you can inspect drift without paying for an agent call                                                                                                                                                                                                    |
+| End-to-end build     | Confirm                                                                                            | Runs the full pipeline in order — `theme.json → patterns → content → templates → refine content → refine templates` — auto-approving every diff. Reports total tokens, USD cost, and runtime at the end.                                                                                         |
 
 ## User flow
 
@@ -64,7 +64,7 @@ The arrows are forward-only because each step is gated on the previous step's ar
 
 ## Architecture
 
-Neptune is a small Ink (React-in-the-terminal) app that orchestrates four kinds of side effects: Figma MCP calls, file system writes, Studio's `wp-cli` MCP, and the Claude Agent SDK. Each command is a self-contained `runX(...)` async function — the React component is a thin shell around it.
+Neptune is a small Ink (React-in-the-terminal) app that orchestrates four kinds of side effects: Figma MCP calls, file system writes, Studio's `wp-cli` MCP, and the configured agent SDK. Each command is a self-contained `runX(...)` async function — the React component is a thin shell around it.
 
 ```
 source/
@@ -90,7 +90,7 @@ source/
     verify-screenshots.tsx      Re-capture-and-diff against the source-of-truth screenshot
     view-template-diff.tsx      Capture + odiff with no agent call
   lib/
-    agent-stream.ts             Claude Agent SDK driver — emits a structured `usage` LogEvent per call
+    agent-stream.ts             Agent SDK driver — Claude by default, Codex when configured; emits a structured `usage` LogEvent per call
     event-list.tsx              Streaming event list renderer
     sectioned-menu.tsx          Top-level menu with non-selectable section headers
     multi-select.tsx            Checkbox list (used by every "toggle off what you don't want" picker)
@@ -156,7 +156,7 @@ flowchart LR
         WP["wp_post"]
     end
 
-    subgraph Agents["Claude Agent SDK skills"]
+    subgraph Agents["Agent skills"]
         TT["tsx-to-blocks"]
         TP["tsx-to-pattern"]
         TJB["theme-json"]
@@ -246,6 +246,7 @@ Unit tests live under `test/unit/`. They cover the parsing and envelope-validati
 Per-project state lives in `<project>/neptune-config.json`. The shape is in `source/commands/setup-project/types.ts`; the bits that matter to other commands are:
 
 - `themeSlug` — the WP theme directory name. Required before build/refine.
+- `provider` — agent SDK provider. Defaults to `claude`; set to `codex` to run agent tasks through the OpenAI Codex SDK. Codex receives the same `plugins/neptune-tools/skills/<name>/SKILL.md` instructions inline because its SDK does not accept Claude-style local plugin paths.
 - `placeholderImage` — `{id, url}` for an attachment uploaded during setup. Build agents are told to use this for every `wp:image` block so live renders don't flash empty `src`s.
 - `steps` — boolean map of which setup steps have completed. The wizard resumes from the first `false`.
 - `design.pagesDir` — the Figma file URL used as the source of pulls.

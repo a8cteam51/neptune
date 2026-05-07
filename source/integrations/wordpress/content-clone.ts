@@ -9,10 +9,7 @@
 import {mkdir, rename, rm} from 'node:fs/promises';
 import {join, resolve} from 'node:path';
 import {randomBytes} from 'node:crypto';
-import {
-	attachAbortSignal,
-	trackChild,
-} from '../../lib/process-tracker.js';
+import {attachAbortSignal, trackChild} from '../../lib/process-tracker.js';
 import {defaultSpawn, type Spawn} from '../../lib/spawn.js';
 import {redactUrlCredentials, stripAnsi} from '../../lib/strip-ansi.js';
 import type {LogEvent} from '../../lib/event-list.js';

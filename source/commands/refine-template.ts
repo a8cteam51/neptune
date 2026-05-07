@@ -159,9 +159,7 @@ export async function runDiagnose(
 	const {designBuf, liveBuf, diffPath, outcome, sizeNote} = captured;
 
 	if (!outcome.ok) {
-		throw new Error(
-			`odiff failed: ${outcome.reason} ${outcome.file ?? ''}`,
-		);
+		throw new Error(`odiff failed: ${outcome.reason} ${outcome.file ?? ''}`);
 	}
 
 	if (outcome.match) {
@@ -211,13 +209,11 @@ export async function runDiagnose(
 		'themes',
 		themeSlug,
 	);
-	const existingVariations = await readBlockStyleVariations(
-		themePath,
-		msg => onEvent({kind: 'warn', message: msg}),
+	const existingVariations = await readBlockStyleVariations(themePath, msg =>
+		onEvent({kind: 'warn', message: msg}),
 	);
-	const existingVariationsText = formatBlockStyleVariationsContext(
-		existingVariations,
-	);
+	const existingVariationsText =
+		formatBlockStyleVariationsContext(existingVariations);
 	if (existingVariationsText) {
 		onEvent({
 			kind: 'step',
@@ -415,7 +411,11 @@ export async function runApply(
 	}
 	const placeholder = loaded.config.placeholderImage;
 	if (placeholder) {
-		sections.push('', '=== placeholder image ===', placeholderInstructions(placeholder));
+		sections.push(
+			'',
+			'=== placeholder image ===',
+			placeholderInstructions(placeholder),
+		);
 	}
 
 	onEvent({kind: 'step', message: 'Invoking apply-diff agent…'});
@@ -442,7 +442,10 @@ export async function runApply(
 	const envelope = parseApplyEnvelope(responseText, msg =>
 		onEvent({kind: 'warn', message: msg}),
 	);
-	validateApplyCoverage(envelope, approved.map(a => a.id));
+	validateApplyCoverage(
+		envelope,
+		approved.map(a => a.id),
+	);
 
 	for (const entry of envelope.applied) {
 		onEvent({
@@ -551,7 +554,9 @@ export function parseApplyEnvelope(
 
 	const html = obj['template_html'];
 	if (typeof html !== 'string' || !html.trim()) {
-		throw new Error('apply-diff envelope is missing a non-empty template_html.');
+		throw new Error(
+			'apply-diff envelope is missing a non-empty template_html.',
+		);
 	}
 
 	const drop = (kind: string) => (path: string, err: DecodeError) => {
@@ -586,7 +591,6 @@ export function parseApplyEnvelope(
 		block_style_variations,
 	};
 }
-
 
 // Verifies the agent accounted for every approved diff (each id appears
 // in either `applied` or `skipped`). Throws if any are unaccounted for —
@@ -736,4 +740,3 @@ function templatePath(
 		templateFile,
 	);
 }
-

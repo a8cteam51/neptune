@@ -57,19 +57,25 @@ export default function VerifyScreenshots({activeProject, onDone}: Props) {
 
 	return (
 		<Box flexDirection="column" padding={1}>
-			<Text bold color="cyan">Verify screenshots</Text>
+			<Text bold color="cyan">
+				Verify screenshots
+			</Text>
 			<Box marginTop={1}>
 				<EventList events={events} status={status} />
 			</Box>
 			{status === 'success' ? (
 				<Box marginTop={1} flexDirection="column">
-					<Text color="green" bold>✓ Verification complete.</Text>
+					<Text color="green" bold>
+						✓ Verification complete.
+					</Text>
 					<Text dimColor>Press any key to return.</Text>
 				</Box>
 			) : null}
 			{status === 'error' ? (
 				<Box marginTop={1} flexDirection="column">
-					<Text color="red" bold>✗ Verification failed.</Text>
+					<Text color="red" bold>
+						✗ Verification failed.
+					</Text>
 					<Text color="red">{error}</Text>
 					<Text dimColor>Press any key to return.</Text>
 				</Box>

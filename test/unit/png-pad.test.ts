@@ -1,11 +1,7 @@
 import test from 'ava';
 import {PNG} from 'pngjs';
 import {Buffer} from 'node:buffer';
-import {
-	PAD_MAGENTA,
-	padPng,
-	padToMatch,
-} from '../../source/lib/png-pad.js';
+import {PAD_MAGENTA, padPng, padToMatch} from '../../source/lib/png-pad.js';
 
 function makePng(
 	width: number,

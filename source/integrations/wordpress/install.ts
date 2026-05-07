@@ -23,9 +23,7 @@ export async function* installWordPress(
 	yield {kind: 'step', message: `Downloading ${WP_URL}`};
 	const resp = await fetch(WP_URL, {signal});
 	if (!resp.ok) {
-		throw new Error(
-			`Download failed: HTTP ${resp.status} ${resp.statusText}`,
-		);
+		throw new Error(`Download failed: HTTP ${resp.status} ${resp.statusText}`);
 	}
 	if (!resp.body) {
 		throw new Error('Download returned empty body.');
@@ -49,8 +47,7 @@ export async function* installWordPress(
 			file: tmpFinal,
 			cwd: projectDir,
 			strict: true,
-			filter: entry =>
-				!entry.includes('..') && !entry.startsWith('/'),
+			filter: entry => !entry.includes('..') && !entry.startsWith('/'),
 		});
 	} finally {
 		await tryUnlink(tmpFinal);

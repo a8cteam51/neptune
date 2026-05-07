@@ -2,7 +2,7 @@
 // patterns/<Name>/code.tsx (plus theme.json, the variables index, the
 // pattern's screenshot, dev annotations, the existing block-style
 // variations inventory, and the registered-patterns inventory) to the
-// Claude Agent SDK with the tsx-to-pattern skill, then writes the
+// configured agent provider with the tsx-to-pattern skill, then writes the
 // resulting block markup as a PHP file at
 // <theme>/patterns/<kebab-slug>.php that WordPress core auto-registers
 // from the docblock header.
@@ -104,9 +104,8 @@ export async function runBuildPattern(
 	const existingVariations = await readBlockStyleVariations(themePath, msg =>
 		onEvent({kind: 'warn', message: msg}),
 	);
-	const variationsContext = formatBlockStyleVariationsContext(
-		existingVariations,
-	);
+	const variationsContext =
+		formatBlockStyleVariationsContext(existingVariations);
 	if (variationsContext) {
 		onEvent({
 			kind: 'step',
@@ -206,7 +205,7 @@ export async function runBuildPattern(
 
 	const userContent = buildUserContent(src.name, baseContext, screenshotBase64);
 
-	onEvent({kind: 'step', message: 'Invoking Claude Agent SDK…'});
+	onEvent({kind: 'step', message: 'Invoking configured agent provider…'});
 
 	const responseText = await agentRunner(
 		userContent,

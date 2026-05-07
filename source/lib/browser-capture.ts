@@ -29,17 +29,8 @@ export type CaptureOptions = {
 	selector?: string;
 };
 
-export async function captureAtSize(
-	options: CaptureOptions,
-): Promise<Buffer> {
-	const {
-		url,
-		width,
-		height,
-		signal,
-		timeoutMs = 30_000,
-		selector,
-	} = options;
+export async function captureAtSize(options: CaptureOptions): Promise<Buffer> {
+	const {url, width, height, signal, timeoutMs = 30_000, selector} = options;
 
 	if (signal?.aborted) throw new Error('Browser capture aborted');
 

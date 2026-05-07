@@ -37,11 +37,7 @@ export async function readThemeJson(
 ): Promise<Record<string, unknown>> {
 	const raw = await readFile(themeJsonPath, 'utf8');
 	const parsed = JSON.parse(raw) as unknown;
-	if (
-		typeof parsed !== 'object' ||
-		parsed === null ||
-		Array.isArray(parsed)
-	) {
+	if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
 		throw new Error(`${themeJsonPath} did not parse to a JSON object.`);
 	}
 	return parsed as Record<string, unknown>;
@@ -193,7 +189,8 @@ export async function readBlockStyleVariations(
 			continue;
 		}
 		const obj = parsed as Record<string, unknown>;
-		const slug = typeof obj['slug'] === 'string' ? (obj['slug'] as string) : null;
+		const slug =
+			typeof obj['slug'] === 'string' ? (obj['slug'] as string) : null;
 		const title =
 			typeof obj['title'] === 'string' ? (obj['title'] as string) : null;
 		const blockTypes = Array.isArray(obj['blockTypes'])

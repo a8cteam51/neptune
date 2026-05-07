@@ -19,7 +19,6 @@ type Props = {
 	onDone: () => void;
 };
 
-
 type Outcome =
 	| {kind: 'ok'; slug: string; label: string; size: number}
 	| {kind: 'err'; slug: string; error: string};
@@ -54,8 +53,7 @@ export default function BuildTemplates({activeProject, onDone}: Props) {
 					setPhase({
 						kind: 'message',
 						title: 'No pulls available to build.',
-						subtitle:
-							'Pull a non-special template with a templateFile first.',
+						subtitle: 'Pull a non-special template with a templateFile first.',
 					});
 					return;
 				}
@@ -157,7 +155,9 @@ export default function BuildTemplates({activeProject, onDone}: Props) {
 	if (phase.kind === 'loading') {
 		return (
 			<Box flexDirection="column" padding={1}>
-				<Text bold color="cyan">Build templates</Text>
+				<Text bold color="cyan">
+					Build templates
+				</Text>
 				<Box marginTop={1}>
 					<Text dimColor>Loading pulls…</Text>
 				</Box>
@@ -168,9 +168,13 @@ export default function BuildTemplates({activeProject, onDone}: Props) {
 	if (phase.kind === 'message') {
 		return (
 			<Box flexDirection="column" padding={1}>
-				<Text bold color="cyan">Build templates</Text>
+				<Text bold color="cyan">
+					Build templates
+				</Text>
 				<Box marginTop={1}>
-					<Text color="yellow" bold>{phase.title}</Text>
+					<Text color="yellow" bold>
+						{phase.title}
+					</Text>
 				</Box>
 				{phase.subtitle ? <Text dimColor>{phase.subtitle}</Text> : null}
 				<Text dimColor>Press any key to return.</Text>
@@ -186,16 +190,19 @@ export default function BuildTemplates({activeProject, onDone}: Props) {
 		}));
 		return (
 			<Box flexDirection="column" padding={1}>
-				<Text bold color="cyan">Build templates</Text>
+				<Text bold color="cyan">
+					Build templates
+				</Text>
 				<Box marginTop={1} flexDirection="column">
 					<Text color="yellow" bold>
-						All {phase.pulls.length} template{phase.pulls.length === 1 ? '' : 's'} are selected by default.
+						All {phase.pulls.length} template
+						{phase.pulls.length === 1 ? '' : 's'} are selected by default.
 					</Text>
 					<Text>
 						Toggle off any you don't want to rebuild and press Enter. Existing
 						database rows for the selected templates will be overwritten
-						(revision history is preserved). Each build is a paid Claude
-						Agent SDK call.
+						(revision history is preserved). Each build is a paid agent provider
+						call.
 					</Text>
 				</Box>
 				<Box marginTop={1}>
@@ -218,7 +225,9 @@ export default function BuildTemplates({activeProject, onDone}: Props) {
 	if (phase.kind === 'running') {
 		return (
 			<Box flexDirection="column" padding={1}>
-				<Text bold color="cyan">Build templates</Text>
+				<Text bold color="cyan">
+					Build templates
+				</Text>
 				<Box marginTop={1}>
 					<EventList events={events} status="running" />
 				</Box>
@@ -230,9 +239,14 @@ export default function BuildTemplates({activeProject, onDone}: Props) {
 	const failed = phase.outcomes.filter(o => o.kind === 'err').length;
 	return (
 		<Box flexDirection="column" padding={1}>
-			<Text bold color="cyan">Build templates</Text>
+			<Text bold color="cyan">
+				Build templates
+			</Text>
 			<Box marginTop={1}>
-				<EventList events={events} status={failed === 0 ? 'success' : 'error'} />
+				<EventList
+					events={events}
+					status={failed === 0 ? 'success' : 'error'}
+				/>
 			</Box>
 			<Box marginTop={1} flexDirection="column">
 				<Text color={failed === 0 ? 'green' : 'yellow'} bold>
@@ -241,11 +255,11 @@ export default function BuildTemplates({activeProject, onDone}: Props) {
 				{phase.outcomes.map(o =>
 					o.kind === 'ok' ? (
 						<Text key={o.slug} color="green">
-							  ✓ {o.slug} → {o.label} ({o.size} bytes)
+							✓ {o.slug} → {o.label} ({o.size} bytes)
 						</Text>
 					) : (
 						<Text key={o.slug} color="red">
-							  ✗ {o.slug}: {o.error}
+							✗ {o.slug}: {o.error}
 						</Text>
 					),
 				)}

@@ -48,8 +48,7 @@ export default function ConfigureView({
 	// and walks both stages.
 	const initialPageName = prefilledPageName ?? selection?.name ?? '';
 	const initialSlug = prefilledPageName ? slugify(prefilledPageName) : '';
-	const isLocked =
-		prefilledPageName !== undefined && initialSlug !== '';
+	const isLocked = prefilledPageName !== undefined && initialSlug !== '';
 	const initialStage: Stage = isLocked ? 'templateFile' : 'pageName';
 
 	const [stage, setStage] = useState<Stage>(initialStage);
@@ -192,7 +191,9 @@ export default function ConfigureView({
 
 	return (
 		<Box flexDirection="column" padding={1}>
-			<Text bold color="cyan">Pull template</Text>
+			<Text bold color="cyan">
+				Pull template
+			</Text>
 
 			<Box marginTop={1} flexDirection="column">
 				<Text bold>Current Figma selection</Text>
@@ -232,9 +233,7 @@ export default function ConfigureView({
 				<Box marginTop={1} flexDirection="column">
 					<Text bold>WordPress template name</Text>
 					<Box marginTop={1}>
-						<Text color={stage === 'templateFile' ? 'yellow' : 'gray'}>
-							›{' '}
-						</Text>
+						<Text color={stage === 'templateFile' ? 'yellow' : 'gray'}>› </Text>
 						{stage === 'templateFile' ? (
 							<>
 								<TextInput
@@ -264,27 +263,31 @@ export default function ConfigureView({
 					<Text bold>Does this template render via wp:post-content?</Text>
 					<Text dimColor>
 						Pick &quot;Yes&quot; if the design has a region marked with
-						data-neptune-annotations=&quot;post-content&quot;. The wrapper will be
-						built around a wp:post-content placeholder, and the marked subtree
-						will be built into a page post via build-content.
+						data-neptune-annotations=&quot;post-content&quot;. The wrapper will
+						be built around a wp:post-content placeholder, and the marked
+						subtree will be built into a page post via build-content.
 					</Text>
 					<Box marginTop={1}>
 						<Menu
 							items={[
-								{key: 'no', label: 'No — full template (current behavior)', value: 'no'},
-								{key: 'yes', label: 'Yes — wrapper + page post-content', value: 'yes'},
+								{
+									key: 'no',
+									label: 'No — full template (current behavior)',
+									value: 'no',
+								},
+								{
+									key: 'yes',
+									label: 'Yes — wrapper + page post-content',
+									value: 'yes',
+								},
 							]}
-							onSelect={item =>
-								submitUsesPostContent(item.value === 'yes')
-							}
+							onSelect={item => submitUsesPostContent(item.value === 'yes')}
 						/>
 					</Box>
 				</Box>
 			) : null}
 
-			{(stage === 'pageSlug' ||
-				stage === 'previewPath') &&
-			usesPostContent ? (
+			{(stage === 'pageSlug' || stage === 'previewPath') && usesPostContent ? (
 				<Box marginTop={1} flexDirection="column">
 					{collidingPull ? (
 						<Text color="yellow">
@@ -306,8 +309,8 @@ export default function ConfigureView({
 						)}
 					</Box>
 					<Text dimColor>
-						Defaults to the pull slug. Override for the homepage (e.g. &quot;home&quot;)
-						or when the WP page slug differs.
+						Defaults to the pull slug. Override for the homepage (e.g.
+						&quot;home&quot;) or when the WP page slug differs.
 					</Text>
 				</Box>
 			) : null}

@@ -1,5 +1,5 @@
 {
-  "name": "neptune-tools",
-  "version": "0.1.0",
-  "description": "Skills and tools for the Neptune Ink app — WordPress theme generation, Figma-to-block-markup, Playwright visual diff."
+	"name": "neptune-tools",
+	"version": "0.1.0",
+	"description": "Skills and tools for the Neptune Ink app — WordPress theme generation, Figma-to-block-markup, Playwright visual diff."
 }
