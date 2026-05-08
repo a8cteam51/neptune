@@ -25,6 +25,23 @@ export const dString: Decoder<string> = (v, p) => {
 	return v;
 };
 
+// Accepts a string verbatim; coerces objects, arrays, numbers, and
+// booleans to a string via JSON.stringify. Use ONLY for free-form
+// text fields whose value is later read as natural-language prose by
+// a downstream agent — a model that occasionally emits structured
+// JSON instead of a string (e.g. `{"from":"wp:p","to":"wp:heading"}`
+// for a `block_change` field) should not cause the entire diff entry
+// to be dropped, since the stringified payload still conveys the
+// intent. Rejects null and undefined; wrap in `dNullable` for
+// optional fields.
+export const dStringy: Decoder<string> = (v, p) => {
+	if (typeof v === 'string') return v;
+	if (v === null || v === undefined) {
+		throw new DecodeError(`${p}: expected string-like, got ${typeName(v)}`);
+	}
+	return JSON.stringify(v);
+};
+
 export const dBoolean: Decoder<boolean> = (v, p) => {
 	if (typeof v !== 'boolean') {
 		throw new DecodeError(`${p}: expected boolean, got ${typeName(v)}`);

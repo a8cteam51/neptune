@@ -60,6 +60,7 @@ import {
 	dNullable,
 	dObject,
 	dString,
+	dStringy,
 	decode,
 	type DecodeError,
 } from '../lib/decode.js';
@@ -354,7 +355,11 @@ export type SkippedEntry = {
 };
 
 export type ApplyEnvelope = {
-	template_html: string;
+	// `null` when the agent omitted or emptied the field. Callers fall
+	// back to the current markup unchanged and surface a warning so the
+	// user knows no markup edit landed even though applied/skipped
+	// entries may still be useful.
+	template_html: string | null;
 	theme_json_patch?: ThemeJsonPatch;
 	block_style_variations?: BlockStyleVariation[];
 	applied: AppliedEntry[];
@@ -468,9 +473,16 @@ export async function runApply(
 		});
 	}
 
-	const out = envelope.template_html.endsWith('\n')
-		? envelope.template_html
-		: envelope.template_html + '\n';
+	const markup = envelope.template_html ?? reviewPhase.currentTemplate;
+	if (envelope.template_html === null) {
+		onEvent({
+			kind: 'warn',
+			message:
+				'apply-diff agent returned no template_html — keeping current markup unchanged. ' +
+				'Any applied/skipped entries are reported below for visibility.',
+		});
+	}
+	const out = markup.endsWith('\n') ? markup : markup + '\n';
 
 	const wpRoot = resolve(loaded.dir, 'wordpress');
 	const themeSlug = loaded.config.themeSlug;
@@ -560,12 +572,13 @@ export function parseApplyEnvelope(
 	}
 	const obj = parsed as Record<string, unknown>;
 
-	const html = obj['template_html'];
-	if (typeof html !== 'string' || !html.trim()) {
-		throw new Error(
-			'apply-diff envelope is missing a non-empty template_html.',
-		);
-	}
+	// Tolerated as null when missing/empty so the run continues with
+	// the current markup unchanged. Throwing here would discard a
+	// usable applied/skipped report that still tells the user what
+	// the agent decided to do.
+	const rawHtml = obj['template_html'];
+	const html =
+		typeof rawHtml === 'string' && rawHtml.trim() !== '' ? rawHtml : null;
 
 	const drop = (kind: string) => (path: string, err: DecodeError) => {
 		onWarn?.(`Dropped ${kind} entry at ${path}: ${err.message}`);
@@ -676,13 +689,18 @@ function buildContextSection(
 	return parts.join('\n');
 }
 
+// `id` and `severity` stay strict — `id` becomes a Set key (duplicates
+// drop the second occurrence) and `severity` is an enum. Free-form
+// text fields use `dStringy` so an entry isn't lost when the model
+// occasionally emits a structured object for a value the schema
+// expected as prose (e.g. `block_change: {"from":"wp:p","to":"wp:heading"}`).
 const dDiffEntry = dObject({
 	id: dString,
-	region: dString,
+	region: dStringy,
 	severity: dEnum('high', 'medium', 'low'),
-	description: dString,
-	block_change: dNullable(dString),
-	style_change: dNullable(dString),
+	description: dStringy,
+	block_change: dNullable(dStringy),
+	style_change: dNullable(dStringy),
 	affects_layout: dBoolean,
 });
 

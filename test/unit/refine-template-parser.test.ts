@@ -37,6 +37,54 @@ test('parses a valid report', t => {
 	t.is(r.diffs[1]!.style_change, 'spacing/sm → spacing/md');
 });
 
+test('coerces object-shaped block_change/style_change to string instead of dropping the entry', t => {
+	// Models intermittently emit structured JSON for free-form text
+	// fields. The diff is still useful — the apply-diff agent reads
+	// these as prose — so stringify rather than drop.
+	const input = JSON.stringify({
+		summary: '',
+		matches_design: false,
+		diffs: [
+			{
+				id: 'objecty-changes',
+				region: 'Hero',
+				severity: 'high',
+				description: 'desc',
+				block_change: {from: 'wp:paragraph', to: 'wp:heading', level: 2},
+				style_change: {fontSize: 'preset:large', color: '#000'},
+				affects_layout: true,
+			},
+		],
+	});
+	const r = parseDiffReport(input);
+	t.is(r.diffs.length, 1);
+	t.is(
+		r.diffs[0]!.block_change,
+		'{"from":"wp:paragraph","to":"wp:heading","level":2}',
+	);
+	t.is(r.diffs[0]!.style_change, '{"fontSize":"preset:large","color":"#000"}');
+});
+
+test('coerces object-shaped region/description to string', t => {
+	const input = JSON.stringify({
+		summary: '',
+		matches_design: false,
+		diffs: [
+			{
+				id: 'objecty-text',
+				region: {name: 'Hero', selector: '.hero'},
+				severity: 'low',
+				description: ['line one', 'line two'],
+				affects_layout: false,
+			},
+		],
+	});
+	const r = parseDiffReport(input);
+	t.is(r.diffs.length, 1);
+	t.is(r.diffs[0]!.region, '{"name":"Hero","selector":".hero"}');
+	t.is(r.diffs[0]!.description, '["line one","line two"]');
+});
+
 test('matches_design true returns empty diffs even if some were sent', t => {
 	const input = JSON.stringify({
 		summary: 'all good',
@@ -193,11 +241,18 @@ test('parseApplyEnvelope: rejects extra top-level keys in patch', t => {
 	);
 });
 
-test('parseApplyEnvelope: throws on missing template_html', t => {
-	t.throws(
-		() => parseApplyEnvelope(JSON.stringify({theme_json_patch: {blocks: {}}})),
-		{message: /missing a non-empty template_html/i},
+test('parseApplyEnvelope: missing template_html surfaces as null (caller falls back to current markup)', t => {
+	const e = parseApplyEnvelope(
+		JSON.stringify({theme_json_patch: {blocks: {}}}),
 	);
+	t.is(e.template_html, null);
+});
+
+test('parseApplyEnvelope: empty/whitespace template_html surfaces as null', t => {
+	const e1 = parseApplyEnvelope(JSON.stringify({template_html: ''}));
+	t.is(e1.template_html, null);
+	const e2 = parseApplyEnvelope(JSON.stringify({template_html: '   \n\t'}));
+	t.is(e2.template_html, null);
 });
 
 test('parseApplyEnvelope: throws on non-JSON', t => {

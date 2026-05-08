@@ -207,81 +207,89 @@ export default function App({name, startCwd}: Props) {
 				paddingX={2}
 				paddingY={1}
 				flexDirection="row"
-				justifyContent="center"
 				alignItems="center"
 			>
-				<Box flexDirection="column" marginRight={2}>
-					<Text color="cyan" bold>
-						{'  ^  ^  ^ '}
-					</Text>
-					<Text color="cyan" bold>
-						{'  |  |  | '}
-					</Text>
-					<Text color="cyan" bold>
-						{'   \\_|_/   '}
-					</Text>
-					<Text color="cyan" bold>
-						{'     |     '}
-					</Text>
-					<Text color="cyan" bold>
-						{'     |    '}
-					</Text>
-					<Text color="cyan" bold>
-						{'     |    '}
-					</Text>
+				<Box flexDirection="row" marginRight={4}>
+					<Box flexDirection="column" marginRight={2}>
+						<Text color="cyan" bold>
+							{'  ^  ^  ^ '}
+						</Text>
+						<Text color="cyan" bold>
+							{'  |  |  | '}
+						</Text>
+						<Text color="cyan" bold>
+							{'   \\_|_/   '}
+						</Text>
+						<Text color="cyan" bold>
+							{'     |     '}
+						</Text>
+						<Text color="cyan" bold>
+							{'     |    '}
+						</Text>
+						<Text color="cyan" bold>
+							{'     |    '}
+						</Text>
+					</Box>
+					<Box flexDirection="column">
+						<Text color="cyan" bold>
+							{'    _   __           __                  '}
+						</Text>
+						<Text color="cyan" bold>
+							{'   / | / /__  ____  / /___  ______  ___  '}
+						</Text>
+						<Text color="cyan" bold>
+							{'  /  |/ / _ \\/ __ \\/ __/ / / / __ \\/ _ \\ '}
+						</Text>
+						<Text color="cyan" bold>
+							{' / /|  /  __/ /_/ / /_/ /_/ / / / /  __/ '}
+						</Text>
+						<Text color="cyan" bold>
+							{'/_/ |_/\\___/ .___/\\__/\\__,_/_/ /_/\\___/  '}
+						</Text>
+						<Text color="cyan" bold>
+							{'          /_/                            '}
+						</Text>
+					</Box>
 				</Box>
 				<Box flexDirection="column">
-					<Text color="cyan" bold>
-						{'    _   __           __                  '}
-					</Text>
-					<Text color="cyan" bold>
-						{'   / | / /__  ____  / /___  ______  ___  '}
-					</Text>
-					<Text color="cyan" bold>
-						{'  /  |/ / _ \\/ __ \\/ __/ / / / __ \\/ _ \\ '}
-					</Text>
-					<Text color="cyan" bold>
-						{' / /|  /  __/ /_/ / /_/ /_/ / / / /  __/ '}
-					</Text>
-					<Text color="cyan" bold>
-						{'/_/ |_/\\___/ .___/\\__/\\__,_/_/ /_/\\___/  '}
-					</Text>
-					<Text color="cyan" bold>
-						{'          /_/                            '}
-					</Text>
-				</Box>
-			</Box>
-
-			<Box marginTop={1} flexDirection="column" alignItems="center">
-				<Text>
-					Welcome to{' '}
-					<Text color="cyan" bold>
-						Neptune
-					</Text>
-					{name ? (
-						<>
-							,{' '}
-							<Text color="green" bold>
-								{name}
-							</Text>
-						</>
-					) : (
-						''
-					)}
-					.
-				</Text>
-				{activeProject ? (
 					<Text>
-						Active project:{' '}
-						<Text color="green" bold>
-							{activeProject.config.projectName ?? activeProject.dir}
+						Welcome to{' '}
+						<Text color="cyan" bold>
+							Neptune
 						</Text>
+						{name ? (
+							<>
+								,{' '}
+								<Text color="green" bold>
+									{name}
+								</Text>
+							</>
+						) : (
+							''
+						)}
+						.
 					</Text>
-				) : (
-					<Text dimColor>No active project — run Setup / Load Project.</Text>
-				)}
-				{activeProject ? <SiteStatusLine status={siteStatus} /> : null}
-				{autoLoadError ? <Text color="yellow">{autoLoadError}</Text> : null}
+					{activeProject ? (
+						<Text>
+							Active project:{' '}
+							<Text color="green" bold>
+								{activeProject.config.projectName ?? activeProject.dir}
+							</Text>
+						</Text>
+					) : (
+						<Text dimColor>No active project — run Setup / Load Project.</Text>
+					)}
+					{activeProject ? <SiteStatusLine status={siteStatus} /> : null}
+					{activeProject ? (
+						<Text>
+							Agent provider:{' '}
+							<Text color="green" bold>
+								{providerLabel(activeProject.config.provider)}
+							</Text>
+						</Text>
+					) : null}
+					{autoLoadError ? <Text color="yellow">{autoLoadError}</Text> : null}
+				</Box>
 			</Box>
 
 			<Box marginTop={1} flexDirection="column">
@@ -292,6 +300,10 @@ export default function App({name, startCwd}: Props) {
 			</Box>
 		</Box>
 	);
+}
+
+function providerLabel(provider: 'claude' | 'codex'): string {
+	return provider === 'codex' ? 'Codex' : 'Claude';
 }
 
 function SiteStatusLine({status}: {status: 'pending' | SiteStatus | null}) {

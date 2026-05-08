@@ -406,9 +406,16 @@ export async function runApplyContent(
 		});
 	}
 
-	const out = envelope.template_html.endsWith('\n')
-		? envelope.template_html
-		: envelope.template_html + '\n';
+	const markup = envelope.template_html ?? reviewPhase.currentContent;
+	if (envelope.template_html === null) {
+		onEvent({
+			kind: 'warn',
+			message:
+				'apply-diff agent returned no template_html — keeping current page content unchanged. ' +
+				'Any applied/skipped entries are reported below for visibility.',
+		});
+	}
+	const out = markup.endsWith('\n') ? markup : markup + '\n';
 
 	const wpRoot = resolve(loaded.dir, 'wordpress');
 	const themeSlug = loaded.config.themeSlug;
