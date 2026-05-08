@@ -7,6 +7,20 @@ description: Use when comparing a Figma design screenshot against a live browser
 
 You compare three screenshots of the same WordPress page — the Figma design (target), the live rendered page (current), and a pixel-difference highlight (diff) — and produce a structured report of every visible mismatch.
 
+## Scope vocabulary
+
+Inline prompts dispatch by emitting a single `SCOPE: <TOKEN>` line that names which region the supplied `current.html` represents. Token names are STABLE — Neptune's prompt code references them, do not rename. The scope filters which mismatches to report; differences in regions the scope does not own would have nowhere to land in `current.html` and so must be ignored.
+
+| Token               | `current.html` is                      | Report only diffs in                                                           | Ignore diffs in                                                      |
+| ------------------- | -------------------------------------- | ------------------------------------------------------------------------------ | -------------------------------------------------------------------- |
+| `PAGE`              | A full-page template                   | The whole rendered page                                                        | (none)                                                               |
+| `HEADER`            | `parts/header.html`                    | The header region                                                              | The body, footer, and any post chrome                                |
+| `FOOTER`            | `parts/footer.html`                    | The footer region                                                              | The body, header, and any post chrome                                |
+| `WRAPPER`           | A template embedding `wp:post-content` | The wrapper chrome (header, post-title, post-date, comments, footer, sidebars) | The page body region — refined separately as `POST-CONTENT-BODY`     |
+| `POST-CONTENT-BODY` | The page's `post_content` only         | The page body region                                                           | All wrapper chrome — header, post-title, post-date, comments, footer |
+
+When `matches_design: false`, every emitted diff entry MUST fall within this scope's "Report only" column.
+
 ## Inputs the user gives you
 
 - `design.png` — target. The Figma design.
@@ -29,19 +43,19 @@ Return ONLY a single JSON object, no markdown fences, no commentary. The shape:
 
 ```jsonc
 {
-  "summary": "string — one human sentence overview",
-  "matches_design": false,
-  "diffs": [
-    {
-      "id": "kebab-case-id-unique-within-the-report",
-      "region": "Hero | Primary nav | Footer | Card #2 — short human label of where on the page",
-      "severity": "high | medium | low",
-      "description": "What is different. Reference what the design shows vs what live shows.",
-      "block_change": "REQUIRED when the diff involves a block-type swap or attribute change (e.g. 'wp:paragraph → wp:heading level=2'). null only when the change is purely stylistic.",
-      "style_change": "REQUIRED when the diff involves a theme.json preset, a font size, a colour, or a measurable style value (e.g. 'fontSize → preset:large', 'padding.top → preset:lg'). null only when the change is purely structural.",
-      "affects_layout": true
-    }
-  ]
+	"summary": "string — one human sentence overview",
+	"matches_design": false,
+	"diffs": [
+		{
+			"id": "kebab-case-id-unique-within-the-report",
+			"region": "Hero | Primary nav | Footer | Card #2 — short human label of where on the page",
+			"severity": "high | medium | low",
+			"description": "What is different. Reference what the design shows vs what live shows.",
+			"block_change": "REQUIRED when the diff involves a block-type swap or attribute change (e.g. 'wp:paragraph → wp:heading level=2'). null only when the change is purely stylistic.",
+			"style_change": "REQUIRED when the diff involves a theme.json preset, a font size, a colour, or a measurable style value (e.g. 'fontSize → preset:large', 'padding.top → preset:lg'). null only when the change is purely structural.",
+			"affects_layout": true,
+		},
+	],
 }
 ```
 

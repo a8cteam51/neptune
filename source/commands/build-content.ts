@@ -33,6 +33,7 @@ import {
 	readBlockStyleVariations,
 } from '../lib/theme-json-patch.js';
 import {parseBuildEnvelope} from '../lib/build-envelope.js';
+import {formatAssetMappingsContext} from '../lib/asset-mappings.js';
 import {
 	formatRegisteredPatternsContext,
 	listRegisteredPatterns,
@@ -40,7 +41,6 @@ import {
 import type {LogEvent} from '../lib/event-list.js';
 import {pageTargetFor, pageTargetLabel, writePage} from '../lib/wp-pages.js';
 import {openStudioSession} from '../integrations/studio/mcp.js';
-import {placeholderInstructions} from './build-template.js';
 import type {Loaded} from './setup-project/types.js';
 import type {PullMeta} from '../lib/types.js';
 
@@ -147,17 +147,11 @@ export async function runBuildContent(
 		baseSections.push(
 			'',
 			'=== existing block style variations ===',
-			'These variations are already registered. Reuse them by adding the matching `is-style-<slug>` class to a block instead of redefining them. Only emit a new entry in `block_style_variations[]` when none of these fits.',
 			variationsContext,
 		);
 	}
 	if (patternsContext) {
-		baseSections.push(
-			'',
-			'=== registered patterns ===',
-			'These block patterns are already registered in the theme. When code.tsx invokes a function whose PascalCase name matches one of these `name` entries, emit `<!-- wp:pattern {"slug":"<slug>"} /-->` for that JSX element instead of inlining the function body. Use the `slug` field verbatim. Match is case-sensitive and exact on the function name.',
-			patternsContext,
-		);
+		baseSections.push('', '=== registered patterns ===', patternsContext);
 	}
 	const devAnnotations = extractDevAnnotations(code);
 	if (devAnnotations.length > 0) {
@@ -175,13 +169,13 @@ export async function runBuildContent(
 			message: `Captured ${noteCount} dev annotation${noteCount === 1 ? '' : 's'} on ${devAnnotations.length} node${devAnnotations.length === 1 ? '' : 's'}`,
 		});
 	}
-	const placeholder = loaded.config.placeholderImage;
-	if (placeholder) {
-		baseSections.push(
-			'',
-			'=== placeholder image ===',
-			placeholderInstructions(placeholder),
-		);
+	const assetMappings = formatAssetMappingsContext(pull.assets);
+	if (assetMappings) {
+		baseSections.push('', '=== media library mappings ===', assetMappings);
+		onEvent({
+			kind: 'step',
+			message: `Loaded ${pull.assets!.length} media library mapping${pull.assets!.length === 1 ? '' : 's'}`,
+		});
 	}
 	const baseContext = baseSections.join('\n');
 
@@ -279,7 +273,7 @@ function buildUserContent(
 
 	content.push({
 		type: 'text',
-		text: 'Convert the post-content body of this Figma-generated React + Tailwind component (code.tsx) to Gutenberg block markup for a WordPress page post. Use the tsx-to-blocks skill. SCOPE: convert ONLY the subtree marked with data-neptune-annotations="post-content" (the page body). Do NOT include header, footer, post-title, post-date, comments, or any wrapper chrome — those belong to the surrounding template. Header and footer subtrees, when present, are marked with data-neptune-annotations="header" and data-neptune-annotations="footer"; ignore them entirely. Do NOT emit any wp:template-part references. Do NOT emit wp:post-content (this output IS the post content).',
+		text: `Use the tsx-to-blocks skill. SCOPE: POST-CONTENT-BODY. Apply the rules from the skill's "Scope: POST-CONTENT-BODY" section verbatim.`,
 	});
 
 	if (screenshotBase64) {

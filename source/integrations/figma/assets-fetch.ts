@@ -3,6 +3,12 @@
 // asset server. We download those bytes to design/<slug>/assets/ so the
 // pull is self-contained once the local server stops serving.
 //
+// Filtering: only .png / .jpg / .jpeg are kept. SVG and other formats
+// are skipped because most are decorative artifacts from Figma's code
+// generator, not designer-added imagery. The build agent gets a media
+// library mapping for the kept files (see source/lib/asset-mappings.ts);
+// SVG references end up with empty src in the emitted markup.
+//
 // Asset GETs are confirmed NOT subject to the MCP rate limit, so we don't
 // guard against 429 here. Each fetch carries a per-asset timeout and the
 // caller's AbortSignal is honoured.
@@ -12,18 +18,44 @@ import {basename, join} from 'node:path';
 import {writeFileAtomic} from '../../lib/atomic-write.js';
 import type {LogEvent} from '../../lib/event-list.js';
 
-// Anchored to start-of-line. Only matches the `const <name> = "<url>";`
-// pattern Figma's code generator emits. If they switch to `let`/`var`/
-// destructuring/inline JSX URLs, those won't be picked up.
-const ASSET_URL_RE =
-	/^const\s+\w+\s*=\s*["'](http:\/\/localhost:3845\/assets\/[^"']+)["']/gm;
+// Anchored to start-of-line. Captures the const name AND the URL so
+// callers can map a downloaded file back to the variable that
+// references it in code.tsx. If Figma switches to let/var/destructuring/
+// inline JSX URLs, those won't be picked up.
+const ASSET_DECL_RE =
+	/^const\s+(\w+)\s*=\s*["'](http:\/\/localhost:3845\/assets\/[^"']+)["']/gm;
+
+// Designer-added imagery only. SVG/AVIF/WEBP/etc are dropped at parse
+// time so we never spend an HTTP fetch on them.
+const KEEP_EXT_RE = /\.(png|jpe?g)$/i;
+
 const ASSET_TIMEOUT_MS = 30_000;
 const PARALLEL_DOWNLOADS = 4;
+
+export type AssetRef = {
+	// The variable name on the left-hand side of the const declaration.
+	// Becomes the join key for the WP media mapping passed to the build
+	// agent.
+	constName: string;
+	url: string;
+	filename: string;
+};
+
+export type DownloadedAsset = AssetRef & {
+	// Absolute path to the on-disk file after a successful download or
+	// a cache hit. Consumers use this to stage the file into wp-content
+	// for `wp media import`.
+	path: string;
+};
 
 export type AssetDownloadResult = {
 	downloaded: number;
 	skipped: number;
 	failed: number;
+	// Every asset that ended up on disk (downloaded or pre-existing).
+	// Excludes any that hit fetch errors. Order matches code.tsx
+	// declaration order.
+	assets: DownloadedAsset[];
 };
 
 export async function downloadCodeAssets(
@@ -38,57 +70,61 @@ export async function downloadCodeAssets(
 		code = await readFile(codePath, 'utf8');
 	} catch (err) {
 		if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-			return {downloaded: 0, skipped: 0, failed: 0};
+			return {downloaded: 0, skipped: 0, failed: 0, assets: []};
 		}
 		throw err;
 	}
 
-	const urls = extractAssetUrls(code);
-	if (urls.length === 0) return {downloaded: 0, skipped: 0, failed: 0};
+	const refs = extractAssetRefs(code);
+	if (refs.length === 0) {
+		return {downloaded: 0, skipped: 0, failed: 0, assets: []};
+	}
 
 	const assetsDir = join(pullDir, 'assets');
 	await mkdir(assetsDir, {recursive: true});
 
 	onEvent?.({
 		kind: 'step',
-		message: `Downloading ${urls.length} asset${urls.length === 1 ? '' : 's'}…`,
+		message: `Downloading ${refs.length} asset${refs.length === 1 ? '' : 's'}…`,
 	});
 
 	let downloaded = 0;
 	let skipped = 0;
 	let failed = 0;
 	const failures: Error[] = [];
+	const onDisk = new Map<string, DownloadedAsset>();
 
 	let cursor = 0;
-	const next = (): string | null => {
+	const next = (): AssetRef | null => {
 		if (signal?.aborted) return null;
-		if (cursor >= urls.length) return null;
-		return urls[cursor++]!;
+		if (cursor >= refs.length) return null;
+		return refs[cursor++]!;
 	};
 
 	const worker = async () => {
 		while (true) {
-			const url = next();
-			if (url === null) return;
-			const filename = basename(new URL(url).pathname);
-			const outPath = join(assetsDir, filename);
+			const ref = next();
+			if (ref === null) return;
+			const outPath = join(assetsDir, ref.filename);
 
 			if (await fileExists(outPath)) {
 				skipped++;
+				onDisk.set(ref.url, {...ref, path: outPath});
 				continue;
 			}
 
 			try {
-				const buf = await fetchAsset(url, signal);
+				const buf = await fetchAsset(ref.url, signal);
 				await writeFileAtomic(outPath, buf);
 				downloaded++;
+				onDisk.set(ref.url, {...ref, path: outPath});
 			} catch (err) {
 				failed++;
 				const message = err instanceof Error ? err.message : String(err);
 				failures.push(err instanceof Error ? err : new Error(message));
 				onEvent?.({
 					kind: 'warn',
-					message: `${filename}: ${message}`,
+					message: `${ref.filename}: ${message}`,
 				});
 			}
 		}
@@ -114,7 +150,12 @@ export async function downloadCodeAssets(
 		);
 	}
 
-	return {downloaded, skipped, failed};
+	// Preserve code.tsx declaration order; drop refs that failed.
+	const assets = refs
+		.map(r => onDisk.get(r.url))
+		.filter((a): a is DownloadedAsset => a !== undefined);
+
+	return {downloaded, skipped, failed, assets};
 }
 
 async function fetchAsset(
@@ -144,13 +185,29 @@ async function fetchAsset(
 	}
 }
 
-export function extractAssetUrls(code: string): string[] {
-	const urls = new Set<string>();
-	for (const match of code.matchAll(ASSET_URL_RE)) {
-		const url = match[1];
-		if (url) urls.add(url);
+// Returns one entry per (constName, url) pair where the URL's path
+// ends in .png/.jpg/.jpeg. Dedupes by URL, first occurrence wins so
+// the constName matches the first declaration in code.tsx.
+export function extractAssetRefs(code: string): AssetRef[] {
+	const seen = new Set<string>();
+	const out: AssetRef[] = [];
+	for (const match of code.matchAll(ASSET_DECL_RE)) {
+		const constName = match[1];
+		const url = match[2];
+		if (!constName || !url) continue;
+		if (seen.has(url)) continue;
+		const pathname = new URL(url).pathname;
+		if (!KEEP_EXT_RE.test(pathname)) continue;
+		seen.add(url);
+		out.push({constName, url, filename: basename(pathname)});
 	}
-	return [...urls];
+	return out;
+}
+
+// Backward-compat shim. Prefer extractAssetRefs for new code so the
+// constName is preserved.
+export function extractAssetUrls(code: string): string[] {
+	return extractAssetRefs(code).map(r => r.url);
 }
 
 async function fileExists(p: string): Promise<boolean> {

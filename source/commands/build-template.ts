@@ -30,6 +30,7 @@ import {
 	readBlockStyleVariations,
 } from '../lib/theme-json-patch.js';
 import {parseBuildEnvelope} from '../lib/build-envelope.js';
+import {formatAssetMappingsContext} from '../lib/asset-mappings.js';
 import {
 	formatRegisteredPatternsContext,
 	listRegisteredPatterns,
@@ -143,17 +144,11 @@ export async function runBuild(
 		baseSections.push(
 			'',
 			'=== existing block style variations ===',
-			'These variations are already registered. Reuse them by adding the matching `is-style-<slug>` class to a block instead of redefining them. Only emit a new entry in `block_style_variations[]` when none of these fits.',
 			variationsContext,
 		);
 	}
 	if (patternsContext) {
-		baseSections.push(
-			'',
-			'=== registered patterns ===',
-			'These block patterns are already registered in the theme. When code.tsx invokes a function whose PascalCase name matches one of these `name` entries, emit `<!-- wp:pattern {"slug":"<slug>"} /-->` for that JSX element instead of inlining the function body. Use the `slug` field verbatim. Match is case-sensitive and exact on the function name.',
-			patternsContext,
-		);
+		baseSections.push('', '=== registered patterns ===', patternsContext);
 	}
 	const devAnnotations = extractDevAnnotations(code);
 	if (devAnnotations.length > 0) {
@@ -171,13 +166,13 @@ export async function runBuild(
 			message: `Captured ${noteCount} dev annotation${noteCount === 1 ? '' : 's'} on ${devAnnotations.length} node${devAnnotations.length === 1 ? '' : 's'}`,
 		});
 	}
-	const placeholder = loaded.config.placeholderImage;
-	if (placeholder) {
-		baseSections.push(
-			'',
-			'=== placeholder image ===',
-			placeholderInstructions(placeholder),
-		);
+	const assetMappings = formatAssetMappingsContext(pull.assets);
+	if (assetMappings) {
+		baseSections.push('', '=== media library mappings ===', assetMappings);
+		onEvent({
+			kind: 'step',
+			message: `Loaded ${pull.assets!.length} media library mapping${pull.assets!.length === 1 ? '' : 's'}`,
+		});
 	}
 	const baseContext = baseSections.join('\n');
 
@@ -273,10 +268,10 @@ export async function runBuild(
 type UserContent = Array<TextBlock | ImageBlock>;
 
 // We rely on the tsx-to-blocks skill to know HOW to convert. The lead
-// sentence keeps the trigger words from the skill's description so the
-// SDK auto-invokes it; the skill body owns the conversion rules. The
-// per-call dynamic context is the template's role (header/footer/page),
-// which the skill cannot infer from code.tsx alone.
+// sentence dispatches via a SCOPE token whose rules the skill owns
+// verbatim — see the skill's "Scope vocabulary" + "Per-scope rules"
+// sections. The .ts side only emits the dynamic per-call context
+// (template name, scope token).
 function buildUserContent(
 	templateFile: string,
 	baseContext: string,
@@ -284,15 +279,12 @@ function buildUserContent(
 	usesPostContent: boolean,
 ): UserContent {
 	const role = templateRole(templateFile);
+	const scope = scopeForTemplate(role, usesPostContent);
 	const content: UserContent = [];
-
-	const wrapperNote = usesPostContent
-		? ' This template embeds the page body via wp:post-content. The TSX has a region marked with data-neptune-annotations="post-content" — replace that subtree with `<!-- wp:post-content /-->` and convert ONLY the surrounding chrome (post title, post date, comments, etc.). Do NOT convert the marked subtree itself; build-content will handle it.'
-		: '';
 
 	content.push({
 		type: 'text',
-		text: `Convert this Figma-generated React + Tailwind component (code.tsx) to Gutenberg block markup for the WordPress block theme template ${templateFile} (role: ${role}). Use the tsx-to-blocks skill. ${roleScopeNote(role)}${wrapperNote}`,
+		text: `Use the tsx-to-blocks skill. SCOPE: ${scope}. Template file: ${templateFile}. Apply the rules from the skill's "Scope: ${scope}" section verbatim.`,
 	});
 
 	if (screenshotBase64) {
@@ -337,12 +329,14 @@ export function placeholderInstructions(placeholder: {
 	].join('\n');
 }
 
-export function roleScopeNote(role: TemplateRole): string {
-	if (role === 'header') {
-		return 'Convert ONLY the header region of the source page (site title, primary nav, top bar). The header region is marked with `data-neptune-annotations="header"`; when present, scope strictly to that subtree. Ignore main content and footer.';
-	}
-	if (role === 'footer') {
-		return 'Convert ONLY the footer region of the source page (site info, secondary nav, copyright). The footer region is marked with `data-neptune-annotations="footer"`; when present, scope strictly to that subtree. Ignore header and main content.';
-	}
-	return 'Convert the main content region of the source page. Header and footer live in separate template parts (parts/header.html, parts/footer.html); when code.tsx contains `data-neptune-annotations="header"` or `data-neptune-annotations="footer"` subtrees, emit `<!-- wp:template-part {"slug":"header"} /-->` / `<!-- wp:template-part {"slug":"footer"} /-->` references at their position rather than inlining their contents.';
+// Maps a template role + post-content flag onto the SCOPE token
+// vocabulary the tsx-to-blocks and apply-diff skills both define.
+// Keep returns aligned with those skills' "Scope vocabulary" tables.
+export function scopeForTemplate(
+	role: TemplateRole,
+	usesPostContent: boolean,
+): 'PAGE' | 'HEADER' | 'FOOTER' | 'WRAPPER' {
+	if (role === 'header') return 'HEADER';
+	if (role === 'footer') return 'FOOTER';
+	return usesPostContent ? 'WRAPPER' : 'PAGE';
 }

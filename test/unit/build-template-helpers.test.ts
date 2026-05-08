@@ -1,24 +1,20 @@
 import test from 'ava';
-import {roleScopeNote} from '../../source/commands/build-template.js';
+import {scopeForTemplate} from '../../source/commands/build-template.js';
 import {SPECIAL_META} from '../../source/commands/pull-template/special-meta.js';
 
-test('roleScopeNote: header points at site title / nav', t => {
-	const note = roleScopeNote('header');
-	t.regex(note, /header region/i);
-	t.regex(note, /Ignore main content and footer/i);
+test('scopeForTemplate: header role → HEADER token', t => {
+	t.is(scopeForTemplate('header', false), 'HEADER');
+	t.is(scopeForTemplate('header', true), 'HEADER');
 });
 
-test('roleScopeNote: footer points at site info / copyright', t => {
-	const note = roleScopeNote('footer');
-	t.regex(note, /footer region/i);
-	t.regex(note, /Ignore header and main content/i);
+test('scopeForTemplate: footer role → FOOTER token', t => {
+	t.is(scopeForTemplate('footer', false), 'FOOTER');
+	t.is(scopeForTemplate('footer', true), 'FOOTER');
 });
 
-test('roleScopeNote: page tells the model to skip header/footer', t => {
-	const note = roleScopeNote('page');
-	t.regex(note, /main content region/i);
-	t.regex(note, /parts\/header\.html/);
-	t.regex(note, /parts\/footer\.html/);
+test('scopeForTemplate: page role → PAGE without post-content, WRAPPER with', t => {
+	t.is(scopeForTemplate('page', false), 'PAGE');
+	t.is(scopeForTemplate('page', true), 'WRAPPER');
 });
 
 test('SPECIAL_META: stable shape for both kinds', t => {

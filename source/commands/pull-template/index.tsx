@@ -38,10 +38,15 @@ import {
 import FigmaPull from '../../integrations/figma/pull.js';
 import {realClock} from '../../lib/clock.js';
 import {openStudioSession} from '../../integrations/studio/mcp.js';
+import {uploadPulledAssets} from '../../integrations/studio/pull-asset-upload.js';
 import {ensureTemplate, templateTargetFor} from '../../lib/wp-templates.js';
 import {ensurePage, pageTargetFor} from '../../lib/wp-pages.js';
 import {resolve} from 'node:path';
-import type {SpecialPullKind, TitleCardRef} from '../../lib/types.js';
+import type {
+	PulledAsset,
+	SpecialPullKind,
+	TitleCardRef,
+} from '../../lib/types.js';
 import type {Loaded} from '../setup-project/types.js';
 import ConfigureView from './configure-view.js';
 import type {ConfigureSubmit} from './configure-view.js';
@@ -324,7 +329,22 @@ export default function PullTemplate({activeProject, onDone}: Props) {
 
 				// Asset download is part of the pull's correctness contract;
 				// failure here means the pull is incomplete, so escalate.
-				await downloadCodeAssets(pullDir, emit, signal);
+				const downloadResult = await downloadCodeAssets(pullDir, emit, signal);
+
+				// Import each PNG/JPG into the WP media library and capture
+				// the constName→attachment mapping for meta.json. Skipped
+				// for special pulls (style guide, templates) — those are
+				// metadata pulls without imagery the build agents reference.
+				let pulledAssets: PulledAsset[] | undefined;
+				if (!isSpecial && downloadResult.assets.length > 0) {
+					const wpRoot = resolve(activeProject.dir, 'wordpress');
+					pulledAssets = await uploadPulledAssets(
+						wpRoot,
+						downloadResult.assets,
+						signal,
+						emit,
+					);
+				}
 
 				// Validate code.tsx against the user's usesPostContent flag
 				// so we fail loud instead of letting the agent build with
@@ -425,6 +445,7 @@ export default function PullTemplate({activeProject, onDone}: Props) {
 					pageSlug: phase.usesPostContent ? phase.pageSlug : undefined,
 					pageId,
 					contentOnly: phase.contentOnly || undefined,
+					assets: pulledAssets,
 				});
 			}}
 			onDone={onDone}

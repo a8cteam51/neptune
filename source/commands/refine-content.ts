@@ -45,7 +45,7 @@ import {
 } from '../lib/dev-annotations.js';
 import type {LogEvent} from '../lib/event-list.js';
 import {openStudioSession} from '../integrations/studio/mcp.js';
-import {placeholderInstructions} from './build-template.js';
+import {formatAssetMappingsContext} from '../lib/asset-mappings.js';
 import {
 	pageTargetFor,
 	pageTargetLabel,
@@ -212,16 +212,13 @@ export async function runDiagnoseContent(
 	onEvent({kind: 'step', message: 'Invoking visual-diff agent…'});
 
 	const headerParts: string[] = [
-		`Compare these screenshots of the same WordPress page.`,
 		`Use the visual-diff skill.`,
+		`SCOPE: POST-CONTENT-BODY.`,
 		`Page slug: ${pull.pageSlug}.`,
 		`Pixel-diff ratio: ${outcome.diffPercentage.toFixed(2)}%.`,
-		`SCOPE: flag ONLY diffs inside the page body (post-content). Ignore wrapper chrome — site header, primary nav, footer, post-title, post-date, comments — those belong to the surrounding template (${pull.templateFile}) and are refined separately. The current.html provided is the page body markup only; diffs that target chrome regions cannot be applied here.`,
 	];
 	if (sizeNote) {
-		headerParts.push(
-			`${sizeNote} Both images were padded to a common canvas before diffing; magenta regions in diff.png mark areas where one side has no content (i.e. one side is taller/wider than the other).`,
-		);
+		headerParts.push(sizeNote);
 	}
 
 	const reportText = await agentRunner(
@@ -339,7 +336,6 @@ export async function runApplyContent(
 		sections.push(
 			'',
 			'=== existing block style variations ===',
-			'These variations are already registered in this theme. Reuse them by applying the matching `is-style-<slug>` class instead of redefining them. Only emit a new entry in `block_style_variations[]` when none of these fits.',
 			reviewPhase.existingVariationsText,
 		);
 	}
@@ -350,13 +346,9 @@ export async function runApplyContent(
 			reviewPhase.devAnnotationsText,
 		);
 	}
-	const placeholder = loaded.config.placeholderImage;
-	if (placeholder) {
-		sections.push(
-			'',
-			'=== placeholder image ===',
-			placeholderInstructions(placeholder),
-		);
+	const assetMappings = formatAssetMappingsContext(reviewPhase.pull.assets);
+	if (assetMappings) {
+		sections.push('', '=== media library mappings ===', assetMappings);
 	}
 
 	onEvent({kind: 'step', message: 'Invoking apply-diff agent…'});
@@ -365,11 +357,7 @@ export async function runApplyContent(
 		[
 			{
 				type: 'text',
-				text:
-					`Apply this list of approved visual diffs to the existing Gutenberg block markup that constitutes the BODY (post_content) of a WordPress page (slug: ${reviewPhase.pull.pageSlug}). ` +
-					`Use the apply-diff skill. Apply only the supplied diffs; do not introduce new ones. ` +
-					`SCOPE: current.html is the page body only — NOT a template. Do NOT emit wp:template-part references, wp:post-title, wp:post-date, or any chrome. Do NOT emit wp:post-content (this output IS the post content). If a diff targets a region that isn't present in current.html (header, footer, post-title, etc.), skip it with that reason. ` +
-					`Return the JSON envelope described in the skill. Neptune persists the page and applies the optional theme.json patch directly — do NOT call any tools yourself.`,
+				text: `Use the apply-diff skill. SCOPE: POST-CONTENT-BODY. Page slug: ${reviewPhase.pull.pageSlug}. Apply the rules from the skill's "Scope: POST-CONTENT-BODY" row of the scope-vocabulary table verbatim.`,
 			},
 			{type: 'text', text: sections.join('\n')},
 			{

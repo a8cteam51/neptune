@@ -7,6 +7,19 @@ export type TitleCardRef = {
 	name: string;
 };
 
+// Per-asset record persisted in <pull>/meta.json. Records the const
+// declaration in code.tsx that the WP media item replaces, so build
+// agents can swap localhost:3845 references for real attachment ids
+// without scanning the bytes themselves. Only PNG/JPG/JPEG assets get
+// uploaded — see source/integrations/figma/assets-fetch.ts for the
+// filter rationale.
+export type PulledAsset = {
+	constName: string;
+	filename: string;
+	mediaId: number;
+	mediaUrl: string;
+};
+
 export type PullMeta = {
 	pageName: string;
 	slug: string;
@@ -39,4 +52,8 @@ export type PullMeta = {
 	titleCards?: TitleCardRef[];
 	expectedWidth?: number;
 	expectedHeight?: number;
+	// PNG/JPG assets imported into the WP media library at pull time.
+	// Build/refine agents read this mapping to swap code.tsx
+	// localhost:3845 references for real attachment ids and URLs.
+	assets?: PulledAsset[];
 };

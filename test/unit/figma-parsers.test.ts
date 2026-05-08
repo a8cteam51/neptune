@@ -1,39 +1,76 @@
 import test from 'ava';
-import {extractAssetUrls} from '../../source/integrations/figma/assets-fetch.js';
+import {
+	extractAssetRefs,
+	extractAssetUrls,
+} from '../../source/integrations/figma/assets-fetch.js';
 import {parseTitleCards} from '../../source/integrations/figma/handoff-parse.js';
 import {stripLlmInstructions} from '../../source/integrations/figma/mcp.js';
 import {slugify} from '../../source/commands/pull-template/special-meta.js';
 
-test('extractAssetUrls dedupes by URL', t => {
+test('extractAssetUrls keeps PNG/JPG, drops SVG and other formats', t => {
 	const code = `
 const imgA = "http://localhost:3845/assets/aaa.png";
 const imgB = "http://localhost:3845/assets/bbb.svg";
 const imgA2 = "http://localhost:3845/assets/aaa.png";
-const imgC = "http://localhost:3845/assets/ccc.svg";
+const imgC = "http://localhost:3845/assets/ccc.jpg";
+const imgD = "http://localhost:3845/assets/ddd.jpeg";
+const imgE = "http://localhost:3845/assets/eee.webp";
+const imgF = "http://localhost:3845/assets/fff.PNG";
 `;
 	t.deepEqual(extractAssetUrls(code), [
 		'http://localhost:3845/assets/aaa.png',
-		'http://localhost:3845/assets/bbb.svg',
-		'http://localhost:3845/assets/ccc.svg',
+		'http://localhost:3845/assets/ccc.jpg',
+		'http://localhost:3845/assets/ddd.jpeg',
+		'http://localhost:3845/assets/fff.PNG',
 	]);
 });
 
 test('extractAssetUrls ignores non-localhost URLs', t => {
 	const code = `
 const imgRemote = "https://example.com/assets/aaa.png";
-const imgLocal = "http://localhost:3845/assets/bbb.svg";
+const imgLocal = "http://localhost:3845/assets/bbb.png";
 `;
-	t.deepEqual(extractAssetUrls(code), ['http://localhost:3845/assets/bbb.svg']);
+	t.deepEqual(extractAssetUrls(code), ['http://localhost:3845/assets/bbb.png']);
 });
 
 test('extractAssetUrls ignores let/var/inline URLs (anchored to const at line start)', t => {
 	const code = `
 let imgA = "http://localhost:3845/assets/aaa.png";
-var imgB = "http://localhost:3845/assets/bbb.svg";
-const imgC = "http://localhost:3845/assets/ccc.svg";
-const inJsx = <img src="http://localhost:3845/assets/ddd.svg" />;
+var imgB = "http://localhost:3845/assets/bbb.png";
+const imgC = "http://localhost:3845/assets/ccc.png";
+const inJsx = <img src="http://localhost:3845/assets/ddd.png" />;
 `;
-	t.deepEqual(extractAssetUrls(code), ['http://localhost:3845/assets/ccc.svg']);
+	t.deepEqual(extractAssetUrls(code), ['http://localhost:3845/assets/ccc.png']);
+});
+
+test('extractAssetRefs returns const name + filename per ref', t => {
+	const code = `
+const imgHero = "http://localhost:3845/assets/aaa1234.png";
+const imgIcon = "http://localhost:3845/assets/bbb5678.svg";
+const imgFoot = "http://localhost:3845/assets/ccc9999.jpg";
+`;
+	t.deepEqual(extractAssetRefs(code), [
+		{
+			constName: 'imgHero',
+			url: 'http://localhost:3845/assets/aaa1234.png',
+			filename: 'aaa1234.png',
+		},
+		{
+			constName: 'imgFoot',
+			url: 'http://localhost:3845/assets/ccc9999.jpg',
+			filename: 'ccc9999.jpg',
+		},
+	]);
+});
+
+test('extractAssetRefs dedupes by URL, first const wins', t => {
+	const code = `
+const imgA = "http://localhost:3845/assets/aaa.png";
+const imgAlias = "http://localhost:3845/assets/aaa.png";
+`;
+	const refs = extractAssetRefs(code);
+	t.is(refs.length, 1);
+	t.is(refs[0]!.constName, 'imgA');
 });
 
 test('parseTitleCards extracts inner text element name', t => {

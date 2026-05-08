@@ -7,6 +7,20 @@ description: Use when applying a list of pre-approved visual diffs to an existin
 
 You revise an existing WordPress block-theme template to apply a specific list of changes that the user has already reviewed and approved. You do NOT re-evaluate whether the changes are correct — your job is to apply each one accurately and leave everything else alone.
 
+## Scope vocabulary
+
+Inline prompts dispatch by emitting a single `SCOPE: <TOKEN>` line that names which region the input `current.html` represents. Token names are STABLE — Neptune's prompt code references them, do not rename.
+
+| Token               | `current.html` is                                          | Don't emit                                                                                             |
+| ------------------- | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `PAGE`              | A full-page template (header, body, footer all inline)     | (none — full chrome allowed)                                                                           |
+| `HEADER`            | `parts/header.html`                                        | wp:post-content, wp:post-title, footer chrome, body content                                            |
+| `FOOTER`            | `parts/footer.html`                                        | wp:post-content, wp:post-title, header chrome, body content                                            |
+| `WRAPPER`           | A template that embeds the page body via `wp:post-content` | The page body subtree (keep `wp:post-content` placeholder verbatim)                                    |
+| `POST-CONTENT-BODY` | The page's `post_content` only (NOT a template)            | wp:template-part, wp:post-title, wp:post-date, wp:post-content, comments — those belong to the wrapper |
+
+If a diff in `diffs.json` targets a region the active scope does not own, record it in `skipped` with a reason that names the offending region. Do not invent edits in regions the scope excludes, and do not add chrome the scope's "Don't emit" column lists.
+
 ## Inputs the user gives you
 
 - `current.html` — the existing Gutenberg block markup. This is what you edit.
@@ -22,7 +36,7 @@ You revise an existing WordPress block-theme template to apply a specific list o
 - Optionally `variables.json` — the original Figma token map.
 - Optionally `=== existing block style variations ===` — a JSON array of variations already registered for this theme (slug, title, blockTypes, styles). When a diff implies an alternative block style and one of these matches, REUSE it by applying the existing `is-style-<slug>` class — do NOT redeclare it in `block_style_variations[]`.
 - Optionally a `=== dev annotations ===` section. Non-binding designer notes attached to specific regions; they may explain why a block looks the way it does (e.g. "placeholder for post content", "empty state"). Use them as context when judging whether to apply a diff — never as a reason to introduce a change that wasn't in `diffs.json`.
-- Optionally a `=== placeholder image ===` section giving an attachment id and URL. When present, every `wp:image` block you emit (or modify) MUST use those values: set `"id":<id>` in the block attrs, `<img src="<url>" class="wp-image-<id>">`. Do not invent other URLs and do not leave `src` empty.
+- Optionally a `=== media library mappings ===` section listing `<constName> → id=<n>, url=<...>` entries. Each maps a `const imgFoo = "http://localhost:3845/..."` declaration in code.tsx to a real attachment already imported into the WP media library. When a diff requires emitting or modifying a `wp:image`, resolve the source against this mapping: if the underlying const appears in the list, use its `id` and `url` (`"id":<id>` in attrs, `<img src="<url>" class="wp-image-<id>">`). If the const is NOT in the mapping (typically an SVG reference: divider, ornament, icon), do NOT emit a `wp:image` at all — see "Handling SVG and unmapped image references" below. Empty `wp:image` (`src=""` with no `id`) is forbidden: WP renders it as a broken-image placeholder. Never use Figma's localhost:3845 URLs and never invent file paths.
 
 ## Output format
 
@@ -30,40 +44,47 @@ Return ONLY a single JSON object. No markdown fences. No prose. Shape:
 
 ```jsonc
 {
-  "template_html": "<!-- wp:group ... --><!-- /wp:group -->",
-  "theme_json_patch": {
-    "blocks": {
-      "core/heading": {
-        "typography": { "letterSpacing": "-0.02em" }
-      }
-    }
-  },
-  "block_style_variations": [
-    {
-      "slug": "neptune-fill-small",
-      "title": "Fill Small",
-      "blockTypes": ["core/button"],
-      "styles": {
-        "spacing": { "padding": { "top": "8px", "right": "16px", "bottom": "8px", "left": "16px" } }
-      }
-    }
-  ],
-  "applied": [
-    {
-      "id": "hero-heading-level",
-      "summary": "Changed wp:paragraph to wp:heading level=1"
-    },
-    {
-      "id": "footer-spacing",
-      "summary": "Switched padding to var:preset|spacing|lg"
-    }
-  ],
-  "skipped": [
-    {
-      "id": "card-hover",
-      "reason": "Description didn't reference a specific block in current.html."
-    }
-  ]
+	"template_html": "<!-- wp:group ... --><!-- /wp:group -->",
+	"theme_json_patch": {
+		"blocks": {
+			"core/heading": {
+				"typography": {"letterSpacing": "-0.02em"},
+			},
+		},
+	},
+	"block_style_variations": [
+		{
+			"slug": "neptune-fill-small",
+			"title": "Fill Small",
+			"blockTypes": ["core/button"],
+			"styles": {
+				"spacing": {
+					"padding": {
+						"top": "8px",
+						"right": "16px",
+						"bottom": "8px",
+						"left": "16px",
+					},
+				},
+			},
+		},
+	],
+	"applied": [
+		{
+			"id": "hero-heading-level",
+			"summary": "Changed wp:paragraph to wp:heading level=1",
+		},
+		{
+			"id": "footer-spacing",
+			"summary": "Switched padding to var:preset|spacing|lg",
+		},
+	],
+	"skipped": [
+		{
+			"id": "card-hover",
+			"reason": "Description didn't reference a specific block in current.html.",
+		},
+	],
 }
 ```
 
@@ -94,13 +115,24 @@ For each style change implied by a diff, work top-down and stop at the first opt
    - (a) No preset matches (step 1 fails).
    - (b) The value is unique to this single block instance — does NOT appear on any sibling block of the same type in `current.html`, and you would not write the same value on a future sibling.
    - (c) The value would not naturally extend `theme.json.styles.blocks["core/<x>"]` for this block type — i.e. it's genuinely instance-specific, not a default the block type should inherit.
-   If any of (a)–(c) fails, promote to step 2 or step 4.
+     If any of (a)–(c) fails, promote to step 2 or step 4.
 
 NEVER write to `styles.css` or any other top-level theme.json key. NEVER emit raw CSS outside `theme_json_patch.blocks.<x>.css` or a variation's `styles.css`. The site's `style.css` file is off-limits.
 
 ## Custom design tokens
 
 When a diff implies a value that's reused across multiple blocks (a recurring offset, a custom radius), register it at `theme_json_patch.custom.<group>.<name>` and reference it via `var(--wp--custom--<group>--<name>)` in your block-scoped CSS.
+
+## Handling SVG and unmapped image references
+
+A diff may instruct you to add or modify an image whose source const is not in `=== media library mappings ===` (typically SVG: divider, ornament, icon). Do NOT emit a `wp:image` with empty `src` — WP renders it as a broken-image placeholder. Translate the visual's intent into a STRUCTURED block expression instead. Use the diff's description plus the surrounding `current.html` context to pick the right interpretation, walking this priority order top-down:
+
+1. **Decorative line / divider** (single-segment path, narrow stroke, full-width or full-height span). Emit `wp:separator` when the line stands alone between siblings, or apply `border.top` / `border.bottom` / `border.left` / `border.right` on the parent block when the line is the parent's edge. Read the colour from the SVG's `stroke` (or surrounding CSS variable); prefer a theme.json palette slug when one matches.
+2. **Background ornament** (filled shape positioned absolutely behind content, decorative blob, gradient stripe). Translate to `style.color.background` / `style.color.gradient` on the parent block, or to a `background-image` rule on a registered `block_style_variations[]` entry that the parent block claims via `is-style-<slug>`. Drop the SVG element from the markup.
+3. **Icon glyph used like an emoji or button affordance** (small, square, inline with text). Drop the element entirely if it is purely decorative. Only when the icon is semantically required AND the SVG markup is inline in the diff or `current.html`, emit `wp:html` containing the SVG verbatim. Never emit `wp:html` for an external `<img src={…}>` SVG reference — you do not have the bytes.
+4. **Last resort**: if the visual cannot be expressed structurally and is not safely droppable, omit the element. Empty `wp:image` is NEVER acceptable.
+
+If you can't decide which case applies, record the diff in `skipped` with a reason naming the ambiguity. Do not invent an empty `wp:image` to "preserve" the element.
 
 ## What to do for each diff
 

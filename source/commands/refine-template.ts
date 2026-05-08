@@ -64,8 +64,9 @@ import {
 	decode,
 	type DecodeError,
 } from '../lib/decode.js';
-import {templateSubdir} from '../lib/template-scaffold.js';
-import {placeholderInstructions} from './build-template.js';
+import {templateRole, templateSubdir} from '../lib/template-scaffold.js';
+import {formatAssetMappingsContext} from '../lib/asset-mappings.js';
+import {scopeForTemplate} from './build-template.js';
 import {
 	readTemplate,
 	targetLabel,
@@ -249,25 +250,18 @@ export async function runDiagnose(
 
 	onEvent({kind: 'step', message: 'Invoking visual-diff agent…'});
 
+	const diffScope = scopeForTemplate(
+		templateRole(pull.templateFile),
+		pull.usesPostContent === true,
+	);
 	const headerParts: string[] = [
-		`Compare these screenshots of the same WordPress page.`,
 		`Use the visual-diff skill.`,
+		`SCOPE: ${diffScope}.`,
 		`Template file: ${pull.templateFile}.`,
 		`Pixel-diff ratio: ${outcome.diffPercentage.toFixed(2)}%.`,
 	];
-	if (pull.usesPostContent === true) {
-		// The wrapper template embeds wp:post-content; current.html is
-		// the wrapper markup only. Body diffs would have nowhere to
-		// land — they belong to refine-content's pass against the page
-		// post.
-		headerParts.push(
-			`SCOPE: this template embeds the page body via wp:post-content. Flag ONLY diffs in the wrapper chrome — site header, primary nav, footer, post-title, post-date, comments, and any other surrounding chrome. IGNORE diffs inside the page body region; those belong to the page post and are refined separately by refine-content. The current.html provided is the wrapper markup only; diffs targeting the body cannot be applied here.`,
-		);
-	}
 	if (sizeNote) {
-		headerParts.push(
-			`${sizeNote} Both images were padded to a common canvas before diffing; magenta regions in diff.png mark areas where one side has no content (i.e. one side is taller/wider than the other).`,
-		);
+		headerParts.push(sizeNote);
 	}
 
 	const reportText = await agentRunner(
@@ -407,7 +401,6 @@ export async function runApply(
 		sections.push(
 			'',
 			'=== existing block style variations ===',
-			'These variations are already registered in this theme. Reuse them by applying the matching `is-style-<slug>` class instead of redefining them. Only emit a new entry in `block_style_variations[]` when none of these fits.',
 			reviewPhase.existingVariationsText,
 		);
 	}
@@ -418,25 +411,22 @@ export async function runApply(
 			reviewPhase.devAnnotationsText,
 		);
 	}
-	const placeholder = loaded.config.placeholderImage;
-	if (placeholder) {
-		sections.push(
-			'',
-			'=== placeholder image ===',
-			placeholderInstructions(placeholder),
-		);
+	const assetMappings = formatAssetMappingsContext(reviewPhase.pull.assets);
+	if (assetMappings) {
+		sections.push('', '=== media library mappings ===', assetMappings);
 	}
 
 	onEvent({kind: 'step', message: 'Invoking apply-diff agent…'});
 
+	const applyScope = scopeForTemplate(
+		templateRole(reviewPhase.pull.templateFile),
+		reviewPhase.pull.usesPostContent === true,
+	);
 	const responseText = await agentRunner(
 		[
 			{
 				type: 'text',
-				text:
-					`Apply this list of approved visual diffs to the existing Gutenberg block markup template (${reviewPhase.pull.templateFile}). ` +
-					`Use the apply-diff skill. Apply only the supplied diffs; do not introduce new ones. ` +
-					`Return the JSON envelope described in the skill. Neptune persists the template and applies the optional theme.json patch directly — do NOT call any tools yourself.`,
+				text: `Use the apply-diff skill. SCOPE: ${applyScope}. Template file: ${reviewPhase.pull.templateFile}. Apply the rules from the skill's "Scope: ${applyScope}" row of the scope-vocabulary table verbatim.`,
 			},
 			{type: 'text', text: sections.join('\n')},
 			{
