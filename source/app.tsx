@@ -28,6 +28,7 @@ import RefineTemplates from './commands/refine-templates.js';
 import RefineContents from './commands/refine-contents.js';
 import ViewTemplateDiff from './commands/view-template-diff.js';
 import BuildThemeJson from './commands/build-theme-json.js';
+import CaptureScreens from './commands/capture-screens.js';
 import E2E from './commands/e2e.js';
 import SetupProject, {type Loaded} from './commands/setup-project.js';
 import {loadOrInit} from './commands/setup-project/config.js';
@@ -57,7 +58,8 @@ type View =
 	| 'refineTemplates'
 	| 'viewTemplateDiff'
 	| 'buildTheme'
-	| 'e2e';
+	| 'e2e'
+	| 'captureScreens';
 
 type MenuValue = View | 'quit';
 
@@ -463,6 +465,12 @@ function buildMenuItems({
 			label: 'End-to-end build',
 			value: 'e2e',
 		});
+		e2eItems.push({
+			kind: 'item',
+			key: 'captureScreens',
+			label: 'Capture screens',
+			value: 'captureScreens',
+		});
 	}
 
 	pushSection(items, 'Figma', figmaItems);
@@ -585,6 +593,13 @@ function renderView(
 			);
 		case 'e2e':
 			return <E2E activeProject={activeProject} onDone={() => onDone(true)} />;
+		case 'captureScreens':
+			return (
+				<CaptureScreens
+					activeProject={activeProject}
+					onDone={() => onDone(false)}
+				/>
+			);
 		default:
 			return null;
 	}

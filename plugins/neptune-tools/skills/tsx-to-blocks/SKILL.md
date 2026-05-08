@@ -155,18 +155,49 @@ Return ONLY a single JSON object. No markdown fences. No preamble. No commentary
 
 ## Where to put style information
 
-The default channel for styling a block is `theme_json_patch.blocks["core/<x>"]` — extending what's already in `theme.json.styles.blocks`. Inline `style` attributes on individual blocks are an exception, not a fallback, and require justification at three checks (see step 6). When in doubt, register; don't inline.
+The default channel for styling a block is `theme_json_patch.blocks["core/<x>"]` — extending what's already in `theme.json.styles.blocks`. Inline `style` attributes on individual blocks are an exception, not a fallback, and require justification at three checks (see step 7). When in doubt, register; don't inline.
+
+The single biggest failure mode in this conversion is "I'll just add a `className` and key a CSS rule off it." That move bypasses every structured surface WordPress exposes and produces output the editor can't introspect. Before you reach for a custom `className` + CSS combo, work the cheat sheet and the `layout` attribute below — most of what feels like "I need raw CSS" is really an unused structured property or the wrong block attribute.
+
+### Structured properties to check before reaching for `css`
+
+The theme.json `styles` shape (which is also the shape inside `block_style_variations[].styles` and `theme_json_patch.blocks["core/<x>"]`) carries far more than color and typography. Walk this list before deciding a value needs `css`:
+
+- `spacing.padding`, `spacing.margin` — top/right/bottom/left, with preset refs (`var:preset|spacing|<slug>`) or raw lengths.
+- `spacing.blockGap` — gap between child blocks. Use this in place of `gap:var(...)` inside a `css` field.
+- `dimensions.minHeight` — supported on `core/group`, `core/cover`, etc. Use `"dimensions":{"minHeight":"48px"}` instead of `min-height:48px;` in `css`.
+- `dimensions.aspectRatio` — supported on `core/image`, `core/cover`, `core/post-featured-image`, `core/group`. Accepts ratios (`"16/9"`, `"906/452"`) or named slugs. Use this instead of `aspect-ratio:...` in `css`.
+- `border.radius`, `border.color`, `border.width`, `border.style` — and per-side variants (`border.top.color`, `border.bottom.width`, ...).
+- `shadow` — preset slug or raw shadow value.
+- `outline.color`, `outline.style`, `outline.width`, `outline.offset`.
+- `filter.duotone` — preset slug.
+- `typography.fontFamily/Size/Weight/Style/LetterSpacing/LineHeight/TextDecoration/TextTransform/TextColumns/WritingMode`.
+- `color.background`, `color.text`, `color.gradient`.
+
+What legitimately requires `css` and has no structured equivalent: `display`, `flex-direction`, `align-items`, `justify-content` *as variation styling* (see "Layout attribute" below for the instance path), `box-sizing`, child-element selectors (`& img`, `& .wp-block-button__link`), `:hover`/`:focus` states, `@media` breakpoints. Reach for `css` for these — not for properties already listed in the cheat sheet.
+
+### Layout attribute on block instances
+
+`wp:group` (and `wp:columns`, `wp:cover`) takes a `layout` block ATTRIBUTE that selects the container type and exposes structured controls. This is NOT under `style:{...}` — it sits at the top level of the block's attributes, alongside `align` and `className`. It is the right channel for almost every flex / grid / constrained container in a Tailwind-derived TSX.
+
+- `layout:{"type":"flex","orientation":"horizontal"|"vertical","justifyContent":"left"|"center"|"right"|"space-between","flexWrap":"wrap"|"nowrap","verticalAlignment":"top"|"center"|"bottom"}`
+- `layout:{"type":"grid","columnCount":N}` — fixed N-column grid. Or `{"type":"grid","minimumColumnWidth":"240px"}` for an auto-fit grid.
+- `layout:{"type":"constrained","contentSize":"672px","wideSize":"1170px"}` — centered content with a max width and wide-align support.
+- Pair with `style:{"spacing":{"blockGap":"var:preset|spacing|<slug>"}}` for the gap between children.
+
+When the source TSX has `<div class="grid grid-cols-3 gap-8">`, the right output is `wp:group` with `layout:{"type":"grid","columnCount":3}` plus `style.spacing.blockGap` — NOT a `karla-card-grid` `className` whose CSS rule lives in `theme_json_patch.blocks["core/group"].css`. The structured `layout` attribute is purpose-built for this; the className route is invisible to the editor and competes with sibling overrides on specificity.
 
 ### Priority order
 
 For every styling decision, work top-down and stop at the first option that fits.
 
 1. **A theme.json preset slug** already in `theme.json` — `{"backgroundColor":"<slug>"}`, `{"textColor":"<slug>"}`, `{"fontSize":"<slug>"}`, `style.spacing` with `var:preset|spacing|<slug>`. Always prefer this when a preset matches.
-2. **A structured property under `theme_json_patch.blocks["core/<x>"]`** — pre-exposed block properties (color/typography/spacing/border/elements). DEFAULT channel for any value that isn't a preset slug. Read what's already at `theme.json.styles.blocks["core/<x>"]` first; your patch extends that subtree. Inherits cleanly, stays editable in the Site Editor, never duplicates across templates.
+2. **A structured property under `theme_json_patch.blocks["core/<x>"]`** — pre-exposed block properties (color/typography/spacing/dimensions/border/shadow/outline/elements). DEFAULT channel for any value that isn't a preset slug. Read what's already at `theme.json.styles.blocks["core/<x>"]` first; your patch extends that subtree. Walk the cheat sheet above before deciding a value isn't structured.
 3. **An existing block style variation** — if `=== existing block style variations ===` contains an entry whose `styles` already matches what you need, apply its `is-style-<slug>` class. Do NOT redeclare in `block_style_variations[]`.
-4. **A new block style variation** in `block_style_variations[]` — register one whenever the same constellation of styles will (or already does) appear on multiple instances of the same block type with a coherent visual identity. Forcing question: "would I otherwise inline these same styles on a sibling block of the same type?" If yes, register the variation. The criterion is recurrence + coherence, NOT whether an editor user might switch styles.
-5. **CSS** in a `.css` field — only when the rule cannot be expressed as a structured property (pseudo-selectors, descendant selectors, animations, complex states). Use `theme_json_patch.blocks["core/<x>"].css` for project-wide rules or a variation's `styles.css` for scoped ones.
-6. **Raw inline `style` attribute on a block** — exception path. Allowed only when ALL THREE hold:
+4. **A new block style variation** in `block_style_variations[]` — register one whenever the same constellation of styles will (or already does) appear on multiple instances of the same block type with a coherent visual identity. Use structured properties inside `styles` first; only fall through to `styles.css` when the rule isn't structured (display/flex-direction, child-element selectors, media queries). Forcing question: "would I otherwise inline these same styles on a sibling block of the same type?" If yes, register the variation.
+5. **The `layout` attribute on the block instance** — for flex / grid / constrained containers, set `wp:group`'s `layout:{...}` (see "Layout attribute" above). This is the right channel for `display:flex`, `justify-content`, `flex-wrap`, `grid-template-columns:repeat(N,1fr)`. Do NOT emulate these by writing CSS keyed off a custom `className`.
+6. **CSS** in a `.css` field — only when the rule cannot be expressed as a structured property AND is not a `layout` choice (pseudo-selectors, child-element selectors, animations, complex states, media-query refinements). Use `theme_json_patch.blocks["core/<x>"].css` for project-wide rules or a variation's `styles.css` for scoped ones. Inside the `css` value, prefer `&{...}` (the block itself) and block-internal descendant selectors (`& img`, `& .wp-block-button__link`); a variation's own `&.is-style-<slug>{...}` selector is also fine. Avoid `&.<custom-class>{...}` selectors that depend on a `className` you invented for the purpose — those are the className-as-CSS-hook anti-pattern (see Hard rules).
+7. **Raw inline `style` attribute on a block** — exception path. Allowed only when ALL THREE hold:
    - (a) No preset matches (step 1 fails).
    - (b) The value is unique to this single block instance — does NOT appear on any sibling block of the same type in this template, and you would not write the same value on a future sibling.
    - (c) The value would not naturally extend `theme.json.styles.blocks["core/<x>"]` for this block type — i.e. it's genuinely instance-specific, not a default the block type should inherit.
@@ -186,6 +217,16 @@ NEVER write to `styles.css` or any other top-level theme.json key. NEVER emit ra
 - Wrong: inline `{"style":{"typography":{"letterSpacing":"-0.02em"}}}` on this `wp:heading`. Future headings won't pick it up.
 - Right: emit `theme_json_patch.blocks["core/heading"].typography.letterSpacing = "-0.02em"`. Every `wp:heading` inherits cleanly; the existing `theme.json.styles.blocks["core/heading"]` subtree gets extended, not overwritten.
 
+**When to use `layout` on the instance.** Three media cards in a 3-column responsive grid: `<div class="grid grid-cols-3 gap-8 max-md:grid-cols-1"><MediaCard/><MediaCard/><MediaCard/></div>`.
+
+- Wrong: `wp:group` with `"className":"karla-media-grid"` and a `theme_json_patch.blocks["core/group"].css` rule `&.karla-media-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:var(--wp--preset--spacing--32);} @media (max-width:900px){&.karla-media-grid{grid-template-columns:1fr;}}`. The `karla-media-grid` className is invisible to the editor, the rule competes for specificity with other `core/group` overrides, and the next 3-column grid copies the same pattern under a fresh `className`.
+- Right: `wp:group` with `"layout":{"type":"grid","columnCount":3}` and `"style":{"spacing":{"blockGap":"var:preset|spacing|32"}}`. No custom `className`. Each child claims `is-style-neptune-media-card` (a registered variation that owns the card's padding / border / shadow). The mobile single-column fallback is the only thing that legitimately escapes — and it goes inside the variation's `styles.css` as `@media (max-width:900px){&{...}}`, scoped to the variation, not keyed off an ad-hoc class.
+
+**When NOT to invent a `className`.** A flex row with logo on the left and CTA on the right: `<div class="flex justify-between items-center px-8 py-4">...</div>`.
+
+- Wrong: `wp:group` with `"className":"karla-header-row"` plus a `&.karla-header-row{display:flex;justify-content:space-between;align-items:center;padding:...;}` CSS rule.
+- Right: `wp:group` with `"layout":{"type":"flex","justifyContent":"space-between","verticalAlignment":"center","flexWrap":"nowrap"}` and `"style":{"spacing":{"padding":{"top":"var:preset|spacing|16","right":"var:preset|spacing|32","bottom":"var:preset|spacing|16","left":"var:preset|spacing|32"}}}`. No custom `className`. Editor users see the layout controls; future header-row siblings get the same affordances by reusing the same attribute pattern.
+
 ## Custom design tokens
 
 When a value isn't a preset and is reused across multiple blocks (e.g. a recurring offset, a custom radius), register it under `theme_json_patch.custom.<group>.<name>` and reference it via `var(--wp--custom--<group>--<name>)` in your block-scoped CSS. Don't inline the same magic number in three places — promote it.
@@ -195,7 +236,7 @@ When a value isn't a preset and is reused across multiple blocks (e.g. a recurri
 | TSX shape | Use this block |
 | --- | --- |
 | JSX call whose tag name is in `=== registered patterns ===` | `wp:pattern` with the matching `slug` — see "Registered patterns" |
-| Top-level layout `<div>` wrapping a section | `wp:group` with an appropriate `layout` (constrained / flex / grid) |
+| Top-level layout `<div>` wrapping a section | `wp:group` with an appropriate `layout` block ATTRIBUTE: `{"type":"constrained","contentSize":...}` for centered content with a max width; `{"type":"flex","justifyContent":...,"flexWrap":...,"verticalAlignment":...}` for flex rows/columns; `{"type":"grid","columnCount":N}` (or `"minimumColumnWidth"`) for grids. Pair with `style.spacing.blockGap` for inter-child gap. Do NOT emulate flex/grid via a custom `className` keyed to a CSS rule — the structured `layout` attribute is purpose-built for this. |
 | `<h1>`…`<h6>` | `wp:heading` with `level` attribute |
 | `<p>` / span text runs | `wp:paragraph` |
 | `<a>` styled like a button (background, padding, rounded) | `wp:button` inside `wp:buttons` |
@@ -229,6 +270,7 @@ When a class uses a CSS variable like `var(--eureka/contrast-1,#21201c)`, resolv
 - Slugs are kebab-case, lowercase, alphanumeric + hyphens.
 - Variation slugs in `block_style_variations[]` MUST be prefixed `neptune-` so they don't collide with theme defaults.
 - When adding a border to a single edge of a block, ensure other edges are explicitly set to `0px` to avoid unintended borders from theme styles.
+- Do NOT invent project-specific `className` values whose only purpose is to give a CSS rule a selector. If you find yourself wanting to write `theme_json_patch.blocks["core/<x>"].css = "&.foo{...}"` to back a class you just made up, choose instead one of: (a) a `block_style_variations[]` entry the block claims via `is-style-<slug>` (CSS keyed off `&.is-style-<slug>` or `&` inside the variation is fine — the variation's class is registered, not invented per-template); (b) structured properties on the block (`style.spacing`, `style.dimensions`, `style.border`, `style.typography`, ...) plus a `layout:{...}` attribute when the rule is layout. The `metadata.name` field on a block (used for human-readable labels in the editor's list view) is NOT a styling hook and is fine. Block-internal child selectors inside a variation's or block's `css` field (`& img`, `& .wp-block-button__link`, `& > .wp-block-group`) are also fine — they don't depend on a custom `className`.
 - For `wp:image` blocks: if the user supplies a `=== placeholder image ===` section with an attachment id and URL, use those values for every image block (`"id":<id>` in attrs, `<img src="<url>" class="wp-image-<id>">`). If no placeholder is supplied, leave `src=""` and omit the id. Never use Figma's local asset URLs (`http://localhost:3845/...`) and never invent file paths.
 - Never wrap the response in markdown code fences.
 
@@ -240,7 +282,10 @@ When a class uses a CSS variable like `var(--eureka/contrast-1,#21201c)`, resolv
 4. If `theme_json_patch` is present, it has only `blocks` and/or `custom` keys at the top level — no `variations` anywhere inside.
 5. If `block_style_variations` is present, every entry's slug starts with `neptune-` AND its `is-style-<slug>` class appears on at least one block in `template_html`.
 6. Every `is-style-neptune-<slug>` class on a block in `template_html` is backed EITHER by an entry in the existing-variations inventory OR by a new entry in `block_style_variations[]` — never both. Do not redeclare a slug that's already registered.
-7. CSS only used when no pre-exposed structured property could express the rule.
+7. CSS only used when no pre-exposed structured property could express the rule. Specifically, before writing any of `aspect-ratio`, `min-height`, `gap`, `padding`, `margin`, `border-*`, `box-shadow`, `outline-*`, `font-*`, `letter-spacing`, `line-height`, `text-transform`, `background`, or `color` into a `css` field, verify the structured equivalent (`dimensions.aspectRatio`, `dimensions.minHeight`, `spacing.blockGap`, `spacing.padding`, `spacing.margin`, `border.*`, `shadow`, `outline.*`, `typography.*`, `color.*`) cannot be used.
 8. For every inline `style` attribute on a block in `template_html`, all three checks pass: (a) no theme.json preset matches, (b) no sibling block of the same type carries the same inline value, (c) the value would not naturally extend `theme.json.styles.blocks["core/<x>"]` for that block type. Any failure means promote to `theme_json_patch.blocks` or a `block_style_variations[]` entry.
-9. Every JSX call whose tag matches a `=== registered patterns ===` `name` was emitted as `<!-- wp:pattern {"slug":"<slug>"} /-->`, not inlined. Slug used verbatim.
-10. No `function`, `import`, `const imgFoo`, or TypeScript syntax remains.
+9. Every flex / grid / constrained container in `template_html` uses the `layout` block attribute (`layout:{"type":"flex"|"grid"|"constrained",...}`) — NOT emulated via a custom `className` plus a CSS rule. Inter-child gap goes in `style.spacing.blockGap`, not a `gap:...` declaration in `css`.
+10. Every `className` on a block in `template_html` is one of: `is-style-<slug>` (variation), a wp-core class (`alignwide`, `alignfull`, etc.), or a class explicitly required by the source TSX for behavior the agent is not free to drop. NO ad-hoc BEM-style handles whose sole job is to back `&.<name>{...}` rules in `theme_json_patch.blocks` or a variation. If a recurring visual identity needs a class anchor, register it as a `block_style_variations[]` entry instead.
+11. For every `&.<custom-class>{...}` selector that does appear in any `css` field, confirm the `<custom-class>` is `is-style-<registered-slug>` — NOT a className you invented. CSS keyed off invented classes is the anti-pattern this skill exists to prevent.
+12. Every JSX call whose tag matches a `=== registered patterns ===` `name` was emitted as `<!-- wp:pattern {"slug":"<slug>"} /-->`, not inlined. Slug used verbatim.
+13. No `function`, `import`, `const imgFoo`, or TypeScript syntax remains.

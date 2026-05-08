@@ -17,6 +17,65 @@ test('parseAgentJson: throws with label + preview on invalid JSON', t => {
 	});
 });
 
+test('parseAgentJson: tolerates leading prose preamble', t => {
+	const v = parseAgentJson(
+		'Looking at the post-content body, I will now emit:\n{"a":1,"b":2}',
+		'tsx-to-blocks',
+	);
+	t.deepEqual(v, {a: 1, b: 2});
+});
+
+test('parseAgentJson: tolerates trailing prose summary', t => {
+	const v = parseAgentJson(
+		'{"a":1,"b":2}\n\nNote: I registered three variations because…',
+		'tsx-to-blocks',
+	);
+	t.deepEqual(v, {a: 1, b: 2});
+});
+
+test('parseAgentJson: tolerates both leading and trailing prose', t => {
+	const v = parseAgentJson(
+		'Here is the envelope:\n\n{"a":1}\n\nLet me know if you want changes.',
+		'tsx-to-blocks',
+	);
+	t.deepEqual(v, {a: 1});
+});
+
+test('parseAgentJson: prefers the largest balanced object when prose contains JSON snippets', t => {
+	// Models sometimes echo a small JSON example in their prose before
+	// emitting the full envelope. The real envelope is always larger.
+	const input =
+		'I will use {"slug":"foo"} as a reference, then output:\n' +
+		'{"template_html":"<!-- wp:group -->x<!-- /wp:group -->","theme_json_patch":{"blocks":{"core/heading":{}}}}';
+	const v = parseAgentJson(input, 'tsx-to-blocks') as Record<string, unknown>;
+	t.is(typeof v['template_html'], 'string');
+	t.truthy(v['theme_json_patch']);
+});
+
+test('parseAgentJson: ignores braces inside JSON string values when balancing', t => {
+	const v = parseAgentJson(
+		'preamble {"template_html":"<!-- wp:html -->{ not a brace }<!-- /wp:html -->","extra":"a } and a { in text"}',
+		'tsx-to-blocks',
+	) as Record<string, unknown>;
+	t.is(v['template_html'], '<!-- wp:html -->{ not a brace }<!-- /wp:html -->');
+	t.is(v['extra'], 'a } and a { in text');
+});
+
+test('parseAgentJson: handles escaped quotes inside strings', t => {
+	const v = parseAgentJson(
+		'prose {"q":"he said \\"hi\\" and left"} trailing',
+		'tsx-to-blocks',
+	);
+	t.deepEqual(v, {q: 'he said "hi" and left'});
+});
+
+test('parseAgentJson: throws original error when no balanced object parses', t => {
+	t.throws(
+		() => parseAgentJson('only prose, no json {{ broken', 'tsx-to-blocks'),
+		{message: /tsx-to-blocks response was not valid JSON/},
+	);
+});
+
 test('parseBuildEnvelope: minimum valid envelope', t => {
 	const env = parseBuildEnvelope(
 		JSON.stringify({template_html: '<!-- wp:group -->x<!-- /wp:group -->'}),

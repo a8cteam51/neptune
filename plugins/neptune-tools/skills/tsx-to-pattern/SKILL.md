@@ -66,15 +66,48 @@ Return ONLY a single JSON object. No markdown fences. No preamble. No commentary
 - `theme_json_patch` (optional) — same shape and rules as the `tsx-to-blocks` skill. Only `blocks` and/or `custom` at the top level. Don't put `variations` under `blocks.<x>`.
 - `block_style_variations` (optional) — same shape and rules as `tsx-to-blocks`. `slug` MUST start with `neptune-`.
 
-## Where to put style information (priority order)
+## Where to put style information
 
-For every visual styling decision, choose the FIRST option that fits. The cardinal rule is: prefer pre-exposed structured properties over CSS, and prefer reusing an existing variation over declaring a new one.
+The single biggest failure mode in this conversion is "I'll just add a `className` and key a CSS rule off it." That bypasses every structured surface WordPress exposes and produces output the editor can't introspect. Before reaching for a custom `className` + CSS combo, work the cheat sheet and the `layout` attribute below — most of what feels like "I need raw CSS" is really an unused structured property or the wrong block attribute.
+
+### Structured properties to check before reaching for `css`
+
+The theme.json `styles` shape (which is also the shape inside `block_style_variations[].styles` and `theme_json_patch.blocks["core/<x>"]`) carries far more than color and typography. Walk this list before deciding a value needs `css`:
+
+- `spacing.padding`, `spacing.margin` — top/right/bottom/left, with preset refs (`var:preset|spacing|<slug>`) or raw lengths.
+- `spacing.blockGap` — gap between child blocks. Use this in place of `gap:var(...)` inside a `css` field.
+- `dimensions.minHeight` — supported on `core/group`, `core/cover`, etc. Use `"dimensions":{"minHeight":"48px"}` instead of `min-height:48px;` in `css`.
+- `dimensions.aspectRatio` — supported on `core/image`, `core/cover`, `core/post-featured-image`, `core/group`. Use this instead of `aspect-ratio:...` in `css`.
+- `border.radius`, `border.color`, `border.width`, `border.style` — and per-side variants.
+- `shadow` — preset slug or raw shadow value.
+- `outline.color`, `outline.style`, `outline.width`, `outline.offset`.
+- `filter.duotone` — preset slug.
+- `typography.fontFamily/Size/Weight/Style/LetterSpacing/LineHeight/TextDecoration/TextTransform/TextColumns/WritingMode`.
+- `color.background`, `color.text`, `color.gradient`.
+
+What legitimately requires `css` and has no structured equivalent: `display`, `flex-direction`, `align-items`, `justify-content` *as variation styling* (see "Layout attribute" below for the instance path), `box-sizing`, child-element selectors (`& img`, `& .wp-block-button__link`), `:hover`/`:focus` states, `@media` breakpoints.
+
+### Layout attribute on block instances
+
+`wp:group` (and `wp:columns`, `wp:cover`) takes a `layout` block ATTRIBUTE — not under `style:{...}` — that selects the container type and exposes structured controls. It is the right channel for almost every flex / grid / constrained container in a Tailwind-derived TSX:
+
+- `layout:{"type":"flex","orientation":"horizontal"|"vertical","justifyContent":"left"|"center"|"right"|"space-between","flexWrap":"wrap"|"nowrap","verticalAlignment":"top"|"center"|"bottom"}`
+- `layout:{"type":"grid","columnCount":N}` — fixed N-column grid. Or `{"type":"grid","minimumColumnWidth":"240px"}` for an auto-fit grid.
+- `layout:{"type":"constrained","contentSize":"672px","wideSize":"1170px"}` — centered content with a max width.
+- Pair with `style:{"spacing":{"blockGap":"var:preset|spacing|<slug>"}}` for inter-child gap.
+
+When the source TSX has `<div class="grid grid-cols-3 gap-8">`, the right output is `wp:group` with `layout:{"type":"grid","columnCount":3}` plus `style.spacing.blockGap` — NOT a custom `className` whose CSS rule lives in `theme_json_patch.blocks["core/group"].css`.
+
+### Priority order
+
+For every visual styling decision, choose the FIRST option that fits. The cardinal rule: prefer pre-exposed structured properties over CSS, and prefer reusing an existing variation over declaring a new one.
 
 1. **A theme.json preset slug** — `{"backgroundColor":"<slug>"}`, `{"textColor":"<slug>"}`, `{"fontSize":"<slug>"}`, `style.spacing` with `var:preset|spacing|<slug>`.
-2. **A structured property under `theme_json_patch.blocks["core/<x>"]`** — pre-exposed block properties (color/typography/spacing/border/elements). Project-wide.
+2. **A structured property under `theme_json_patch.blocks["core/<x>"]`** — pre-exposed block properties (color/typography/spacing/dimensions/border/shadow/outline/elements). Walk the cheat sheet above before deciding a value isn't structured.
 3. **An existing block style variation** — apply the matching `is-style-<slug>` class from the inventory; do NOT redeclare it.
-4. **A new block style variation** in `block_style_variations[]`, again using structured properties.
-5. **CSS — last resort.** Only when no structured property can express the rule.
+4. **A new block style variation** in `block_style_variations[]`, again using structured properties first inside `styles`; only fall through to `styles.css` when the rule isn't structured.
+5. **The `layout` attribute on the block instance** — for flex / grid / constrained containers, set `wp:group`'s `layout:{...}` (see "Layout attribute" above). Do NOT emulate these by writing CSS keyed off a custom `className`.
+6. **CSS — last resort.** Only when no structured property can express the rule AND it isn't a `layout` choice. Prefer `&{...}` and block-internal child selectors (`& img`, `& .wp-block-button__link`); avoid `&.<custom-class>{...}` selectors that depend on a className you invented.
 
 NEVER write to `styles.css` or any other top-level theme.json key.
 
@@ -90,6 +123,8 @@ NEVER write to `styles.css` or any other top-level theme.json key.
 
 Same as `tsx-to-blocks` — `wp:group` for layout containers, `wp:heading` for `<h1>`–`<h6>`, `wp:paragraph` for text runs, `wp:button` inside `wp:buttons` for `<a>` styled like a button, `wp:image` for `<img>`, `wp:columns`/`wp:column` for column layouts, `wp:list`/`wp:list-item` for `<ul>`/`<ol>`, `wp:html` for inline `<svg>`. Collapse purely presentational scaffolding.
 
+For every layout `<div>`, set the `layout` block ATTRIBUTE on `wp:group`: `{"type":"constrained","contentSize":...}` for centered content with a max width; `{"type":"flex","justifyContent":...,"flexWrap":...,"verticalAlignment":...}` for flex rows/columns; `{"type":"grid","columnCount":N}` (or `"minimumColumnWidth"`) for grids. Pair with `style.spacing.blockGap` for inter-child gap. Do NOT emulate flex/grid via a custom `className` keyed to a CSS rule — the structured `layout` attribute is purpose-built for this.
+
 ## Hard rules
 
 - Every opening block comment must have a matching closing comment.
@@ -97,6 +132,7 @@ Same as `tsx-to-blocks` — `wp:group` for layout containers, `wp:heading` for `
 - Strip Figma's `data-node-id`, `data-name`, `data-neptune-annotations`, and `data-development-annotations` attributes from the output.
 - Slugs are kebab-case, lowercase, alphanumeric + hyphens.
 - Variation slugs in `block_style_variations[]` MUST be prefixed `neptune-`.
+- Do NOT invent project-specific `className` values whose only purpose is to give a CSS rule a selector. If you would write `theme_json_patch.blocks["core/<x>"].css = "&.foo{...}"` to back a class you just made up, choose instead one of: (a) a `block_style_variations[]` entry the block claims via `is-style-<slug>`; (b) structured properties on the block (`style.spacing`, `style.dimensions`, `style.border`, `style.typography`, ...) plus a `layout:{...}` attribute when the rule is layout. Block-internal child selectors inside a `css` field (`& img`, `& .wp-block-button__link`) are fine — they don't depend on a custom `className`.
 - Never wrap the response in markdown code fences.
 
 ## Self-check before responding
@@ -108,6 +144,9 @@ Same as `tsx-to-blocks` — `wp:group` for layout containers, `wp:heading` for `
 5. If `theme_json_patch` is present, it has only `blocks` and/or `custom` at the top level — no `variations` anywhere inside.
 6. If `block_style_variations` is present, every entry's slug starts with `neptune-` AND its `is-style-<slug>` class appears on at least one block in `template_html`.
 7. Every `is-style-neptune-<slug>` class on a block is backed EITHER by an entry in the existing-variations inventory OR by a new entry in `block_style_variations[]` — never both.
-8. CSS only used when no pre-exposed structured property could express the rule.
-9. No `wp:template-part`, `wp:post-title`, `wp:post-content`, or `wp:post-date` unless the source TSX explicitly used those annotations.
-10. No `function`, `import`, `const imgFoo`, `<?php`, or TypeScript syntax remains.
+8. CSS only used when no pre-exposed structured property could express the rule. Specifically, before writing any of `aspect-ratio`, `min-height`, `gap`, `padding`, `margin`, `border-*`, `box-shadow`, `outline-*`, `font-*`, `letter-spacing`, `line-height`, `text-transform`, `background`, or `color` into a `css` field, verify the structured equivalent (`dimensions.aspectRatio`, `dimensions.minHeight`, `spacing.blockGap`, `spacing.padding`, `spacing.margin`, `border.*`, `shadow`, `outline.*`, `typography.*`, `color.*`) cannot be used.
+9. Every flex / grid / constrained container in `template_html` uses the `layout` block attribute (`layout:{"type":"flex"|"grid"|"constrained",...}`) — NOT emulated via a custom `className` plus a CSS rule. Inter-child gap goes in `style.spacing.blockGap`, not a `gap:...` declaration in `css`.
+10. Every `className` on a block in `template_html` is one of: `is-style-<slug>` (variation), a wp-core class (`alignwide`, `alignfull`, etc.), or a class explicitly required by the source TSX. NO ad-hoc BEM-style handles whose sole job is to back `&.<name>{...}` rules. If a recurring visual identity needs an anchor, register it as a `block_style_variations[]` entry instead.
+11. For every `&.<custom-class>{...}` selector that appears in any `css` field, confirm the `<custom-class>` is `is-style-<registered-slug>` — NOT a className you invented.
+12. No `wp:template-part`, `wp:post-title`, `wp:post-content`, or `wp:post-date` unless the source TSX explicitly used those annotations.
+13. No `function`, `import`, `const imgFoo`, `<?php`, or TypeScript syntax remains.

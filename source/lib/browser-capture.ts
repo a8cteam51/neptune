@@ -90,6 +90,74 @@ export async function captureAtSize(options: CaptureOptions): Promise<Buffer> {
 	}
 }
 
+// Full-page JPEG capture for the screens-export flow. Distinct from
+// captureAtSize because: (a) we want the entire scrollable page, not a
+// fixed-viewport clip; (b) JPEG output for archive/share use, not PNG
+// for pixel-diffing. width/height drive the viewport so layout reflows
+// at the design size; the resulting JPEG height grows past `height` if
+// the page scrolls.
+export type CapturePageJpegOptions = {
+	url: string;
+	width: number;
+	height: number;
+	signal?: AbortSignal;
+	timeoutMs?: number;
+	quality?: number;
+};
+
+export async function capturePageJpeg(
+	options: CapturePageJpegOptions,
+): Promise<Buffer> {
+	const {
+		url,
+		width,
+		height,
+		signal,
+		timeoutMs = 30_000,
+		quality = 85,
+	} = options;
+
+	if (signal?.aborted) throw new Error('Browser capture aborted');
+
+	let browser: Browser | undefined;
+	let context: BrowserContext | undefined;
+	const onAbort = () => {
+		void browser?.close().catch(() => {});
+	};
+	signal?.addEventListener('abort', onAbort, {once: true});
+
+	try {
+		browser = await chromium.launch({headless: true});
+		context = await browser.newContext({
+			viewport: {width, height},
+			deviceScaleFactor: 1,
+			reducedMotion: 'reduce',
+		});
+		const page = await context.newPage();
+		page.setDefaultTimeout(timeoutMs);
+		await page.goto(url, {waitUntil: 'networkidle', timeout: timeoutMs});
+		return await page.screenshot({
+			type: 'jpeg',
+			fullPage: true,
+			quality,
+			animations: 'disabled',
+			caret: 'hide',
+		});
+	} finally {
+		signal?.removeEventListener('abort', onAbort);
+		try {
+			await context?.close();
+		} catch {
+			/* best effort */
+		}
+		try {
+			await browser?.close();
+		} catch {
+			/* best effort */
+		}
+	}
+}
+
 // Maps a template part role to the CSS selector that targets the
 // rendered template part on the live page. The convention is the
 // `data-template-part` attribute on the part wrapper, keyed by the

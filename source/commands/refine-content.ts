@@ -251,6 +251,10 @@ export async function runDiagnoseContent(
 					existingVariationsText,
 				),
 			},
+			{
+				type: 'text',
+				text: 'Respond with the JSON envelope ONLY. Begin your reply with `{` and end with `}`. No preamble, no analysis, no commentary, no markdown fences, no trailing summary.',
+			},
 		],
 		{cwd: loaded.dir, pluginPath: PLUGIN_PATH, signal},
 		onEvent,
@@ -368,6 +372,10 @@ export async function runApplyContent(
 					`Return the JSON envelope described in the skill. Neptune persists the page and applies the optional theme.json patch directly — do NOT call any tools yourself.`,
 			},
 			{type: 'text', text: sections.join('\n')},
+			{
+				type: 'text',
+				text: 'Respond with the JSON envelope ONLY. Begin your reply with `{` and end with `}`. No preamble, no analysis, no commentary, no markdown fences, no trailing summary.',
+			},
 		],
 		{
 			cwd: loaded.dir,

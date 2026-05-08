@@ -30,6 +30,7 @@ import React, {useEffect, useRef, useState} from 'react';
 import {Box, Text, useInput} from 'ink';
 import {AgentAbortedError} from '../lib/agent-stream.js';
 import EventList, {type LogEvent} from '../lib/event-list.js';
+import MultiSelect from '../lib/multi-select.js';
 import {buildThemeJson} from './build-theme-json.js';
 import {runBuild as runBuildTemplate} from './build-template.js';
 import {runBuildContent} from './build-content.js';
@@ -38,6 +39,32 @@ import {checkPrereqs, type Plan} from './e2e-prereqs.js';
 import {runApply, runDiagnose} from './refine-template.js';
 import {runApplyContent, runDiagnoseContent} from './refine-content.js';
 import type {Loaded} from './setup-project/types.js';
+
+type PhaseKey =
+	| 'theme'
+	| 'buildPatterns'
+	| 'buildContent'
+	| 'buildTemplates'
+	| 'refineContent'
+	| 'refineTemplates';
+
+const PHASE_ORDER: readonly PhaseKey[] = [
+	'theme',
+	'buildPatterns',
+	'buildContent',
+	'buildTemplates',
+	'refineContent',
+	'refineTemplates',
+];
+
+const PHASE_TITLES: Record<PhaseKey, string> = {
+	theme: 'Build theme.json',
+	buildPatterns: 'Build patterns',
+	buildContent: 'Build content',
+	buildTemplates: 'Build templates',
+	refineContent: 'Refine content',
+	refineTemplates: 'Refine templates',
+};
 
 type Props = {
 	activeProject: Loaded;
@@ -111,9 +138,26 @@ type Phase =
 			tally: Tally;
 			cancelling: boolean;
 	  }
+	// Holds the run between Phase 1 (theme.json) and Phase 2 (patterns)
+	// so the user can drop font files into <theme>/assets/fonts/
+	// (theme.json registers them but the build doesn't deliver the
+	// .woff2 binaries — only the user has those). Enter resumes; Esc
+	// cancels the run. Same shape as `running` so the surrounding UI
+	// (clock, tally, step counter) keeps rendering coherently.
+	| {
+			kind: 'paused';
+			plan: Plan;
+			waitingFor: 'fonts';
+			currentLabel: string;
+			currentIndex: number;
+			totalSteps: number;
+			elapsedMs: number;
+			tally: Tally;
+	  }
 	| {
 			kind: 'done';
 			results: StepResult[];
+			skipped: PhaseKey[];
 			tally: Tally;
 			elapsedMs: number;
 			cancelled: boolean;
@@ -132,6 +176,13 @@ export default function E2E({activeProject, onDone}: Props) {
 	const [phase, setPhase] = useState<Phase>({kind: 'loading'});
 	const [events, setEvents] = useState<LogEvent[]>([]);
 	const runControllerRef = useRef<AbortController | null>(null);
+	// Set while the orchestrator is awaiting the font-install gate. Enter
+	// in `paused` calls resolve(); Esc aborts the run controller, which
+	// rejects the awaited promise via its abort listener.
+	const resumeRef = useRef<{
+		resolve: () => void;
+		reject: (err: Error) => void;
+	} | null>(null);
 
 	useEffect(() => {
 		const controller = new AbortController();
@@ -169,14 +220,6 @@ export default function E2E({activeProject, onDone}: Props) {
 				onDone();
 				return;
 			}
-			if (phase.kind === 'confirm') {
-				if (key.return) {
-					beginRun(phase.plan);
-				} else if (key.escape) {
-					onDone();
-				}
-				return;
-			}
 			if (phase.kind === 'running') {
 				// Esc aborts the run controller. The IIFE catches the
 				// resulting AgentAbortedError, sets a cancellation flag,
@@ -190,17 +233,27 @@ export default function E2E({activeProject, onDone}: Props) {
 					runControllerRef.current?.abort();
 				}
 			}
+			if (phase.kind === 'paused') {
+				if (key.return) {
+					const r = resumeRef.current;
+					resumeRef.current = null;
+					r?.resolve();
+				} else if (key.escape) {
+					resumeRef.current = null;
+					runControllerRef.current?.abort();
+				}
+			}
 		},
 		{
 			isActive:
 				phase.kind === 'gated' ||
 				phase.kind === 'done' ||
-				phase.kind === 'confirm' ||
-				phase.kind === 'running',
+				phase.kind === 'running' ||
+				phase.kind === 'paused',
 		},
 	);
 
-	const beginRun = (plan: Plan) => {
+	const beginRun = (plan: Plan, selected: ReadonlySet<PhaseKey>) => {
 		const controller = new AbortController();
 		runControllerRef.current?.abort();
 		runControllerRef.current = controller;
@@ -209,21 +262,34 @@ export default function E2E({activeProject, onDone}: Props) {
 		const tally: Tally = {...FRESH_TALLY};
 		const results: StepResult[] = [];
 
-		// Total step count = 1 (theme) + N pulls/sources across the
-		// pattern + content + template + refine-content + refine-template
-		// lists. Used purely for the "Step k of N" header label.
-		const totalSteps =
-			1 +
-			plan.patternSources.length +
-			plan.contentPulls.length +
-			plan.templatePulls.length +
-			plan.contentPulls.length +
-			plan.templatePulls.length;
+		// Renumber phase labels dynamically — the user sees "Phase k/N"
+		// where N is the count of *selected* phases, not the canonical
+		// six. The skipped set is preserved for the summary so the user
+		// can see which phases they opted out of.
+		const phasesToRun = PHASE_ORDER.filter(p => selected.has(p));
+		const skipped = PHASE_ORDER.filter(p => !selected.has(p));
+		const totalPhases = phasesToRun.length;
+		const phaseIndex = (key: PhaseKey) => phasesToRun.indexOf(key) + 1;
+		const phaseLabel = (key: PhaseKey, suffix = ''): string =>
+			`Phase ${phaseIndex(key)}/${totalPhases}: ${PHASE_TITLES[key]}${suffix}`;
 
+		// Total step count = sum across the selected phases. Theme.json
+		// counts as 1 step; each per-pull phase counts its list length.
+		const totalSteps =
+			(selected.has('theme') ? 1 : 0) +
+			(selected.has('buildPatterns') ? plan.patternSources.length : 0) +
+			(selected.has('buildContent') ? plan.contentPulls.length : 0) +
+			(selected.has('buildTemplates') ? plan.templatePulls.length : 0) +
+			(selected.has('refineContent') ? plan.contentPulls.length : 0) +
+			(selected.has('refineTemplates') ? plan.templatePulls.length : 0);
+
+		const initialLabel = phasesToRun[0]
+			? phaseLabel(phasesToRun[0])
+			: 'Nothing to run';
 		setPhase({
 			kind: 'running',
 			plan,
-			currentLabel: 'Phase 1/6: Build theme.json',
+			currentLabel: initialLabel,
 			currentIndex: 1,
 			totalSteps,
 			elapsedMs: 0,
@@ -295,328 +361,417 @@ export default function E2E({activeProject, onDone}: Props) {
 				// what work landed before the user pressed Esc.
 				runLoop: {
 					// ── Phase 1: theme.json ──────────────────────────
-					stepIndex++;
-					updateLabel('Phase 1/6: Build theme.json', stepIndex);
-					setEvents(prev => [
-						...prev,
-						{kind: 'step', message: '── Build theme.json ──'},
-					]);
-					try {
-						await buildThemeJson(
-							activeProject,
-							controller.signal,
-							sink('Phase 1/6: Build theme.json', stepIndex),
-						);
-						if (!controller.signal.aborted) {
-							results.push({step: 'theme', outcome: 'ok'});
+					let themeOk = false;
+					if (selected.has('theme')) {
+						stepIndex++;
+						updateLabel(phaseLabel('theme'), stepIndex);
+						setEvents(prev => [
+							...prev,
+							{kind: 'step', message: '── Build theme.json ──'},
+						]);
+						try {
+							await buildThemeJson(
+								activeProject,
+								controller.signal,
+								sink(phaseLabel('theme'), stepIndex),
+							);
+							if (!controller.signal.aborted) {
+								results.push({step: 'theme', outcome: 'ok'});
+								themeOk = true;
+							}
+						} catch (err) {
+							if (!isAbort(err)) {
+								const msg = err instanceof Error ? err.message : String(err);
+								results.push({step: 'theme', outcome: 'fail', error: msg});
+								setEvents(prev => [
+									...prev,
+									{kind: 'warn', message: `theme.json failed: ${msg}`},
+								]);
+							}
 						}
-					} catch (err) {
-						if (!isAbort(err)) {
-							const msg = err instanceof Error ? err.message : String(err);
-							results.push({step: 'theme', outcome: 'fail', error: msg});
-							setEvents(prev => [
-								...prev,
-								{kind: 'warn', message: `theme.json failed: ${msg}`},
-							]);
-						}
+						if (controller.signal.aborted) break runLoop;
 					}
-					if (controller.signal.aborted) break runLoop;
+
+					// ── Pause: install fonts ─────────────────────────
+					// theme.json declares font-family entries that point at
+					// <theme>/assets/fonts/<family>/<weight-style>.woff2 — the
+					// build registers them but doesn't deliver the binaries.
+					// Hold the run here so the user can drop their files in
+					// before Phase 2 starts capturing pages whose patterns
+					// depend on the registered families.
+					//
+					// Only pause when theme.json was both selected AND
+					// succeeded: skipping the pause when theme.json was
+					// skipped avoids prompting for fonts the user isn't
+					// changing, and skipping after a failure avoids
+					// confusing the recovery flow.
+					if (themeOk) {
+						setEvents(prev => [
+							...prev,
+							{
+								kind: 'step',
+								message:
+									'── Paused: install fonts in <theme>/assets/fonts/, then press Enter ──',
+							},
+						]);
+						setPhase(prev =>
+							prev.kind === 'running'
+								? {
+										kind: 'paused',
+										plan: prev.plan,
+										waitingFor: 'fonts',
+										currentLabel:
+											'Paused — install fonts, then press Enter to continue',
+										currentIndex: prev.currentIndex,
+										totalSteps: prev.totalSteps,
+										elapsedMs: prev.elapsedMs,
+										tally: prev.tally,
+									}
+								: prev,
+						);
+						try {
+							await new Promise<void>((resolve, reject) => {
+								if (controller.signal.aborted) {
+									reject(new AgentAbortedError());
+									return;
+								}
+								resumeRef.current = {resolve, reject};
+								const onAbort = () => {
+									resumeRef.current = null;
+									reject(new AgentAbortedError());
+								};
+								controller.signal.addEventListener('abort', onAbort, {
+									once: true,
+								});
+							});
+						} catch (err) {
+							if (!isAbort(err)) throw err;
+						}
+						if (controller.signal.aborted) break runLoop;
+						const nextAfterTheme = phasesToRun[1];
+						setPhase(prev =>
+							prev.kind === 'paused'
+								? {
+										kind: 'running',
+										plan: prev.plan,
+										currentLabel: nextAfterTheme
+											? phaseLabel(nextAfterTheme)
+											: 'Wrapping up…',
+										currentIndex: prev.currentIndex,
+										totalSteps: prev.totalSteps,
+										elapsedMs: Date.now() - startedAt,
+										tally: prev.tally,
+										cancelling: false,
+									}
+								: prev,
+						);
+					}
 
 					// ── Phase 2: build patterns ──────────────────────
-					const buildPatternsResult: BuildPatternsRes = {
-						step: 'buildPatterns',
-						ok: 0,
-						failed: 0,
-						failures: [],
-					};
-					setEvents(prev => [
-						...prev,
-						{kind: 'step', message: '── Build patterns ──'},
-					]);
-					for (let i = 0; i < plan.patternSources.length; i++) {
-						if (controller.signal.aborted) break;
-						stepIndex++;
-						const src = plan.patternSources[i]!;
-						const label = `Phase 2/6: Build patterns (${i + 1}/${plan.patternSources.length}) ${src.name}`;
-						updateLabel(label, stepIndex);
+					if (selected.has('buildPatterns')) {
+						const buildPatternsResult: BuildPatternsRes = {
+							step: 'buildPatterns',
+							ok: 0,
+							failed: 0,
+							failures: [],
+						};
 						setEvents(prev => [
 							...prev,
-							{
-								kind: 'step',
-								message: `[pattern ${i + 1}/${plan.patternSources.length}] ${src.name}`,
-							},
+							{kind: 'step', message: '── Build patterns ──'},
 						]);
-						try {
-							await runBuildPattern(
-								activeProject,
-								src,
-								controller.signal,
-								sink(label, stepIndex),
-							);
-							buildPatternsResult.ok += 1;
-						} catch (err) {
-							if (isAbort(err)) break;
-							const msg = err instanceof Error ? err.message : String(err);
-							buildPatternsResult.failed += 1;
-							buildPatternsResult.failures.push({
-								slug: src.name,
-								error: msg,
-							});
+						for (let i = 0; i < plan.patternSources.length; i++) {
+							if (controller.signal.aborted) break;
+							stepIndex++;
+							const src = plan.patternSources[i]!;
+							const label = `${phaseLabel('buildPatterns')} (${i + 1}/${plan.patternSources.length}) ${src.name}`;
+							updateLabel(label, stepIndex);
 							setEvents(prev => [
 								...prev,
-								{kind: 'warn', message: `${src.name} failed: ${msg}`},
+								{
+									kind: 'step',
+									message: `[pattern ${i + 1}/${plan.patternSources.length}] ${src.name}`,
+								},
 							]);
+							try {
+								await runBuildPattern(
+									activeProject,
+									src,
+									controller.signal,
+									sink(label, stepIndex),
+								);
+								buildPatternsResult.ok += 1;
+							} catch (err) {
+								if (isAbort(err)) break;
+								const msg = err instanceof Error ? err.message : String(err);
+								buildPatternsResult.failed += 1;
+								buildPatternsResult.failures.push({
+									slug: src.name,
+									error: msg,
+								});
+								setEvents(prev => [
+									...prev,
+									{kind: 'warn', message: `${src.name} failed: ${msg}`},
+								]);
+							}
 						}
+						results.push(buildPatternsResult);
+						if (controller.signal.aborted) break runLoop;
 					}
-					results.push(buildPatternsResult);
-					if (controller.signal.aborted) break runLoop;
 
 					// ── Phase 3: build content ───────────────────────
-					const buildContentResult: BuildContentRes = {
-						step: 'buildContent',
-						ok: 0,
-						failed: 0,
-						failures: [],
-					};
-					setEvents(prev => [
-						...prev,
-						{kind: 'step', message: '── Build content ──'},
-					]);
-					for (let i = 0; i < plan.contentPulls.length; i++) {
-						if (controller.signal.aborted) break;
-						stepIndex++;
-						const pull = plan.contentPulls[i]!;
-						const label = `Phase 3/6: Build content (${i + 1}/${plan.contentPulls.length}) ${pull.pageName}`;
-						updateLabel(label, stepIndex);
+					if (selected.has('buildContent')) {
+						const buildContentResult: BuildContentRes = {
+							step: 'buildContent',
+							ok: 0,
+							failed: 0,
+							failures: [],
+						};
 						setEvents(prev => [
 							...prev,
-							{
-								kind: 'step',
-								message: `[content ${i + 1}/${plan.contentPulls.length}] ${pull.pageName} → page:${pull.pageSlug}`,
-							},
+							{kind: 'step', message: '── Build content ──'},
 						]);
-						try {
-							await runBuildContent(
-								activeProject,
-								pull,
-								controller.signal,
-								sink(label, stepIndex),
-							);
-							buildContentResult.ok += 1;
-						} catch (err) {
-							if (isAbort(err)) break;
-							const msg = err instanceof Error ? err.message : String(err);
-							buildContentResult.failed += 1;
-							buildContentResult.failures.push({
-								slug: pull.slug,
-								error: msg,
-							});
+						for (let i = 0; i < plan.contentPulls.length; i++) {
+							if (controller.signal.aborted) break;
+							stepIndex++;
+							const pull = plan.contentPulls[i]!;
+							const label = `${phaseLabel('buildContent')} (${i + 1}/${plan.contentPulls.length}) ${pull.pageName}`;
+							updateLabel(label, stepIndex);
 							setEvents(prev => [
 								...prev,
-								{kind: 'warn', message: `${pull.slug} failed: ${msg}`},
+								{
+									kind: 'step',
+									message: `[content ${i + 1}/${plan.contentPulls.length}] ${pull.pageName} → page:${pull.pageSlug}`,
+								},
 							]);
+							try {
+								await runBuildContent(
+									activeProject,
+									pull,
+									controller.signal,
+									sink(label, stepIndex),
+								);
+								buildContentResult.ok += 1;
+							} catch (err) {
+								if (isAbort(err)) break;
+								const msg = err instanceof Error ? err.message : String(err);
+								buildContentResult.failed += 1;
+								buildContentResult.failures.push({
+									slug: pull.slug,
+									error: msg,
+								});
+								setEvents(prev => [
+									...prev,
+									{kind: 'warn', message: `${pull.slug} failed: ${msg}`},
+								]);
+							}
 						}
+						results.push(buildContentResult);
+						if (controller.signal.aborted) break runLoop;
 					}
-					results.push(buildContentResult);
-					if (controller.signal.aborted) break runLoop;
 
 					// ── Phase 4: build templates ─────────────────────
-					const buildTemplatesResult: BuildTemplatesRes = {
-						step: 'buildTemplates',
-						ok: 0,
-						failed: 0,
-						failures: [],
-					};
-					setEvents(prev => [
-						...prev,
-						{kind: 'step', message: '── Build templates ──'},
-					]);
-					for (let i = 0; i < plan.templatePulls.length; i++) {
-						if (controller.signal.aborted) break;
-						stepIndex++;
-						const pull = plan.templatePulls[i]!;
-						const label = `Phase 4/6: Build templates (${i + 1}/${plan.templatePulls.length}) ${pull.pageName}`;
-						updateLabel(label, stepIndex);
+					if (selected.has('buildTemplates')) {
+						const buildTemplatesResult: BuildTemplatesRes = {
+							step: 'buildTemplates',
+							ok: 0,
+							failed: 0,
+							failures: [],
+						};
 						setEvents(prev => [
 							...prev,
-							{
-								kind: 'step',
-								message: `[template ${i + 1}/${plan.templatePulls.length}] ${pull.pageName} → ${pull.templateFile}`,
-							},
+							{kind: 'step', message: '── Build templates ──'},
 						]);
-						try {
-							await runBuildTemplate(
-								activeProject,
-								pull,
-								controller.signal,
-								sink(label, stepIndex),
-							);
-							buildTemplatesResult.ok += 1;
-						} catch (err) {
-							if (isAbort(err)) break;
-							const msg = err instanceof Error ? err.message : String(err);
-							buildTemplatesResult.failed += 1;
-							buildTemplatesResult.failures.push({
-								slug: pull.slug,
-								error: msg,
-							});
+						for (let i = 0; i < plan.templatePulls.length; i++) {
+							if (controller.signal.aborted) break;
+							stepIndex++;
+							const pull = plan.templatePulls[i]!;
+							const label = `${phaseLabel('buildTemplates')} (${i + 1}/${plan.templatePulls.length}) ${pull.pageName}`;
+							updateLabel(label, stepIndex);
 							setEvents(prev => [
 								...prev,
-								{kind: 'warn', message: `${pull.slug} failed: ${msg}`},
+								{
+									kind: 'step',
+									message: `[template ${i + 1}/${plan.templatePulls.length}] ${pull.pageName} → ${pull.templateFile}`,
+								},
 							]);
+							try {
+								await runBuildTemplate(
+									activeProject,
+									pull,
+									controller.signal,
+									sink(label, stepIndex),
+								);
+								buildTemplatesResult.ok += 1;
+							} catch (err) {
+								if (isAbort(err)) break;
+								const msg = err instanceof Error ? err.message : String(err);
+								buildTemplatesResult.failed += 1;
+								buildTemplatesResult.failures.push({
+									slug: pull.slug,
+									error: msg,
+								});
+								setEvents(prev => [
+									...prev,
+									{kind: 'warn', message: `${pull.slug} failed: ${msg}`},
+								]);
+							}
 						}
+						results.push(buildTemplatesResult);
+						if (controller.signal.aborted) break runLoop;
 					}
-					results.push(buildTemplatesResult);
-					if (controller.signal.aborted) break runLoop;
 
 					// ── Phase 5: refine content ──────────────────────
-					const refineContentResult: RefineContentRes = {
-						step: 'refineContent',
-						applied: 0,
-						matched: 0,
-						failed: 0,
-						failures: [],
-					};
-					setEvents(prev => [
-						...prev,
-						{kind: 'step', message: '── Refine content ──'},
-					]);
-					for (let i = 0; i < plan.contentPulls.length; i++) {
-						if (controller.signal.aborted) break;
-						stepIndex++;
-						const pull = plan.contentPulls[i]!;
-						const label = `Phase 5/6: Refine content (${i + 1}/${plan.contentPulls.length}) ${pull.pageName}`;
-						updateLabel(label, stepIndex);
+					if (selected.has('refineContent')) {
+						const refineContentResult: RefineContentRes = {
+							step: 'refineContent',
+							applied: 0,
+							matched: 0,
+							failed: 0,
+							failures: [],
+						};
 						setEvents(prev => [
 							...prev,
-							{
-								kind: 'step',
-								message: `[content refine ${i + 1}/${plan.contentPulls.length}] ${pull.pageName}`,
-							},
+							{kind: 'step', message: '── Refine content ──'},
 						]);
-						try {
-							const diag = await runDiagnoseContent(
-								activeProject,
-								pull,
-								controller.signal,
-								sink(label, stepIndex),
-							);
+						for (let i = 0; i < plan.contentPulls.length; i++) {
 							if (controller.signal.aborted) break;
-							if (diag.kind === 'matched') {
-								refineContentResult.matched += 1;
-								continue;
-							}
-							const approved = diag.report.diffs;
-							if (approved.length === 0) {
-								refineContentResult.matched += 1;
-								continue;
-							}
-							await runApplyContent(
-								activeProject,
-								{
-									pull,
-									currentContent: diag.currentContent,
-									target: diag.target,
-									themeJsonText: diag.themeJsonText,
-									variablesText: diag.variablesText,
-									devAnnotationsText: diag.devAnnotationsText,
-									existingVariationsText: diag.existingVariationsText,
-								},
-								approved,
-								controller.signal,
-								sink(label, stepIndex),
-							);
-							refineContentResult.applied += 1;
-						} catch (err) {
-							if (isAbort(err)) break;
-							const msg = err instanceof Error ? err.message : String(err);
-							refineContentResult.failed += 1;
-							refineContentResult.failures.push({
-								slug: pull.slug,
-								error: msg,
-							});
+							stepIndex++;
+							const pull = plan.contentPulls[i]!;
+							const label = `${phaseLabel('refineContent')} (${i + 1}/${plan.contentPulls.length}) ${pull.pageName}`;
+							updateLabel(label, stepIndex);
 							setEvents(prev => [
 								...prev,
-								{kind: 'warn', message: `${pull.slug} failed: ${msg}`},
+								{
+									kind: 'step',
+									message: `[content refine ${i + 1}/${plan.contentPulls.length}] ${pull.pageName}`,
+								},
 							]);
+							try {
+								const diag = await runDiagnoseContent(
+									activeProject,
+									pull,
+									controller.signal,
+									sink(label, stepIndex),
+								);
+								if (controller.signal.aborted) break;
+								if (diag.kind === 'matched') {
+									refineContentResult.matched += 1;
+									continue;
+								}
+								const approved = diag.report.diffs;
+								if (approved.length === 0) {
+									refineContentResult.matched += 1;
+									continue;
+								}
+								await runApplyContent(
+									activeProject,
+									{
+										pull,
+										currentContent: diag.currentContent,
+										target: diag.target,
+										themeJsonText: diag.themeJsonText,
+										variablesText: diag.variablesText,
+										devAnnotationsText: diag.devAnnotationsText,
+										existingVariationsText: diag.existingVariationsText,
+									},
+									approved,
+									controller.signal,
+									sink(label, stepIndex),
+								);
+								refineContentResult.applied += 1;
+							} catch (err) {
+								if (isAbort(err)) break;
+								const msg = err instanceof Error ? err.message : String(err);
+								refineContentResult.failed += 1;
+								refineContentResult.failures.push({
+									slug: pull.slug,
+									error: msg,
+								});
+								setEvents(prev => [
+									...prev,
+									{kind: 'warn', message: `${pull.slug} failed: ${msg}`},
+								]);
+							}
 						}
+						results.push(refineContentResult);
+						if (controller.signal.aborted) break runLoop;
 					}
-					results.push(refineContentResult);
-					if (controller.signal.aborted) break runLoop;
 
 					// ── Phase 6: refine templates ────────────────────
-					const refineTemplatesResult: RefineTemplatesRes = {
-						step: 'refineTemplates',
-						applied: 0,
-						matched: 0,
-						failed: 0,
-						failures: [],
-					};
-					setEvents(prev => [
-						...prev,
-						{kind: 'step', message: '── Refine templates ──'},
-					]);
-					for (let i = 0; i < plan.templatePulls.length; i++) {
-						if (controller.signal.aborted) break;
-						stepIndex++;
-						const pull = plan.templatePulls[i]!;
-						const label = `Phase 6/6: Refine templates (${i + 1}/${plan.templatePulls.length}) ${pull.pageName}`;
-						updateLabel(label, stepIndex);
+					if (selected.has('refineTemplates')) {
+						const refineTemplatesResult: RefineTemplatesRes = {
+							step: 'refineTemplates',
+							applied: 0,
+							matched: 0,
+							failed: 0,
+							failures: [],
+						};
 						setEvents(prev => [
 							...prev,
-							{
-								kind: 'step',
-								message: `[template refine ${i + 1}/${plan.templatePulls.length}] ${pull.pageName} → ${pull.templateFile}`,
-							},
+							{kind: 'step', message: '── Refine templates ──'},
 						]);
-						try {
-							const diag = await runDiagnose(
-								activeProject,
-								pull,
-								controller.signal,
-								sink(label, stepIndex),
-							);
+						for (let i = 0; i < plan.templatePulls.length; i++) {
 							if (controller.signal.aborted) break;
-							if (diag.kind === 'matched') {
-								refineTemplatesResult.matched += 1;
-								continue;
-							}
-							const approved = diag.report.diffs;
-							if (approved.length === 0) {
-								refineTemplatesResult.matched += 1;
-								continue;
-							}
-							await runApply(
-								activeProject,
-								{
-									pull,
-									currentTemplate: diag.currentTemplate,
-									target: diag.target,
-									themeJsonText: diag.themeJsonText,
-									variablesText: diag.variablesText,
-									devAnnotationsText: diag.devAnnotationsText,
-									existingVariationsText: diag.existingVariationsText,
-								},
-								approved,
-								controller.signal,
-								sink(label, stepIndex),
-							);
-							refineTemplatesResult.applied += 1;
-						} catch (err) {
-							if (isAbort(err)) break;
-							const msg = err instanceof Error ? err.message : String(err);
-							refineTemplatesResult.failed += 1;
-							refineTemplatesResult.failures.push({
-								slug: pull.slug,
-								error: msg,
-							});
+							stepIndex++;
+							const pull = plan.templatePulls[i]!;
+							const label = `${phaseLabel('refineTemplates')} (${i + 1}/${plan.templatePulls.length}) ${pull.pageName}`;
+							updateLabel(label, stepIndex);
 							setEvents(prev => [
 								...prev,
-								{kind: 'warn', message: `${pull.slug} failed: ${msg}`},
+								{
+									kind: 'step',
+									message: `[template refine ${i + 1}/${plan.templatePulls.length}] ${pull.pageName} → ${pull.templateFile}`,
+								},
 							]);
+							try {
+								const diag = await runDiagnose(
+									activeProject,
+									pull,
+									controller.signal,
+									sink(label, stepIndex),
+								);
+								if (controller.signal.aborted) break;
+								if (diag.kind === 'matched') {
+									refineTemplatesResult.matched += 1;
+									continue;
+								}
+								const approved = diag.report.diffs;
+								if (approved.length === 0) {
+									refineTemplatesResult.matched += 1;
+									continue;
+								}
+								await runApply(
+									activeProject,
+									{
+										pull,
+										currentTemplate: diag.currentTemplate,
+										target: diag.target,
+										themeJsonText: diag.themeJsonText,
+										variablesText: diag.variablesText,
+										devAnnotationsText: diag.devAnnotationsText,
+										existingVariationsText: diag.existingVariationsText,
+									},
+									approved,
+									controller.signal,
+									sink(label, stepIndex),
+								);
+								refineTemplatesResult.applied += 1;
+							} catch (err) {
+								if (isAbort(err)) break;
+								const msg = err instanceof Error ? err.message : String(err);
+								refineTemplatesResult.failed += 1;
+								refineTemplatesResult.failures.push({
+									slug: pull.slug,
+									error: msg,
+								});
+								setEvents(prev => [
+									...prev,
+									{kind: 'warn', message: `${pull.slug} failed: ${msg}`},
+								]);
+							}
 						}
+						results.push(refineTemplatesResult);
 					}
-					results.push(refineTemplatesResult);
 				}
 
 				// Always reach the done phase, whether the runLoop
@@ -624,6 +779,7 @@ export default function E2E({activeProject, onDone}: Props) {
 				setPhase({
 					kind: 'done',
 					results,
+					skipped,
 					tally: {...tally},
 					elapsedMs: Date.now() - startedAt,
 					cancelled: controller.signal.aborted,
@@ -673,42 +829,54 @@ export default function E2E({activeProject, onDone}: Props) {
 		const p = phase.plan.patternSources.length;
 		const c = phase.plan.contentPulls.length;
 		const t = phase.plan.templatePulls.length;
-		const agentCalls = 1 + p + c + t + c * 2 + t * 2;
+		const phaseHints: Record<PhaseKey, string> = {
+			theme: '1 step',
+			buildPatterns: `${p} pattern${p === 1 ? '' : 's'}`,
+			buildContent: `${c} page${c === 1 ? '' : 's'}`,
+			buildTemplates: `${t} template${t === 1 ? '' : 's'}`,
+			refineContent: `${c} page${c === 1 ? '' : 's'}, auto-apply`,
+			refineTemplates: `${t} template${t === 1 ? '' : 's'}, auto-apply`,
+		};
+		const items = PHASE_ORDER.map((key, idx) => ({
+			key,
+			label: `${idx + 1}. ${PHASE_TITLES[key]}`,
+			hint: phaseHints[key],
+			value: key,
+		}));
+		const planRef = phase.plan;
 		return (
 			<Box flexDirection="column" padding={1}>
 				<Text bold color="cyan">
 					End-to-end build
 				</Text>
 				<Box marginTop={1} flexDirection="column">
-					<Text>The full pipeline will run in this order:</Text>
-					<Text>{'  1. Build theme.json'}</Text>
 					<Text>
-						{`  2. Build patterns for ${p} pattern${p === 1 ? '' : 's'}`}
-					</Text>
-					<Text>{`  3. Build content for ${c} page${c === 1 ? '' : 's'}`}</Text>
-					<Text>
-						{`  4. Build templates for ${t} template${t === 1 ? '' : 's'}`}
-					</Text>
-					<Text>
-						{`  5. Refine content for ${c} page${c === 1 ? '' : 's'} (auto-apply every diff)`}
-					</Text>
-					<Text>
-						{`  6. Refine templates for ${t} template${t === 1 ? '' : 's'} (auto-apply every diff)`}
+						Select phases to run. All are pre-selected — toggle any you want to
+						skip.
 					</Text>
 					<Box marginTop={1}>
 						<Text color="yellow" bold>
-							Up to {agentCalls} paid agent provider call
-							{agentCalls === 1 ? '' : 's'}.
+							Each selected phase issues paid agent provider calls.
 						</Text>
 					</Box>
 					<Text dimColor>
-						Existing theme.json, patterns, templates and page posts will be
-						overwritten. Diffs are auto-approved — no per-diff review. Per-pull
-						failures are tallied, not fatal.
+						Existing artifacts in selected phases are overwritten. Diffs are
+						auto-approved — no per-diff review. Per-pull failures are tallied,
+						not fatal.
 					</Text>
 				</Box>
 				<Box marginTop={1}>
-					<Text bold>Press Enter to start. Esc to cancel.</Text>
+					<MultiSelect
+						items={items}
+						onSubmit={values => {
+							if (values.length === 0) {
+								onDone();
+								return;
+							}
+							beginRun(planRef, new Set(values));
+						}}
+						onCancel={onDone}
+					/>
 				</Box>
 			</Box>
 		);
@@ -734,6 +902,45 @@ export default function E2E({activeProject, onDone}: Props) {
 					) : (
 						<Text dimColor>Press Esc to cancel.</Text>
 					)}
+				</Box>
+				<Box marginTop={1}>
+					<EventList events={events} status="running" />
+				</Box>
+			</Box>
+		);
+	}
+
+	if (phase.kind === 'paused') {
+		return (
+			<Box flexDirection="column" padding={1}>
+				<Text bold color="cyan">
+					End-to-end build
+				</Text>
+				<Box marginTop={1} flexDirection="column">
+					<Text bold color="yellow">
+						{phase.currentLabel}
+					</Text>
+					<Text dimColor>
+						Step {phase.currentIndex} / {phase.totalSteps} ·{' '}
+						{formatElapsed(phase.elapsedMs)} elapsed · agent calls:{' '}
+						{phase.tally.agentCalls} · cost: ${phase.tally.costUsd.toFixed(4)}
+					</Text>
+					<Box marginTop={1} flexDirection="column">
+						<Text>
+							theme.json registered the font families it referenced, but the
+							.woff2 binaries are not in this build. Drop your font files into{' '}
+							<Text bold>
+								wordpress/wp-content/themes/&lt;theme&gt;/assets/fonts/
+							</Text>{' '}
+							now, organised by family slug. The remaining phases (patterns →
+							content → templates → refines) all render against the live theme,
+							so missing fonts will show up as fallback typography in those
+							captures.
+						</Text>
+						<Box marginTop={1}>
+							<Text bold>Press Enter to continue. Esc to cancel.</Text>
+						</Box>
+					</Box>
 				</Box>
 				<Box marginTop={1}>
 					<EventList events={events} status="running" />
@@ -806,7 +1013,9 @@ export default function E2E({activeProject, onDone}: Props) {
 			</Box>
 			<Box marginTop={1} flexDirection="column">
 				<Text bold>Phases</Text>
-				{themeResult ? (
+				{phase.skipped.includes('theme') ? (
+					<Text dimColor>{'  ⊘ theme.json (skipped)'}</Text>
+				) : themeResult ? (
 					<Text color={themeResult.outcome === 'ok' ? 'green' : 'red'}>
 						{`  ${themeResult.outcome === 'ok' ? '✓' : '✗'} theme.json${
 							themeResult.outcome === 'fail'
@@ -815,27 +1024,37 @@ export default function E2E({activeProject, onDone}: Props) {
 						}`}
 					</Text>
 				) : null}
-				{buildPatternsRes ? (
+				{phase.skipped.includes('buildPatterns') ? (
+					<Text dimColor>{'  ⊘ build patterns (skipped)'}</Text>
+				) : buildPatternsRes ? (
 					<Text>
 						{`  · build patterns: ${buildPatternsRes.ok} ok, ${buildPatternsRes.failed} failed`}
 					</Text>
 				) : null}
-				{buildContentRes ? (
+				{phase.skipped.includes('buildContent') ? (
+					<Text dimColor>{'  ⊘ build content (skipped)'}</Text>
+				) : buildContentRes ? (
 					<Text>
 						{`  · build content: ${buildContentRes.ok} ok, ${buildContentRes.failed} failed`}
 					</Text>
 				) : null}
-				{buildTemplatesRes ? (
+				{phase.skipped.includes('buildTemplates') ? (
+					<Text dimColor>{'  ⊘ build templates (skipped)'}</Text>
+				) : buildTemplatesRes ? (
 					<Text>
 						{`  · build templates: ${buildTemplatesRes.ok} ok, ${buildTemplatesRes.failed} failed`}
 					</Text>
 				) : null}
-				{refineContentRes ? (
+				{phase.skipped.includes('refineContent') ? (
+					<Text dimColor>{'  ⊘ refine content (skipped)'}</Text>
+				) : refineContentRes ? (
 					<Text>
 						{`  · refine content: ${refineContentRes.applied} applied, ${refineContentRes.matched} matched, ${refineContentRes.failed} failed`}
 					</Text>
 				) : null}
-				{refineTemplatesRes ? (
+				{phase.skipped.includes('refineTemplates') ? (
+					<Text dimColor>{'  ⊘ refine templates (skipped)'}</Text>
+				) : refineTemplatesRes ? (
 					<Text>
 						{`  · refine templates: ${refineTemplatesRes.applied} applied, ${refineTemplatesRes.matched} matched, ${refineTemplatesRes.failed} failed`}
 					</Text>

@@ -312,6 +312,11 @@ function buildUserContent(
 
 	content.push({type: 'text', text: baseContext});
 
+	content.push({
+		type: 'text',
+		text: 'Respond with the JSON envelope ONLY. Begin your reply with `{` and end with `}`. No preamble, no analysis, no commentary, no markdown fences, no trailing summary.',
+	});
+
 	return content;
 }
 
