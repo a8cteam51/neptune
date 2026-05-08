@@ -123,6 +123,20 @@ NEVER write to `styles.css` or any other top-level theme.json key. NEVER emit ra
 
 When a diff implies a value that's reused across multiple blocks (a recurring offset, a custom radius), register it at `theme_json_patch.custom.<group>.<name>` and reference it via `var(--wp--custom--<group>--<name>)` in your block-scoped CSS.
 
+## Forms
+
+If a diff targets a form region, expect the existing `current.html` to use Jetpack form blocks (`jetpack/contact-form` wrapping `jetpack/field-*` and a `jetpack/button` submit). Apply edits to those blocks and their attributes; do NOT replace a Jetpack field with a `wp:html` raw `<input>`, and do NOT replace `jetpack/button` with `core/button` for the submit — the latter doesn't trigger Jetpack's submission handler.
+
+If a diff requires adding a NEW form (or a new field to an existing form), use the same vocabulary as the build skill (tsx-to-blocks) for selecting the right block. Common edits and the right channel for each:
+
+- Change a field's label / placeholder / required flag → the matching block attribute on `jetpack/field-*` (`label`, `placeholder`, `required`, `defaultValue`).
+- Change which options appear in a select / radio / checkbox group → the `options` array on the field block; preserve any unaffected entries verbatim.
+- Lay out two fields side-by-side → set `width` on each field block (25 / 50 / 75 / 100). Do NOT wrap fields in `wp:columns` to achieve this — the form wrapper handles flow layout.
+- Restyle the submit button → attributes on the existing `jetpack/button` (`text`, `backgroundColor`, `textColor`, `borderRadius`, `width`). Do not insert a sibling `core/button`.
+- Spacing between the form and its surroundings → `style.spacing` on `jetpack/contact-form`. Do not insert `wp:spacer` blocks between fields.
+
+If a diff implies a form region but `current.html` has no `jetpack/contact-form` wrapper, this is a build-skill problem the wrong way — record the diff in `skipped` with reason "form region missing jetpack/contact-form wrapper; needs a fresh build pass" rather than introducing one mid-refinement.
+
 ## Handling SVG and unmapped image references
 
 A diff may instruct you to add or modify an image whose source const is not in `=== media library mappings ===` (typically SVG: divider, ornament, icon). Do NOT emit a `wp:image` with empty `src` — WP renders it as a broken-image placeholder. Translate the visual's intent into a STRUCTURED block expression instead. Use the diff's description plus the surrounding `current.html` context to pick the right interpretation, walking this priority order top-down:

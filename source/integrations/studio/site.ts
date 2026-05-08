@@ -7,7 +7,16 @@ import {defaultSpawn, type Spawn} from '../../lib/spawn.js';
 import {stripAnsi} from '../../lib/strip-ansi.js';
 import type {LogEvent} from '../../lib/event-list.js';
 
-const REQUIRED_PLUGINS = ['create-block-theme', 'safe-svg'];
+const REQUIRED_PLUGINS = ['create-block-theme', 'safe-svg', 'jetpack'];
+
+// Jetpack modules to enable post-activation. Both work without a
+// WordPress.com connection on local Studio sites — `blocks` ships
+// Jetpack's Gutenberg blocks and `contact-form` ships the Forms block.
+// Failures here are treated as warnings rather than fatal: Jetpack's
+// activation hooks occasionally hit transient errors on first run,
+// and the rest of the site setup shouldn't be blocked by an optional
+// module.
+const JETPACK_MODULES = ['blocks', 'contact-form'];
 
 export type StudioSiteOptions = {
 	signal?: AbortSignal;
@@ -43,6 +52,28 @@ export async function* createStudioSite(
 			signal,
 			spawn,
 		);
+	}
+
+	for (const module of JETPACK_MODULES) {
+		yield {
+			kind: 'step',
+			message: `studio wp jetpack module activate ${module}`,
+		};
+		try {
+			await runStudio(
+				['wp', 'jetpack', 'module', 'activate', module, '--path', wpDir],
+				signal,
+				spawn,
+			);
+		} catch (err) {
+			if (signal?.aborted) throw err;
+			yield {
+				kind: 'warn',
+				message: `Jetpack module "${module}" did not activate: ${
+					err instanceof Error ? err.message : String(err)
+				}. Continuing — enable it manually from the WP admin if needed.`,
+			};
+		}
 	}
 
 	yield {

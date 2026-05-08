@@ -3,11 +3,12 @@
 // asset server. We download those bytes to design/<slug>/assets/ so the
 // pull is self-contained once the local server stops serving.
 //
-// Filtering: only .png / .jpg / .jpeg are kept. SVG and other formats
-// are skipped because most are decorative artifacts from Figma's code
-// generator, not designer-added imagery. The build agent gets a media
-// library mapping for the kept files (see source/lib/asset-mappings.ts);
-// SVG references end up with empty src in the emitted markup.
+// Filtering: PNG/JPG/GIF/WEBP and SVG are kept. Each ref is tagged with
+// `kind` ('raster' | 'svg') so downstream can decide what to do — rasters
+// go straight to the WP media library, SVGs are triaged by an agent
+// first (see source/integrations/figma/svg-triage.ts) because Figma's
+// code generator emits both real logos/illustrations AND decorative
+// dividers/ornaments as SVG, and only the former are worth keeping.
 //
 // Asset GETs are confirmed NOT subject to the MCP rate limit, so we don't
 // guard against 429 here. Each fetch carries a per-asset timeout and the
@@ -25,9 +26,12 @@ import type {LogEvent} from '../../lib/event-list.js';
 const ASSET_DECL_RE =
 	/^const\s+(\w+)\s*=\s*["'](http:\/\/localhost:3845\/assets\/[^"']+)["']/gm;
 
-// Designer-added imagery only. SVG/AVIF/WEBP/etc are dropped at parse
-// time so we never spend an HTTP fetch on them.
-const KEEP_EXT_RE = /\.(png|jpe?g)$/i;
+// Anything Figma's local asset server actually emits. Exotic formats
+// outside this set (e.g. .pdf, .mp4) are dropped at parse time.
+const KEEP_EXT_RE = /\.(png|jpe?g|gif|webp|svg)$/i;
+const SVG_EXT_RE = /\.svg$/i;
+
+export type AssetKind = 'raster' | 'svg';
 
 const ASSET_TIMEOUT_MS = 30_000;
 const PARALLEL_DOWNLOADS = 4;
@@ -39,6 +43,10 @@ export type AssetRef = {
 	constName: string;
 	url: string;
 	filename: string;
+	// Derived from the URL extension. Drives downstream branching:
+	// rasters upload directly, SVGs are triaged by the value agent
+	// before any upload.
+	kind: AssetKind;
 };
 
 export type DownloadedAsset = AssetRef & {
@@ -185,9 +193,11 @@ async function fetchAsset(
 	}
 }
 
-// Returns one entry per (constName, url) pair where the URL's path
-// ends in .png/.jpg/.jpeg. Dedupes by URL, first occurrence wins so
-// the constName matches the first declaration in code.tsx.
+// Returns one entry per (constName, url) pair whose URL path ends in a
+// supported extension (png/jpg/jpeg/gif/webp/svg). Dedupes by URL,
+// first occurrence wins so the constName matches the first declaration
+// in code.tsx. Each ref carries `kind` so SVGs can be split off for
+// triage before upload.
 export function extractAssetRefs(code: string): AssetRef[] {
 	const seen = new Set<string>();
 	const out: AssetRef[] = [];
@@ -199,7 +209,8 @@ export function extractAssetRefs(code: string): AssetRef[] {
 		const pathname = new URL(url).pathname;
 		if (!KEEP_EXT_RE.test(pathname)) continue;
 		seen.add(url);
-		out.push({constName, url, filename: basename(pathname)});
+		const kind: AssetKind = SVG_EXT_RE.test(pathname) ? 'svg' : 'raster';
+		out.push({constName, url, filename: basename(pathname), kind});
 	}
 	return out;
 }

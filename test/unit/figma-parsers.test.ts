@@ -7,7 +7,7 @@ import {parseTitleCards} from '../../source/integrations/figma/handoff-parse.js'
 import {stripLlmInstructions} from '../../source/integrations/figma/mcp.js';
 import {slugify} from '../../source/commands/pull-template/special-meta.js';
 
-test('extractAssetUrls keeps PNG/JPG, drops SVG and other formats', t => {
+test('extractAssetUrls keeps PNG/JPG/GIF/WEBP/SVG, drops exotic formats', t => {
 	const code = `
 const imgA = "http://localhost:3845/assets/aaa.png";
 const imgB = "http://localhost:3845/assets/bbb.svg";
@@ -16,12 +16,17 @@ const imgC = "http://localhost:3845/assets/ccc.jpg";
 const imgD = "http://localhost:3845/assets/ddd.jpeg";
 const imgE = "http://localhost:3845/assets/eee.webp";
 const imgF = "http://localhost:3845/assets/fff.PNG";
+const imgG = "http://localhost:3845/assets/ggg.pdf";
+const imgH = "http://localhost:3845/assets/hhh.gif";
 `;
 	t.deepEqual(extractAssetUrls(code), [
 		'http://localhost:3845/assets/aaa.png',
+		'http://localhost:3845/assets/bbb.svg',
 		'http://localhost:3845/assets/ccc.jpg',
 		'http://localhost:3845/assets/ddd.jpeg',
+		'http://localhost:3845/assets/eee.webp',
 		'http://localhost:3845/assets/fff.PNG',
+		'http://localhost:3845/assets/hhh.gif',
 	]);
 });
 
@@ -43,7 +48,7 @@ const inJsx = <img src="http://localhost:3845/assets/ddd.png" />;
 	t.deepEqual(extractAssetUrls(code), ['http://localhost:3845/assets/ccc.png']);
 });
 
-test('extractAssetRefs returns const name + filename per ref', t => {
+test('extractAssetRefs returns const name + filename + kind per ref', t => {
 	const code = `
 const imgHero = "http://localhost:3845/assets/aaa1234.png";
 const imgIcon = "http://localhost:3845/assets/bbb5678.svg";
@@ -54,11 +59,19 @@ const imgFoot = "http://localhost:3845/assets/ccc9999.jpg";
 			constName: 'imgHero',
 			url: 'http://localhost:3845/assets/aaa1234.png',
 			filename: 'aaa1234.png',
+			kind: 'raster',
+		},
+		{
+			constName: 'imgIcon',
+			url: 'http://localhost:3845/assets/bbb5678.svg',
+			filename: 'bbb5678.svg',
+			kind: 'svg',
 		},
 		{
 			constName: 'imgFoot',
 			url: 'http://localhost:3845/assets/ccc9999.jpg',
 			filename: 'ccc9999.jpg',
+			kind: 'raster',
 		},
 	]);
 });

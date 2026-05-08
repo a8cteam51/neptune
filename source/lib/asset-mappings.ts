@@ -17,15 +17,17 @@ export function formatAssetMappingsContext(
 	const lines: string[] = [
 		'The following constants in code.tsx point to images already imported into the WordPress media library. When emitting any wp:image (or any other block whose markup references one of these constants), use the matching id and URL — do NOT use the localhost:3845 URL and do NOT invent a different path.',
 		'',
+		'Each entry is tagged with kind: "raster" for PNG/JPG/GIF/WEBP, or "svg" for SVGs that survived the triage step (logos, brand marks, illustrations, content icons). Both kinds emit as wp:image like normal images.',
+		'',
 	];
 	for (const asset of assets) {
 		lines.push(
-			`  - ${asset.constName} → id=${asset.mediaId}, url=${asset.mediaUrl}`,
+			`  - ${asset.constName} (${asset.kind}) → id=${asset.mediaId}, url=${asset.mediaUrl}`,
 		);
 	}
 	lines.push('');
 	lines.push(
-		'For any image whose source constant is NOT in this list (typically SVG references — dividers, ornaments, icons), do NOT emit a wp:image at all. See the skill\'s "Handling SVG and unmapped image references" section for the structured replacement (border / wp:separator / background / drop / wp:html as last resort). Empty wp:image (src="" with no id) is forbidden.',
+		'For any image whose source constant is NOT in this list, do NOT emit a wp:image at all. The unmapped refs are typically decorative SVGs (dividers, ornaments, gradient overlays) that the triage step deliberately discarded — see the skill\'s "Handling SVG and unmapped image references" section for the structured replacement (border / wp:separator / background / drop / wp:html as last resort). Empty wp:image (src="" with no id) is forbidden.',
 	);
 	return lines.join('\n');
 }

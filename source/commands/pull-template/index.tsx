@@ -23,13 +23,15 @@ import React, {useEffect, useState} from 'react';
 import {Box, Text, useInput} from 'ink';
 import Spinner from 'ink-spinner';
 import {readFile} from 'node:fs/promises';
-import {join} from 'node:path';
+import {dirname, join} from 'node:path';
+import {fileURLToPath} from 'node:url';
 import {
 	findPullBySlug,
 	listPulls,
 	writePullMeta,
 } from '../../lib/design-walk.js';
 import {downloadCodeAssets} from '../../integrations/figma/assets-fetch.js';
+import {triageSvgs} from '../../integrations/figma/svg-triage.js';
 import {parseTitleCards} from '../../integrations/figma/handoff-parse.js';
 import {
 	getSelectionMetadata,
@@ -53,6 +55,16 @@ import type {ConfigureSubmit} from './configure-view.js';
 import GateView from './gate-view.js';
 import PickerView from './picker-view.js';
 import {SPECIAL_META} from './special-meta.js';
+
+const moduleDir = dirname(fileURLToPath(import.meta.url));
+const PLUGIN_PATH = resolve(
+	moduleDir,
+	'..',
+	'..',
+	'..',
+	'plugins',
+	'neptune-tools',
+);
 
 type Props = {
 	activeProject: Loaded;
@@ -331,19 +343,38 @@ export default function PullTemplate({activeProject, onDone}: Props) {
 				// failure here means the pull is incomplete, so escalate.
 				const downloadResult = await downloadCodeAssets(pullDir, emit, signal);
 
-				// Import each PNG/JPG into the WP media library and capture
-				// the constName→attachment mapping for meta.json. Skipped
-				// for special pulls (style guide, templates) — those are
-				// metadata pulls without imagery the build agents reference.
+				// Split rasters from SVGs. Rasters upload directly. SVGs go
+				// through the triage agent first — Figma emits both real
+				// imagery and decorative shapes as SVG, and we only want
+				// the former in the WP media library. Discarded SVG files
+				// are deleted from disk inside triageSvgs.
+				//
+				// Skipped entirely for special pulls (style guide, templates):
+				// those are metadata pulls without imagery the build agents
+				// reference.
 				let pulledAssets: PulledAsset[] | undefined;
 				if (!isSpecial && downloadResult.assets.length > 0) {
-					const wpRoot = resolve(activeProject.dir, 'wordpress');
-					pulledAssets = await uploadPulledAssets(
-						wpRoot,
-						downloadResult.assets,
+					const rasters = downloadResult.assets.filter(
+						a => a.kind === 'raster',
+					);
+					const svgs = downloadResult.assets.filter(a => a.kind === 'svg');
+					const triage = await triageSvgs(
+						svgs,
+						activeProject.dir,
+						PLUGIN_PATH,
 						signal,
 						emit,
 					);
+					const toUpload = [...rasters, ...triage.kept];
+					if (toUpload.length > 0) {
+						const wpRoot = resolve(activeProject.dir, 'wordpress');
+						pulledAssets = await uploadPulledAssets(
+							wpRoot,
+							toUpload,
+							signal,
+							emit,
+						);
+					}
 				}
 
 				// Validate code.tsx against the user's usesPostContent flag

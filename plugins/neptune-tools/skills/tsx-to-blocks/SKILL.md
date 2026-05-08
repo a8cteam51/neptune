@@ -274,6 +274,52 @@ When a value isn't a preset and is reused across multiple blocks (e.g. a recurri
 
 If a piece of TSX is purely presentational scaffolding (e.g. an empty wrapper div with only `flex` utilities), collapse it. Don't translate one-for-one if it adds nothing.
 
+## Forms
+
+When code.tsx contains a `<form>` (or any field input that is clearly part of a contact / lead-capture / signup flow), use the Jetpack form blocks. The Jetpack plugin is a project dependency, so these blocks are always available; do NOT hand-roll form markup with `wp:html` and never emit a `core/button` for form submission — it doesn't trigger Jetpack's submission handler.
+
+Every form is structured as a single `jetpack/contact-form` parent containing field blocks plus a `jetpack/button` submit. Standalone field blocks outside the wrapper do not function — wrap or omit.
+
+### Form-block mapping
+
+| JSX shape                                                                  | Jetpack block                                    |
+| -------------------------------------------------------------------------- | ------------------------------------------------ |
+| `<form>`                                                                   | `jetpack/contact-form` (wraps everything below)  |
+| `<input type="text">`                                                      | `jetpack/field-text`                             |
+| `<input>` whose label/name is "Name" / "Full name" / "First name"          | `jetpack/field-name`                             |
+| `<input type="email">`                                                     | `jetpack/field-email`                            |
+| `<input type="tel">` / `<input type="phone">`                              | `jetpack/field-phone`                            |
+| `<input type="url">`                                                       | `jetpack/field-website`                          |
+| `<input type="number">`                                                    | `jetpack/field-number`                           |
+| `<input type="date">`                                                      | `jetpack/field-date`                             |
+| `<input type="range">` / slider UI                                         | `jetpack/field-slider`                           |
+| `<input type="checkbox">`                                                  | `jetpack/field-checkbox`                         |
+| `<input type="radio">`                                                     | `jetpack/field-radio`                            |
+| `<select>`                                                                 | `jetpack/field-select`                           |
+| `<textarea>`                                                               | `jetpack/field-textarea`                         |
+| `<input type="file">`                                                      | `jetpack/field-file`                             |
+| `<input type="hidden">`                                                    | `jetpack/field-hidden`                           |
+| Star / heart rating widget                                                 | `jetpack/field-rating`                           |
+| Terms-of-service / consent checkbox separate from generic checkbox fields  | `jetpack/field-consent`                          |
+| `<input type="submit">` / `<button type="submit">` / "Send" / "Submit" CTA | `jetpack/button` (inside `jetpack/contact-form`) |
+
+### Attribute extraction
+
+Read field attributes from the JSX:
+
+- `label` — from the visible label text. Prefer a sibling `<label>` element's text; fall back to the input's `name`, `aria-label`, or surrounding heading. Never leave `label` empty.
+- `required` — `true` when the JSX has the `required` attribute or the visible label contains a required marker (`*`, "required", etc.).
+- `placeholder` — copy from the JSX `placeholder` attribute when present.
+- `defaultValue` — copy from `defaultValue` / `value` when the JSX defines one.
+- `options` (for `field-select`, `field-radio`, `field-checkbox`) — read each `<option>` (or radio/checkbox sibling) into the array; preserve order.
+- `width` — when a row of fields uses Tailwind grid/flex utilities to put two side-by-side, set each field's `width` to `50` (50%); for three-up use `33` etc. The width attribute is the channel for inline form layout — do NOT wrap fields in `wp:columns` to achieve this.
+
+### Form layout
+
+- Field width is governed by each field block's `width` attribute (25 / 50 / 75 / 100). The form wrapper handles flow layout automatically.
+- Apply spacing between the wrapper and its surroundings via `style.spacing` on `jetpack/contact-form` itself, NOT by inserting `wp:spacer` blocks between fields.
+- Style the submit button by setting attributes on `jetpack/button` (`text`, `backgroundColor`, `textColor`, `borderRadius`, `width`). Don't reach for a `core/button` block beside the form to "match the design" — it won't submit.
+
 ## Handling SVG and unmapped image references
 
 Two cases produce no `=== media library mappings ===` entry: (a) `<img src={imgFoo}>` where `imgFoo` references an SVG asset (Figma generates these for non-bitmap visuals — dividers, ornaments, icons), and (b) inline `<svg>...</svg>` markup directly in the JSX. In both cases the right output is a STRUCTURED block expression of the visual's intent — NOT a `wp:image` with empty `src` (forbidden — renders as a broken-image placeholder), and NOT necessarily `wp:html` with raw SVG.

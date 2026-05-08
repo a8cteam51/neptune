@@ -23,29 +23,36 @@ Return ONLY a single JSON object. No markdown fences. No preamble. No commentary
 
 ```jsonc
 {
-  "title": "Hero callout",
-  "description": "Big heading with subtext and a primary CTA.",
-  "categories": ["featured", "hero"],
-  "keywords": ["hero", "callout", "banner"],
-  "block_types": [],
-  "viewport_width": 1280,
-  "inserter": true,
-  "template_html": "<!-- wp:group ... --><!-- /wp:group -->",
-  "theme_json_patch": {
-    "blocks": {
-      "core/heading": { "typography": { "letterSpacing": "-0.02em" } }
-    }
-  },
-  "block_style_variations": [
-    {
-      "slug": "neptune-fill-small",
-      "title": "Fill Small",
-      "blockTypes": ["core/button"],
-      "styles": {
-        "spacing": { "padding": { "top": "8px", "right": "16px", "bottom": "8px", "left": "16px" } }
-      }
-    }
-  ]
+	"title": "Hero callout",
+	"description": "Big heading with subtext and a primary CTA.",
+	"categories": ["featured", "hero"],
+	"keywords": ["hero", "callout", "banner"],
+	"block_types": [],
+	"viewport_width": 1280,
+	"inserter": true,
+	"template_html": "<!-- wp:group ... --><!-- /wp:group -->",
+	"theme_json_patch": {
+		"blocks": {
+			"core/heading": {"typography": {"letterSpacing": "-0.02em"}},
+		},
+	},
+	"block_style_variations": [
+		{
+			"slug": "neptune-fill-small",
+			"title": "Fill Small",
+			"blockTypes": ["core/button"],
+			"styles": {
+				"spacing": {
+					"padding": {
+						"top": "8px",
+						"right": "16px",
+						"bottom": "8px",
+						"left": "16px",
+					},
+				},
+			},
+		},
+	],
 }
 ```
 
@@ -85,7 +92,7 @@ The theme.json `styles` shape (which is also the shape inside `block_style_varia
 - `typography.fontFamily/Size/Weight/Style/LetterSpacing/LineHeight/TextDecoration/TextTransform/TextColumns/WritingMode`.
 - `color.background`, `color.text`, `color.gradient`.
 
-What legitimately requires `css` and has no structured equivalent: `display`, `flex-direction`, `align-items`, `justify-content` *as variation styling* (see "Layout attribute" below for the instance path), `box-sizing`, child-element selectors (`& img`, `& .wp-block-button__link`), `:hover`/`:focus` states, `@media` breakpoints.
+What legitimately requires `css` and has no structured equivalent: `display`, `flex-direction`, `align-items`, `justify-content` _as variation styling_ (see "Layout attribute" below for the instance path), `box-sizing`, child-element selectors (`& img`, `& .wp-block-button__link`), `:hover`/`:focus` states, `@media` breakpoints.
 
 ### Layout attribute on block instances
 
@@ -122,6 +129,8 @@ NEVER write to `styles.css` or any other top-level theme.json key.
 ## Block mapping
 
 Same as `tsx-to-blocks` — `wp:group` for layout containers, `wp:heading` for `<h1>`–`<h6>`, `wp:paragraph` for text runs, `wp:button` inside `wp:buttons` for `<a>` styled like a button, `wp:image` for `<img>`, `wp:columns`/`wp:column` for column layouts, `wp:list`/`wp:list-item` for `<ul>`/`<ol>`, `wp:html` for inline `<svg>`. Collapse purely presentational scaffolding.
+
+When the pattern is a contact / signup / lead-capture form, use the Jetpack form blocks: a single `jetpack/contact-form` parent wrapping `jetpack/field-text`, `jetpack/field-name`, `jetpack/field-email`, `jetpack/field-phone`, `jetpack/field-website`, `jetpack/field-number`, `jetpack/field-date`, `jetpack/field-textarea`, `jetpack/field-select`, `jetpack/field-radio`, `jetpack/field-checkbox`, `jetpack/field-file`, `jetpack/field-hidden`, `jetpack/field-rating`, `jetpack/field-slider`, or `jetpack/field-consent` as appropriate, with a `jetpack/button` (NOT `core/button`) submit at the end. Field width is governed by each block's `width` attribute (25 / 50 / 75 / 100); never wrap fields in `wp:columns` to fake a side-by-side layout. Read `label`, `required`, `placeholder`, `defaultValue`, and `options` from the JSX as in tsx-to-blocks.
 
 For every layout `<div>`, set the `layout` block ATTRIBUTE on `wp:group`: `{"type":"constrained","contentSize":...}` for centered content with a max width; `{"type":"flex","justifyContent":...,"flexWrap":...,"verticalAlignment":...}` for flex rows/columns; `{"type":"grid","columnCount":N}` (or `"minimumColumnWidth"`) for grids. Pair with `style.spacing.blockGap` for inter-child gap. Do NOT emulate flex/grid via a custom `className` keyed to a CSS rule — the structured `layout` attribute is purpose-built for this.
 

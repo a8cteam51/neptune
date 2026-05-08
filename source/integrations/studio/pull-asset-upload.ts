@@ -1,8 +1,14 @@
-// Uploads each PNG/JPG asset that downloadCodeAssets pulled to disk
-// into the WordPress media library, returning the constName→media
-// mapping that gets persisted in the pull's meta.json. Build agents
-// receive this mapping so they can swap localhost:3845 references for
-// real attachment ids without re-fetching anything.
+// Uploads each downloaded raster + kept-SVG asset into the WordPress
+// media library, returning the constName→media mapping (with each
+// asset's `kind`) that gets persisted in the pull's meta.json. Build
+// agents receive this mapping so they can swap localhost:3845
+// references for real attachment ids without re-fetching anything.
+//
+// SVG uploads assume the target site has Safe SVG (or an equivalent
+// sanitizing plugin) installed — `wp media import` rejects SVG mimes
+// by default, so a missing plugin will surface as a loud import error
+// rather than a silent drop. The triage step upstream filters out
+// decorative SVGs before they reach us.
 //
 // Each pull opens its own Studio session: media imports are sequential
 // (wp-cli is one tool call per file) and we tolerate a session drop
@@ -36,10 +42,11 @@ export async function uploadPulledAssets(
 				filename: asset.filename,
 				mediaId: result.id,
 				mediaUrl: result.url,
+				kind: asset.kind,
 			});
 			onEvent({
 				kind: 'step',
-				message: `Imported ${asset.filename} → id=${result.id} (${asset.constName})`,
+				message: `Imported ${asset.filename} → id=${result.id} (${asset.constName}, ${asset.kind})`,
 			});
 		}
 	} finally {
