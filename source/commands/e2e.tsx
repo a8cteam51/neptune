@@ -26,11 +26,13 @@
 //
 // Per-pull failures don't abort the run — they're tallied. The user
 // presses any key on the summary screen to return to the menu.
+import {resolve} from 'node:path';
 import React, {useEffect, useRef, useState} from 'react';
 import {Box, Text, useInput} from 'ink';
 import {AgentAbortedError} from '../lib/agent-stream.js';
 import EventList, {type LogEvent} from '../lib/event-list.js';
 import MultiSelect from '../lib/multi-select.js';
+import {inspectLayoutWidths} from '../lib/theme-json-patch.js';
 import {buildThemeJson} from './build-theme-json.js';
 import {runBuild as runBuildTemplate} from './build-template.js';
 import {runBuildContent} from './build-content.js';
@@ -153,6 +155,12 @@ type Phase =
 			totalSteps: number;
 			elapsedMs: number;
 			tally: Tally;
+			// Mirrors the post-build inspectLayoutWidths check. Surfaced
+			// in the paused UI so the user fills these in alongside the
+			// font binaries, before patterns/content/templates start
+			// resolving align widths against an empty theme.json.
+			contentSizeMissing: boolean;
+			wideSizeMissing: boolean;
 	  }
 	| {
 			kind: 'done';
@@ -414,6 +422,28 @@ export default function E2E({activeProject, onDone}: Props) {
 									'── Paused: install fonts in <theme>/assets/fonts/, then press Enter ──',
 							},
 						]);
+						const themeSlug = activeProject.config.themeSlug;
+						let widthsStatus = {
+							contentSizeMissing: false,
+							wideSizeMissing: false,
+						};
+						if (themeSlug) {
+							try {
+								widthsStatus = await inspectLayoutWidths(
+									resolve(
+										activeProject.dir,
+										'wordpress',
+										'wp-content',
+										'themes',
+										themeSlug,
+										'theme.json',
+									),
+								);
+							} catch {
+								// Best-effort — pause UI still renders without
+								// the layout-widths hint if the read fails.
+							}
+						}
 						setPhase(prev =>
 							prev.kind === 'running'
 								? {
@@ -426,6 +456,8 @@ export default function E2E({activeProject, onDone}: Props) {
 										totalSteps: prev.totalSteps,
 										elapsedMs: prev.elapsedMs,
 										tally: prev.tally,
+										contentSizeMissing: widthsStatus.contentSizeMissing,
+										wideSizeMissing: widthsStatus.wideSizeMissing,
 									}
 								: prev,
 						);
@@ -937,6 +969,24 @@ export default function E2E({activeProject, onDone}: Props) {
 							so missing fonts will show up as fallback typography in those
 							captures.
 						</Text>
+						{phase.contentSizeMissing || phase.wideSizeMissing ? (
+							<Box marginTop={1}>
+								<Text color="yellow">
+									{phase.contentSizeMissing && phase.wideSizeMissing
+										? 'Also: theme.json settings.layout.contentSize and wideSize are unset. '
+										: phase.contentSizeMissing
+											? 'Also: theme.json settings.layout.contentSize is unset. '
+											: 'Also: theme.json settings.layout.wideSize is unset. '}
+									Build/refine agents resolve align:&quot;wide&quot; and the
+									default content width against these values, so leaving them
+									empty makes blocks render at the browser default. Edit
+									theme.json now (e.g.{' '}
+									<Text bold>contentSize: &quot;780px&quot;</Text>,{' '}
+									<Text bold>wideSize: &quot;1200px&quot;</Text>) before
+									continuing.
+								</Text>
+							</Box>
+						) : null}
 						<Box marginTop={1}>
 							<Text bold>Press Enter to continue. Esc to cancel.</Text>
 						</Box>

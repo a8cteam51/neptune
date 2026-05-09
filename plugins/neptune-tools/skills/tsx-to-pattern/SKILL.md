@@ -75,6 +75,8 @@ Return ONLY a single JSON object. No markdown fences. No preamble. No commentary
 
 ## Where to put style information
 
+The default channel for styling is `theme_json_patch.blocks["core/<x>"]` (project-wide) or a `block_style_variations[]` entry the block claims via `is-style-<slug>` (per-instance). Raw inline `style="..."` HTML attributes on the rendered HTML inside block markup are FORBIDDEN — they break Gutenberg's block validation (the parser re-runs `save()` and rejects markup whose inline styles don't match what `save()` would emit). Promote every value to a theme.json patch or a registered variation.
+
 The single biggest failure mode in this conversion is "I'll just add a `className` and key a CSS rule off it." That bypasses every structured surface WordPress exposes and produces output the editor can't introspect. Before reaching for a custom `className` + CSS combo, work the cheat sheet and the `layout` attribute below — most of what feels like "I need raw CSS" is really an unused structured property or the wrong block attribute.
 
 ### Structured properties to check before reaching for `css`
@@ -100,7 +102,7 @@ What legitimately requires `css` and has no structured equivalent: `display`, `f
 
 - `layout:{"type":"flex","orientation":"horizontal"|"vertical","justifyContent":"left"|"center"|"right"|"space-between","flexWrap":"wrap"|"nowrap","verticalAlignment":"top"|"center"|"bottom"}`
 - `layout:{"type":"grid","columnCount":N}` — fixed N-column grid. Or `{"type":"grid","minimumColumnWidth":"240px"}` for an auto-fit grid.
-- `layout:{"type":"constrained","contentSize":"672px","wideSize":"1170px"}` — centered content with a max width.
+- `layout:{"type":"constrained"}` — centered content. `contentSize` and `wideSize` come from `theme.json.settings.layout` and are applied automatically; do NOT redeclare them on the pattern's blocks. Pick width via the `align` attribute on the block instance: omit it for `contentSize`, set `align:"wide"` for `wideSize`, set `align:"full"` for edge-to-edge. Use `style.spacing.padding.left/right` to narrow further when needed. A pattern that pins its own `contentSize` will look broken when the host theme's widths differ.
 - Pair with `style:{"spacing":{"blockGap":"var:preset|spacing|<slug>"}}` for inter-child gap.
 
 When the source TSX has `<div class="grid grid-cols-3 gap-8">`, the right output is `wp:group` with `layout:{"type":"grid","columnCount":3}` plus `style.spacing.blockGap` — NOT a custom `className` whose CSS rule lives in `theme_json_patch.blocks["core/group"].css`.
@@ -138,6 +140,7 @@ For every layout `<div>`, set the `layout` block ATTRIBUTE on `wp:group`: `{"typ
 
 - Every opening block comment must have a matching closing comment.
 - JSON in block comment attributes must be valid: no trailing commas, no comments, double-quoted keys.
+- NEVER emit a raw HTML `style="..."` attribute (including `style=""`) on the rendered HTML elements inside block markup. The block parser re-runs the block's `save()` function and rejects markup whose inline style attributes don't match what `save()` would emit. All styling MUST go through `theme_json_patch.blocks["core/<x>"]` or a `block_style_variations[]` entry. Do NOT set instance-level `"style":{...}` JSON block attributes either, except for the canonical `"style":{"spacing":{"blockGap":"var:preset|spacing|<slug>"}}` on `wp:group` / `wp:columns` / `wp:cover` paired with a `layout:{...}` attribute.
 - Strip Figma's `data-node-id`, `data-name`, `data-neptune-annotations`, and `data-development-annotations` attributes from the output.
 - Slugs are kebab-case, lowercase, alphanumeric + hyphens.
 - Variation slugs in `block_style_variations[]` MUST be prefixed `neptune-`.
@@ -155,7 +158,9 @@ For every layout `<div>`, set the `layout` block ATTRIBUTE on `wp:group`: `{"typ
 7. Every `is-style-neptune-<slug>` class on a block is backed EITHER by an entry in the existing-variations inventory OR by a new entry in `block_style_variations[]` — never both.
 8. CSS only used when no pre-exposed structured property could express the rule. Specifically, before writing any of `aspect-ratio`, `min-height`, `gap`, `padding`, `margin`, `border-*`, `box-shadow`, `outline-*`, `font-*`, `letter-spacing`, `line-height`, `text-transform`, `background`, or `color` into a `css` field, verify the structured equivalent (`dimensions.aspectRatio`, `dimensions.minHeight`, `spacing.blockGap`, `spacing.padding`, `spacing.margin`, `border.*`, `shadow`, `outline.*`, `typography.*`, `color.*`) cannot be used.
 9. Every flex / grid / constrained container in `template_html` uses the `layout` block attribute (`layout:{"type":"flex"|"grid"|"constrained",...}`) — NOT emulated via a custom `className` plus a CSS rule. Inter-child gap goes in `style.spacing.blockGap`, not a `gap:...` declaration in `css`.
+   9b. No block in the pattern declares its own `contentSize`/`wideSize` under `layout`. Width is `align:"wide"` / `align:"full"` / no align, driven by the host theme's `theme.json.settings.layout`. Narrower content uses `style.spacing.padding.left/right`. Pinning widths inside a pattern breaks portability across themes.
 10. Every `className` on a block in `template_html` is one of: `is-style-<slug>` (variation), a wp-core class (`alignwide`, `alignfull`, etc.), or a class explicitly required by the source TSX. NO ad-hoc BEM-style handles whose sole job is to back `&.<name>{...}` rules. If a recurring visual identity needs an anchor, register it as a `block_style_variations[]` entry instead.
 11. For every `&.<custom-class>{...}` selector that appears in any `css` field, confirm the `<custom-class>` is `is-style-<registered-slug>` — NOT a className you invented.
+    11b. `template_html` contains zero raw HTML `style="..."` attributes (including empty `style=""`) and zero instance-level `"style":{...}` block attributes (except the canonical `style.spacing.blockGap` on layout containers). Every styling decision is realized via `theme_json_patch.blocks` or `block_style_variations[]`.
 12. No `wp:template-part`, `wp:post-title`, `wp:post-content`, or `wp:post-date` unless the source TSX explicitly used those annotations.
 13. No `function`, `import`, `const imgFoo`, `<?php`, or TypeScript syntax remains.

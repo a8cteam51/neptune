@@ -18,7 +18,10 @@ import {buildVariables} from '../lib/build-variables.js';
 import EventList, {type LogEvent} from '../lib/event-list.js';
 import {markVariablesBuilt} from './setup-project/config.js';
 import {openStudioSession} from '../integrations/studio/mcp.js';
-import {flushThemeJsonCache} from '../lib/theme-json-patch.js';
+import {
+	flushThemeJsonCache,
+	inspectLayoutWidths,
+} from '../lib/theme-json-patch.js';
 import type {Loaded} from './setup-project/types.js';
 
 type Props = {
@@ -318,6 +321,25 @@ export async function buildThemeJson(
 		kind: 'step',
 		message: `Wrote ${formatted.length} bytes to theme.json`,
 	});
+
+	// Surface unset content/wide widths immediately so the user can fill
+	// them in before any pull/build downstream tries to resolve
+	// `align:"wide"` / no-align against an empty value. The agent leaves
+	// these blank whenever Figma's tokens don't expose body / wide
+	// widths, which is common.
+	const widths = await inspectLayoutWidths(target);
+	if (widths.contentSizeMissing || widths.wideSizeMissing) {
+		const missing = [
+			widths.contentSizeMissing ? 'contentSize' : null,
+			widths.wideSizeMissing ? 'wideSize' : null,
+		]
+			.filter(Boolean)
+			.join(' / ');
+		onEvent({
+			kind: 'warn',
+			message: `theme.json settings.layout.${missing} is unset. Build/refine agents rely on these to resolve align:"wide" and the default content width — fill them in before pulling pages so blocks center correctly.`,
+		});
+	}
 
 	// Flush WP's cached resolved theme.json so the live site picks up
 	// the new presets on the next request. Mirrors the flush every other

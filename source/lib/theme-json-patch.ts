@@ -43,6 +43,38 @@ export async function readThemeJson(
 	return parsed as Record<string, unknown>;
 }
 
+// Reports which of `settings.layout.contentSize` / `wideSize` are
+// unset (missing key, empty string, or non-string). The theme-json
+// agent leaves these blank when Figma doesn't expose body / wide width
+// tokens — and downstream every build/refine pass uses theme.json to
+// resolve `align:"wide"` / no-align widths, so leaving them empty makes
+// every page render at the browser default. Surfaced after build and
+// during the e2e font pause so the user can fill them in before
+// captures start landing.
+export type LayoutWidthsStatus = {
+	contentSizeMissing: boolean;
+	wideSizeMissing: boolean;
+};
+
+export async function inspectLayoutWidths(
+	themeJsonPath: string,
+): Promise<LayoutWidthsStatus> {
+	let theme: Record<string, unknown>;
+	try {
+		theme = await readThemeJson(themeJsonPath);
+	} catch {
+		return {contentSizeMissing: true, wideSizeMissing: true};
+	}
+	const settings = isPlainObject(theme['settings']) ? theme['settings'] : {};
+	const layout = isPlainObject(settings['layout']) ? settings['layout'] : {};
+	const isUnset = (v: unknown): boolean =>
+		typeof v !== 'string' || v.trim() === '';
+	return {
+		contentSizeMissing: isUnset(layout['contentSize']),
+		wideSizeMissing: isUnset(layout['wideSize']),
+	};
+}
+
 export async function applyThemeJsonPatch(
 	themeJsonPath: string,
 	patch: ThemeJsonPatch,

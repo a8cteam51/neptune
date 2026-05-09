@@ -212,7 +212,11 @@ export async function runBuildContent(
 	);
 
 	const envelope = parseBuildEnvelope(responseText, 'build-content');
-	const target = pageTargetFor(pull.pageSlug, pull.pageName);
+	const target = pageTargetFor(
+		pull.pageSlug,
+		pull.pageName,
+		pull.postType ?? 'page',
+	);
 	const out = envelope.template_html.endsWith('\n')
 		? envelope.template_html
 		: envelope.template_html + '\n';

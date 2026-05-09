@@ -6,8 +6,36 @@ import type {SelectionMetadata} from '../../integrations/figma/mcp.js';
 import {templateSubdir} from '../../lib/template-scaffold.js';
 import {listPulls} from '../../lib/design-walk.js';
 import type {PullMeta} from '../../lib/types.js';
+import type {PagePostType} from '../../lib/wp-pages.js';
 import SelectionLine from './selection-line.js';
 import {slugify} from './special-meta.js';
+
+// Canonical content surfaces for the two block-theme templates that
+// ship a default post in a fresh WordPress install. Pulling these
+// templates should NEVER create a new page — the body lives in the
+// pre-existing seed post, and the live preview targets that post's URL
+// directly.
+type CanonicalTarget = {
+	pageSlug: string;
+	postType: PagePostType;
+	previewPath: string;
+};
+const CANONICAL_TARGETS: Record<string, CanonicalTarget> = {
+	'single.html': {
+		pageSlug: 'hello-world',
+		postType: 'post',
+		previewPath: '/?p=1',
+	},
+	'page.html': {
+		pageSlug: 'sample-page',
+		postType: 'page',
+		previewPath: '/sample-page',
+	},
+};
+
+function canonicalTargetFor(templateFile: string): CanonicalTarget | null {
+	return CANONICAL_TARGETS[templateFile.toLowerCase()] ?? null;
+}
 
 type Stage =
 	| 'pageName'
@@ -24,6 +52,10 @@ export type ConfigureSubmit = {
 	usesPostContent: boolean;
 	// Only set when usesPostContent === true.
 	pageSlug?: string;
+	// Post type the body lives in. Only meaningful when
+	// usesPostContent === true. Defaults to 'page'; 'post' for
+	// single.html (writes go to the seed Hello World post).
+	postType?: PagePostType;
 	// Set when another pull already owns the wrapper for this
 	// templateFile. The new pull will not rebuild the wrapper.
 	contentOnly: boolean;
@@ -60,6 +92,7 @@ export default function ConfigureView({
 	const [templateStem, setTemplateStem] = useState('index');
 	const [usesPostContent, setUsesPostContent] = useState(false);
 	const [pageSlug, setPageSlug] = useState('');
+	const [postType, setPostType] = useState<PagePostType>('page');
 	const [previewPath, setPreviewPath] = useState(
 		defaultPreviewPath('index.html'),
 	);
@@ -105,7 +138,8 @@ export default function ConfigureView({
 		}
 		setTemplateStem(trimmed);
 		const fullFile = `${trimmed}.html`;
-		setPreviewPath(defaultPreviewPath(fullFile));
+		const canonical = canonicalTargetFor(fullFile);
+		setPreviewPath(canonical?.previewPath ?? defaultPreviewPath(fullFile));
 		setError('');
 
 		// Check whether another pull already owns this templateFile so we
@@ -123,12 +157,31 @@ export default function ConfigureView({
 			setCollidingPull(other ?? null);
 			if (other) {
 				setUsesPostContent(true);
+				if (canonical) {
+					setPageSlug(canonical.pageSlug);
+					setPostType(canonical.postType);
+					setStage('previewPath');
+					return;
+				}
 				setStage('pageSlug');
 				return;
 			}
 		} catch {
 			// Best-effort — fall through to the usual prompt.
 		}
+
+		// single.html / page.html have a fixed content surface (the
+		// pre-existing Hello World post and Sample Page respectively).
+		// Skip the usesPostContent / pageSlug prompts entirely so we
+		// never accidentally create a new page that shadows them.
+		if (canonical) {
+			setUsesPostContent(true);
+			setPageSlug(canonical.pageSlug);
+			setPostType(canonical.postType);
+			setStage('previewPath');
+			return;
+		}
+
 		setStage('usesPostContent');
 	};
 
@@ -179,6 +232,7 @@ export default function ConfigureView({
 			previewPath: trimmed,
 			usesPostContent,
 			pageSlug: usesPostContent ? pageSlug : undefined,
+			postType: usesPostContent ? postType : undefined,
 			contentOnly: collidingPull !== null,
 		});
 	};
@@ -294,7 +348,16 @@ export default function ConfigureView({
 							{`${templateStem}.html is already defined by pull "${collidingPull.slug}". This pull will only contribute page content; the wrapper won't be rebuilt.`}
 						</Text>
 					) : null}
-					<Text bold>Page slug (the wp_post that hosts this content)</Text>
+					{canonicalTargetFor(`${templateStem}.html`) ? (
+						<Text dimColor>
+							{`${templateStem}.html writes to the existing ${postType} "${pageSlug}" — no new page is created.`}
+						</Text>
+					) : null}
+					<Text bold>
+						{postType === 'post'
+							? 'Post slug (the wp_post that hosts this content)'
+							: 'Page slug (the wp_post that hosts this content)'}
+					</Text>
 					<Box marginTop={1}>
 						<Text color={stage === 'pageSlug' ? 'yellow' : 'gray'}>› </Text>
 						{stage === 'pageSlug' ? (

@@ -42,7 +42,11 @@ import {realClock} from '../../lib/clock.js';
 import {openStudioSession} from '../../integrations/studio/mcp.js';
 import {uploadPulledAssets} from '../../integrations/studio/pull-asset-upload.js';
 import {ensureTemplate, templateTargetFor} from '../../lib/wp-templates.js';
-import {ensurePage, pageTargetFor} from '../../lib/wp-pages.js';
+import {
+	ensurePage,
+	pageTargetFor,
+	type PagePostType,
+} from '../../lib/wp-pages.js';
 import {resolve} from 'node:path';
 import type {
 	PulledAsset,
@@ -107,6 +111,7 @@ type Phase =
 			selection: SelectionMetadata | null;
 			usesPostContent?: boolean;
 			pageSlug?: string;
+			postType?: PagePostType;
 			contentOnly?: boolean;
 	  };
 
@@ -311,6 +316,7 @@ export default function PullTemplate({activeProject, onDone}: Props) {
 						previewPath: submit.previewPath,
 						usesPostContent: submit.usesPostContent,
 						pageSlug: submit.pageSlug,
+						postType: submit.postType,
 						contentOnly: submit.contentOnly,
 						selection: phase.selection,
 					})
@@ -425,12 +431,16 @@ export default function PullTemplate({activeProject, onDone}: Props) {
 							scaffolded = result.created;
 						}
 						if (phase.usesPostContent && phase.pageSlug) {
-							const pageTarget = pageTargetFor(phase.pageSlug, phase.pageName);
+							const pageTarget = pageTargetFor(
+								phase.pageSlug,
+								phase.pageName,
+								phase.postType ?? 'page',
+							);
 							const ensured = await ensurePage(studio, wpRoot, pageTarget);
 							pageId = ensured.id;
 							emit({
 								kind: 'step',
-								message: `Page ${ensured.created ? 'created' : 'found'}: page:${pageTarget.slug} (id ${ensured.id})`,
+								message: `${pageTarget.postType === 'post' ? 'Post' : 'Page'} ${ensured.created ? 'created' : 'found'}: ${pageTarget.postType}:${pageTarget.slug} (id ${ensured.id})`,
 							});
 						}
 					} finally {
@@ -474,6 +484,7 @@ export default function PullTemplate({activeProject, onDone}: Props) {
 					titleCards,
 					usesPostContent: phase.usesPostContent || undefined,
 					pageSlug: phase.usesPostContent ? phase.pageSlug : undefined,
+					postType: phase.usesPostContent ? phase.postType : undefined,
 					pageId,
 					contentOnly: phase.contentOnly || undefined,
 					assets: pulledAssets,

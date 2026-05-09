@@ -5,10 +5,11 @@ import {
 	pageTargetLabel,
 } from '../../source/lib/wp-pages.js';
 
-test('pageTargetFor: simple slug', t => {
+test('pageTargetFor: simple slug defaults to page type', t => {
 	const target = pageTargetFor('home', 'Home');
 	t.is(target.slug, 'home');
 	t.is(target.title, 'Home');
+	t.is(target.postType, 'page');
 });
 
 test('pageTargetFor: kebab-case slug stays as-is', t => {
@@ -38,8 +39,25 @@ test('pageTargetFor: rejects invalid slug shapes', t => {
 	t.throws(() => pageTargetFor('UPPER', 'X'), {message: /does not match/i});
 });
 
-test('pageTargetLabel: formats page:slug', t => {
-	t.is(pageTargetLabel({slug: 'home', title: 'Home'}), 'page:home');
+test('pageTargetFor: post type opt-in for single.html flow', t => {
+	const target = pageTargetFor('hello-world', 'Hello World', 'post');
+	t.is(target.slug, 'hello-world');
+	t.is(target.postType, 'post');
+});
+
+test('pageTargetLabel: formats <postType>:<slug>', t => {
+	t.is(
+		pageTargetLabel({slug: 'home', title: 'Home', postType: 'page'}),
+		'page:home',
+	);
+	t.is(
+		pageTargetLabel({
+			slug: 'hello-world',
+			title: 'Hello World',
+			postType: 'post',
+		}),
+		'post:hello-world',
+	);
 });
 
 test('defaultTitleFromSlug: kebab-case → Title Case', t => {

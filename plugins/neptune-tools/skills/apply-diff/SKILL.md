@@ -100,7 +100,7 @@ Return ONLY a single JSON object. No markdown fences. No prose. Shape:
 
 ## Where to put style information
 
-The default channel for styling a block is `theme_json_patch.blocks["core/<x>"]` — extending what's already in `theme.json.styles.blocks`. Inline `style` attributes on individual blocks are an exception, not a fallback, and require justification at three checks (see step 6). When in doubt, register; don't inline.
+The default channel for styling a block is `theme_json_patch.blocks["core/<x>"]` — extending what's already in `theme.json.styles.blocks`. Per-instance styling lives in a `block_style_variations[]` entry the block claims via `is-style-<slug>`. Raw inline `style="..."` HTML attributes on the rendered HTML inside a block are FORBIDDEN — they break Gutenberg's block validation (the parser re-runs `save()` and rejects markup whose attributes don't match what `save()` would emit). Promote every value to a theme.json patch or a registered variation.
 
 ### Priority order
 
@@ -111,13 +111,22 @@ For each style change implied by a diff, work top-down and stop at the first opt
 3. **An existing block style variation** — if `=== existing block style variations ===` contains an entry whose `styles` already matches what the diff calls for, apply its `is-style-<slug>` class. Do NOT redeclare in `block_style_variations[]`.
 4. **A new block style variation** in `block_style_variations[]` — register one whenever the same constellation of styles will (or already does) appear on multiple instances of the same block type with a coherent visual identity. Forcing question: "would I otherwise inline these same styles on a sibling block of the same type?" If yes, register the variation. The criterion is recurrence + coherence, NOT whether an editor user might switch styles.
 5. **CSS** in a `.css` field — only when the rule cannot be expressed as a structured property (pseudo-selectors, descendant selectors, animations, complex states). Use `theme_json_patch.blocks["core/<x>"].css` for project-wide rules or a variation's `styles.css` for scoped ones.
-6. **Raw inline `style` attribute on a block** — exception path. Allowed only when ALL THREE hold:
-   - (a) No preset matches (step 1 fails).
-   - (b) The value is unique to this single block instance — does NOT appear on any sibling block of the same type in `current.html`, and you would not write the same value on a future sibling.
-   - (c) The value would not naturally extend `theme.json.styles.blocks["core/<x>"]` for this block type — i.e. it's genuinely instance-specific, not a default the block type should inherit.
-     If any of (a)–(c) fails, promote to step 2 or step 4.
+
+There is NO step 6. Raw inline `style="..."` HTML attributes on the rendered HTML elements inside block markup are FORBIDDEN without exception. If a value seems instance-specific enough to want an inline style, it belongs in a `block_style_variations[]` entry; promote it.
 
 NEVER write to `styles.css` or any other top-level theme.json key. NEVER emit raw CSS outside `theme_json_patch.blocks.<x>.css` or a variation's `styles.css`. The site's `style.css` file is off-limits.
+
+### Width and alignment
+
+`theme.json.settings.layout.contentSize` and `wideSize` define the project-wide content and wide widths. Width on a block instance is expressed via the `align` attribute (`align:"wide"`, `align:"full"`, or omitted for `contentSize`) — NOT via per-block `layout.contentSize` / `layout.wideSize`. Side padding (`style.spacing.padding.left/right`) narrows further when needed.
+
+When a diff calls for a width change:
+
+- "Make this section wider" → set `align:"wide"` (or `align:"full"` if it should be edge-to-edge). Don't pin a custom `layout.contentSize` on the block.
+- "Make this section narrower" → add `style.spacing.padding.left/right`, or apply / register a variation that owns the inset. Don't shrink via a custom `contentSize`.
+- A diff that explicitly references a numeric content/wide width belongs in `theme_json_patch.settings.layout` (project-wide) — but `settings.*` is OFF-LIMITS for this skill, so record the diff in `skipped` with reason "width change must update theme.json.settings.layout, which is outside this skill's scope" and let the user adjust theme.json directly.
+
+Only fall through to per-instance `layout.contentSize`/`wideSize` when a single section legitimately departs from the project widths and `align` + padding cannot express it. This should be vanishingly rare.
 
 ## Custom design tokens
 
@@ -160,6 +169,9 @@ If you can't decide which case applies, record the diff in `skipped` with a reas
 
 - Refinement, not rewrite. Untouched regions of `template_html` stay byte-for-byte (modulo whitespace) the same.
 - Do NOT introduce new diffs. Apply only what's in `diffs.json`.
+- NEVER add or leave a raw HTML `style="..."` attribute (including `style=""`) on the rendered HTML inside block markup. The block parser will reject the markup as "block contains unexpected or invalid content". If `current.html` already has such attributes from an older build, removing them as part of the diffs you're applying is in scope; reproducing them is not.
+- Do NOT set instance-level `"style":{...}` JSON block attributes either, except for the canonical `"style":{"spacing":{"blockGap":"var:preset|spacing|<slug>"}}` on `wp:group` / `wp:columns` / `wp:cover` paired with a `layout:{...}` attribute.
+- Do NOT pin `contentSize` or `wideSize` on `wp:group`'s `layout`. Width is `align:"wide"` / `align:"full"` / no align, or side padding for narrower content.
 - Every entry in `block_style_variations[]` MUST have its `is-style-<slug>` class applied to at least one block in `template_html`.
 - Every `is-style-neptune-<name>` class you add to `template_html` MUST be backed EITHER by an entry in the existing-variations inventory OR by a new entry in `block_style_variations[]` — never both. Do not redeclare a slug that's already registered.
 - Variation slugs MUST be `neptune-` prefixed (kebab-case) so they don't collide with theme defaults.
@@ -176,5 +188,6 @@ If you can't decide which case applies, record the diff in `skipped` with a reas
 7. Every entry in `block_style_variations` has its matching `is-style-<slug>` class somewhere in `template_html`.
 8. Every `is-style-neptune-<slug>` class on a block in `template_html` is backed EITHER by an entry in the existing-variations inventory OR by a new entry in `block_style_variations[]` — never both.
 9. CSS only used when no pre-exposed structured property could express the rule.
-10. For every inline `style` attribute on a block in `template_html`, all three checks pass: (a) no theme.json preset matches, (b) no sibling block of the same type carries the same inline value, (c) the value would not naturally extend `theme.json.styles.blocks["core/<x>"]` for that block type. Any failure means promote to `theme_json_patch.blocks` or a `block_style_variations[]` entry.
-11. No prose, no fences.
+10. `template_html` contains zero raw HTML `style="..."` attributes (including empty `style=""`) and zero instance-level `"style":{...}` block attributes (except the canonical `style.spacing.blockGap` on layout containers). Every styling decision is realized via `theme_json_patch.blocks` or `block_style_variations[]`.
+11. No `wp:group` declares its own `contentSize` or `wideSize` under `layout`. Width is `align` + side padding only.
+12. No prose, no fences.

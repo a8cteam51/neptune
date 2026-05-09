@@ -6,6 +6,7 @@ import {
 	applyThemeJsonPatch,
 	deepMergeInto,
 	formatBlockStyleVariationsContext,
+	inspectLayoutWidths,
 	readBlockStyleVariations,
 	readThemeJson,
 } from '../../source/lib/theme-json-patch.js';
@@ -361,4 +362,40 @@ test('atomic write semantics: temp file does not appear in final dir', async t =
 	// The written file is valid JSON.
 	const raw = await readFile(path, 'utf8');
 	t.notThrows(() => JSON.parse(raw));
+});
+
+test('inspectLayoutWidths: flags both unset when settings.layout is missing', async t => {
+	const path = await setupThemeJson(t, {settings: {}});
+	const r = await inspectLayoutWidths(path);
+	t.deepEqual(r, {contentSizeMissing: true, wideSizeMissing: true});
+});
+
+test('inspectLayoutWidths: empty strings count as unset', async t => {
+	const path = await setupThemeJson(t, {
+		settings: {layout: {contentSize: '', wideSize: '   '}},
+	});
+	const r = await inspectLayoutWidths(path);
+	t.deepEqual(r, {contentSizeMissing: true, wideSizeMissing: true});
+});
+
+test('inspectLayoutWidths: detects mixed presence', async t => {
+	const path = await setupThemeJson(t, {
+		settings: {layout: {contentSize: '780px', wideSize: ''}},
+	});
+	const r = await inspectLayoutWidths(path);
+	t.deepEqual(r, {contentSizeMissing: false, wideSizeMissing: true});
+});
+
+test('inspectLayoutWidths: both filled passes', async t => {
+	const path = await setupThemeJson(t, {
+		settings: {layout: {contentSize: '780px', wideSize: '1200px'}},
+	});
+	const r = await inspectLayoutWidths(path);
+	t.deepEqual(r, {contentSizeMissing: false, wideSizeMissing: false});
+});
+
+test('inspectLayoutWidths: missing file flags both unset (best-effort)', async t => {
+	const dir = await makeTmpDir(t);
+	const r = await inspectLayoutWidths(join(dir, 'theme.json'));
+	t.deepEqual(r, {contentSizeMissing: true, wideSizeMissing: true});
 });

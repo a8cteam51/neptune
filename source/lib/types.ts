@@ -1,5 +1,7 @@
 // Pull-level types. Lives in lib/ so design-walk.ts and the figma
 // integrations don't have to reach back into commands/setup-project/.
+import type {PagePostType} from './wp-pages.js';
+
 export type SpecialPullKind = 'styleGuide' | 'templates';
 
 export type TitleCardRef = {
@@ -46,8 +48,14 @@ export type PullMeta = {
 	usesPostContent?: boolean;
 	// WP page slug that hosts the post-content body. Defaults to the
 	// pull slug at configure time but can diverge (e.g. homepage pull
-	// "default-page-template" → page slug "home").
+	// "default-page-template" → page slug "home"). For canonical
+	// templates this is forced: page.html → "sample-page",
+	// single.html → "hello-world".
 	pageSlug?: string;
+	// Post type the body lives in. Defaults to 'page'; forced to
+	// 'post' for single.html so writes target the default Hello World
+	// post (id 1) rather than creating a new page.
+	postType?: PagePostType;
 	// wp_post ID resolved at pull time via page-ensure. Stored so
 	// downstream commands don't have to re-resolve.
 	pageId?: number;

@@ -107,7 +107,11 @@ export async function runDiagnoseContent(
 		);
 	}
 
-	const target = pageTargetFor(pull.pageSlug, pull.pageName);
+	const target = pageTargetFor(
+		pull.pageSlug,
+		pull.pageName,
+		pull.postType ?? 'page',
+	);
 	const wpRoot = resolve(loaded.dir, 'wordpress');
 
 	const currentContent = await loadCurrentPage(wpRoot, target, signal);
