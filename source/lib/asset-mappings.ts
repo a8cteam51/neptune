@@ -17,12 +17,12 @@ export function formatAssetMappingsContext(
 	const lines: string[] = [
 		'The following constants in code.tsx point to images already imported into the WordPress media library. When emitting any wp:image (or any other block whose markup references one of these constants), use the matching id and URL — do NOT use the localhost:3845 URL and do NOT invent a different path.',
 		'',
-		'Each entry is tagged with kind: "raster" for PNG/JPG/GIF/WEBP, or "svg" for SVGs that survived the triage step (logos, brand marks, illustrations, content icons). Both kinds emit as wp:image like normal images.',
+		'All entries are PNG/JPG/GIF/WEBP rasters. SVGs from the design were either rasterized to PNG (for valuable artwork: logos, brand marks, illustrations, content icons) or discarded as decoration before this list was built.',
 		'',
 	];
 	for (const asset of assets) {
 		lines.push(
-			`  - ${asset.constName} (${asset.kind}) → id=${asset.mediaId}, url=${asset.mediaUrl}`,
+			`  - ${asset.constName} → id=${asset.mediaId}, url=${asset.mediaUrl}`,
 		);
 	}
 	lines.push('');

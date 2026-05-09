@@ -1,6 +1,14 @@
 {
-	"permissions": {
-		"allow": ["Bash(npm --version)", "Bash(npx tsc *)"],
-		"deny": ["Read(./old)"]
-	}
+  "permissions": {
+    "allow": [
+      "Bash(npm --version)",
+      "Bash(npx tsc *)",
+      "Bash(mkdir -p /tmp/rasterize-smoke)",
+      "Bash(rm -rf /tmp/rasterize-smoke/*)",
+      "Read(//private/tmp/rasterize-smoke/**)"
+    ],
+    "deny": [
+      "Read(./old)"
+    ]
+  }
 }

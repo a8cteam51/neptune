@@ -11,17 +11,19 @@ export type TitleCardRef = {
 // declaration in code.tsx that the WP media item replaces, so build
 // agents can swap localhost:3845 references for real attachment ids
 // without scanning the bytes themselves. Rasters land here directly;
-// SVGs land here only after the triage agent judges them valuable
-// (logos, illustrations) — decorative SVGs are deleted from disk and
-// never appear in this list. See source/integrations/figma/assets-fetch.ts
-// and source/integrations/figma/svg-triage.ts.
+// SVGs are rasterized to PNG and then land here as 'raster' once the
+// triage agent judges them valuable (logos, illustrations) — decorative
+// SVGs are deleted from disk and never appear in this list. See
+// source/integrations/figma/assets-fetch.ts and
+// source/integrations/figma/svg-triage.ts.
 export type PulledAsset = {
 	constName: string;
 	filename: string;
 	mediaId: number;
 	mediaUrl: string;
-	// 'raster' for PNG/JPG/GIF/WEBP, 'svg' for SVGs that survived
-	// triage. Build agents branch on this when emitting markup.
+	// Always 'raster' for new pulls (PNG/JPG/GIF/WEBP). 'svg' is
+	// retained in the union to keep older meta.json files (recorded
+	// before SVG-to-PNG rasterization landed) parseable.
 	kind: 'raster' | 'svg';
 };
 

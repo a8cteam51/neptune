@@ -5,10 +5,11 @@
 //
 // Filtering: PNG/JPG/GIF/WEBP and SVG are kept. Each ref is tagged with
 // `kind` ('raster' | 'svg') so downstream can decide what to do — rasters
-// go straight to the WP media library, SVGs are triaged by an agent
-// first (see source/integrations/figma/svg-triage.ts) because Figma's
-// code generator emits both real logos/illustrations AND decorative
-// dividers/ornaments as SVG, and only the former are worth keeping.
+// go straight to the WP media library, SVGs are rasterized to PNG and
+// triaged by an agent first (see source/integrations/figma/svg-triage.ts)
+// because Figma's code generator emits both real logos/illustrations
+// AND decorative dividers/ornaments as SVG, and only the former are
+// worth keeping. The WP media library only ever receives rasters.
 //
 // Asset GETs are confirmed NOT subject to the MCP rate limit, so we don't
 // guard against 429 here. Each fetch carries a per-asset timeout and the

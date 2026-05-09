@@ -1,14 +1,13 @@
-// Uploads each downloaded raster + kept-SVG asset into the WordPress
-// media library, returning the constName→media mapping (with each
-// asset's `kind`) that gets persisted in the pull's meta.json. Build
-// agents receive this mapping so they can swap localhost:3845
-// references for real attachment ids without re-fetching anything.
+// Uploads each downloaded asset into the WordPress media library,
+// returning the constName→media mapping (with each asset's `kind`)
+// that gets persisted in the pull's meta.json. Build agents receive
+// this mapping so they can swap localhost:3845 references for real
+// attachment ids without re-fetching anything.
 //
-// SVG uploads assume the target site has Safe SVG (or an equivalent
-// sanitizing plugin) installed — `wp media import` rejects SVG mimes
-// by default, so a missing plugin will surface as a loud import error
-// rather than a silent drop. The triage step upstream filters out
-// decorative SVGs before they reach us.
+// Inputs are uniformly raster (PNG/JPG/GIF/WEBP). SVGs from the
+// design have already been rasterized to PNG and triaged upstream —
+// see source/integrations/figma/svg-triage.ts. WP's default SVG
+// upload restrictions therefore never come into play here.
 //
 // Each pull opens its own Studio session: media imports are sequential
 // (wp-cli is one tool call per file) and we tolerate a session drop
