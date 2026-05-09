@@ -44,10 +44,17 @@ export type AgentRunOptions = {
 	// Defaults to '*' (allow all tools the plugin declares). Pass an
 	// explicit list to lock the agent down further.
 	allowedTools?: string[];
+	// Tools the SDK should refuse to dispatch. Stacks on top of
+	// `allowedTools`. Defaults to DEFAULT_DISALLOWED_TOOLS — Neptune skills
+	// are pure prompt→JSON and have no business spawning subagents.
+	disallowedTools?: string[];
 };
 
 const PARTIAL_EMIT_INTERVAL_MS = 1500;
 const DEFAULT_ALLOWED_TOOLS: string[] = ['*'];
+// Task is the SDK name for the Agent / subagent-dispatch tool. Skills are
+// single-shot transforms — never delegate to a subagent.
+const DEFAULT_DISALLOWED_TOOLS: string[] = ['Task'];
 const CONFIG_FILENAME = 'neptune-config.json';
 
 export class AgentAbortedError extends Error {
@@ -89,6 +96,7 @@ async function runClaudeAgent(
 			cwd: options.cwd,
 			plugins: [{type: 'local', path: options.pluginPath}],
 			allowedTools: options.allowedTools ?? DEFAULT_ALLOWED_TOOLS,
+			disallowedTools: options.disallowedTools ?? DEFAULT_DISALLOWED_TOOLS,
 			maxTurns: options.maxTurns ?? 10,
 			includePartialMessages: true,
 			abortController,

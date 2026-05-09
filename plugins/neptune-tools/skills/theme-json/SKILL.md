@@ -8,7 +8,11 @@ description: Use when building or generating a WordPress theme.json file from a 
 
 # WordPress theme.json builder
 
-You convert design tokens into a valid WordPress theme.json file for block themes (Full Site Editing).
+Convert design tokens into a valid WordPress theme.json file for block themes (Full Site Editing).
+
+## Operating mode
+
+This skill is a single-shot prompt → JSON transform. Do NOT call any tools — no Agent / Task subagent dispatch, no Read / Write / Edit / Bash, no MCP. Neptune validates and persists the resulting theme.json itself. The only valid output is the raw JSON object described under "Output format".
 
 ## Default starter shape
 
@@ -21,8 +25,8 @@ You convert design tokens into a valid WordPress theme.json file for block theme
     "useRootPaddingAwareAlignments": true,
     "color": {
       "defaultDuotone": false,
-			"defaultGradients": false,
-			"defaultPalette": false,
+      "defaultGradients": false,
+      "defaultPalette": false,
       "palette": []
     },
     "typography": {
@@ -68,3 +72,12 @@ The input is a flat JSON object of design tokens, map them to the appropriate se
 ## Output format
 
 Return ONLY the raw JSON for theme.json. Do not include markdown code fences. Do not include preamble, commentary, or explanation. Start with `{` and end with `}`.
+
+## Self-check before responding
+
+1. No tools were called. Output is exactly one JSON object, valid, no fences, no prose.
+2. `$schema` is `https://schemas.wp.org/trunk/theme.json` and `version` is `3`.
+3. Every slug is kebab-case lowercase alphanumeric + hyphens.
+4. CSS variables of the form `var(--wp--preset--<group>--<slug>)` carry a single dash between letters and numbers (`--h-1`, never `--h1`).
+5. Desktop / mobile pairs are collapsed into a single `clamp(min, fluid, max)` value where appropriate, not split into separate slugs.
+6. No top-level keys other than `$schema`, `version`, `settings`, and `styles`.

@@ -1,11 +1,15 @@
 ---
 name: apply-diff
-description: Use when applying a list of pre-approved visual diffs to an existing Gutenberg block markup template. Inputs are the diff list (JSON), the current block markup, and the active theme.json/variables.json. Output is a strict JSON envelope containing the updated block markup, an optional theme.json patch (for project-wide style registrations), AND a per-diff applied/skipped report. Neptune persists the patch directly; do not call any tools yourself.
+description: Use when applying a list of pre-approved visual diffs to an existing Gutenberg block markup template. Inputs are the diff list (JSON), the current block markup, and the active theme.json/variables.json. Output is a strict JSON envelope containing the updated block markup, an optional theme.json patch (for project-wide style registrations), AND a per-diff applied/skipped report. Neptune persists the patch directly.
 ---
 
 # Apply visual diffs to block markup
 
-You revise an existing WordPress block-theme template to apply a specific list of changes that the user has already reviewed and approved. You do NOT re-evaluate whether the changes are correct — your job is to apply each one accurately and leave everything else alone.
+Revise an existing WordPress block-theme template to apply a specific list of changes the user has already reviewed and approved. Do NOT re-evaluate whether the changes are correct — apply each one accurately and leave everything else alone.
+
+## Operating mode
+
+This skill is a single-shot prompt → JSON transform. Do NOT call any tools — no Agent / Task subagent dispatch, no Read / Write / Edit / Bash, no MCP. Neptune validates and persists the JSON envelope itself. The only valid output is the JSON object described under "Output format".
 
 ## Scope vocabulary
 
@@ -179,15 +183,12 @@ If you can't decide which case applies, record the diff in `skipped` with a reas
 
 ## Self-check before responding
 
-1. Output is exactly one JSON object, valid, no fences, no prose.
+1. No tools were called. Output is exactly one JSON object, valid, no fences, no prose.
 2. `template_html` starts with `<!-- wp:` and balances opening/closing block comments.
 3. JSON inside every block comment attribute parses.
 4. If `theme_json_patch` is present, it has only `blocks` and/or `custom` at the top level — no `variations` anywhere inside.
-5. Every diff id in the input appears exactly once in `applied` or `skipped`.
-6. Every `applied` entry has `id` + `summary`; every `skipped` entry has `id` + `reason`.
-7. Every entry in `block_style_variations` has its matching `is-style-<slug>` class somewhere in `template_html`.
-8. Every `is-style-neptune-<slug>` class on a block in `template_html` is backed EITHER by an entry in the existing-variations inventory OR by a new entry in `block_style_variations[]` — never both.
-9. CSS only used when no pre-exposed structured property could express the rule.
-10. `template_html` contains zero raw HTML `style="..."` attributes (including empty `style=""`) and zero instance-level `"style":{...}` block attributes (except the canonical `style.spacing.blockGap` on layout containers). Every styling decision is realized via `theme_json_patch.blocks` or `block_style_variations[]`.
-11. No `wp:group` declares its own `contentSize` or `wideSize` under `layout`. Width is `align` + side padding only.
-12. No prose, no fences.
+5. Every diff id in the input appears exactly once in `applied` or `skipped`. Every `applied` entry has `id` + `summary`; every `skipped` entry has `id` + `reason`.
+6. Every entry in `block_style_variations` has its matching `is-style-<slug>` class on a block in `template_html`, and every `is-style-neptune-<slug>` class on a block is backed EITHER by an existing-variations inventory entry OR a new `block_style_variations[]` entry — never both, never neither.
+7. CSS only used when no pre-exposed structured property could express the rule.
+8. `template_html` contains zero raw HTML `style="..."` attributes (including empty `style=""`) and zero instance-level `"style":{...}` block attributes — except the canonical `style.spacing.blockGap` on layout containers. Every styling decision is realized via `theme_json_patch.blocks` or `block_style_variations[]`.
+9. No `wp:group` declares its own `contentSize` or `wideSize` under `layout`. Width is `align` + side padding only.

@@ -5,7 +5,11 @@ description: Use when comparing a Figma design screenshot against a live browser
 
 # Visual diff report
 
-You compare three screenshots of the same WordPress page — the Figma design (target), the live rendered page (current), and a pixel-difference highlight (diff) — and produce a structured report of every visible mismatch.
+Compare three screenshots of the same WordPress page — the Figma design (target), the live rendered page (current), and a pixel-difference highlight (diff) — and produce a structured report of every visible mismatch.
+
+## Operating mode
+
+This skill is a single-shot prompt → JSON transform. Do NOT call any tools — no Agent / Task subagent dispatch, no Read / Write / Edit / Bash, no MCP. Neptune validates and persists the JSON envelope itself. The only valid output is the JSON object described under "Output format".
 
 ## Scope vocabulary
 
@@ -81,8 +85,8 @@ Set `matches_design: true` ONLY when the live and design are visually equivalent
 
 ## Self-check before responding
 
-1. Output is exactly one JSON object, valid, no fences, no prose.
-2. Every entry has all required fields (`id`, `region`, `severity`, `description`, `affects_layout`).
-3. `id` values are unique.
-4. If you returned `matches_design: true`, `diffs` is `[]`.
-5. No entry repeats the same finding under different ids.
+1. No tools were called. Output is exactly one JSON object, valid, no fences, no prose.
+2. Every entry has all required fields (`id`, `region`, `severity`, `description`, `affects_layout`); `id` values are unique; no entry repeats the same finding under different ids.
+3. Every emitted diff falls inside the active `SCOPE: <TOKEN>` region; differences in regions the scope doesn't own are ignored.
+4. If `matches_design: true`, `diffs` is `[]`.
+5. Every colour value referenced in `description` / `style_change` was read from `design.png`, never from the red overlay in `diff.png`.

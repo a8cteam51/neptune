@@ -5,7 +5,11 @@ description: Use when converting a Figma-generated React + Tailwind component (c
 
 # TSX → Gutenberg block markup
 
-You convert a single React + Tailwind component (the output of Figma's code generator) into Gutenberg block markup for a WordPress block theme.
+Convert a single React + Tailwind component (the output of Figma's code generator) into Gutenberg block markup for a WordPress block theme.
+
+## Operating mode
+
+This skill is a single-shot prompt → JSON transform. Do NOT call any tools — no Agent / Task subagent dispatch, no Read / Write / Edit / Bash, no MCP. Neptune validates and persists the JSON envelope itself. The only valid output is the JSON object described under "Output format".
 
 ## Inputs the user will give you
 
@@ -379,17 +383,14 @@ When a class uses a CSS variable like `var(--eureka/contrast-1,#21201c)`, resolv
 
 ## Self-check before responding
 
-1. Output is exactly one JSON object, valid, no fences, no prose.
-2. `template_html` starts with `<!-- wp:` and balances opening/closing block comments.
-3. JSON inside every block comment attribute parses.
-4. If `theme_json_patch` is present, it has only `blocks` and/or `custom` keys at the top level — no `variations` anywhere inside.
-5. If `block_style_variations` is present, every entry's slug starts with `neptune-` AND its `is-style-<slug>` class appears on at least one block in `template_html`.
-6. Every `is-style-neptune-<slug>` class on a block in `template_html` is backed EITHER by an entry in the existing-variations inventory OR by a new entry in `block_style_variations[]` — never both. Do not redeclare a slug that's already registered.
-7. CSS only used when no pre-exposed structured property could express the rule. Specifically, before writing any of `aspect-ratio`, `min-height`, `gap`, `padding`, `margin`, `border-*`, `box-shadow`, `outline-*`, `font-*`, `letter-spacing`, `line-height`, `text-transform`, `background`, or `color` into a `css` field, verify the structured equivalent (`dimensions.aspectRatio`, `dimensions.minHeight`, `spacing.blockGap`, `spacing.padding`, `spacing.margin`, `border.*`, `shadow`, `outline.*`, `typography.*`, `color.*`) cannot be used.
-8. `template_html` contains zero raw HTML `style="..."` attributes (including empty `style=""`). Grep mentally for `style=` — every hit is a validation failure waiting to surface in the editor. Every styling decision is realized via `theme_json_patch.blocks`, `block_style_variations[]`, or block-attribute JSON inside the comment (with the only safe instance-level `"style":{...}` form being `style.spacing.blockGap` on layout containers).
-9. Every flex / grid / constrained container in `template_html` uses the `layout` block attribute (`layout:{"type":"flex"|"grid"|"constrained",...}`) — NOT emulated via a custom `className` plus a CSS rule. Inter-child gap goes in `style.spacing.blockGap`, not a `gap:...` declaration in `css`.
-   9b. No `wp:group` declares its own `contentSize` or `wideSize` under `layout` unless the section legitimately departs from the project-wide widths (which should be exceptional — a normal page emits zero per-instance `contentSize`/`wideSize`). Width is expressed via `align:"wide"` / `align:"full"` / no align, driven by `theme.json.settings.layout.contentSize` and `wideSize`. If the page wants narrower-than-`contentSize`, the channel is `style.spacing.padding.left/right` (or a registered variation), not a custom `contentSize`.
-10. Every `className` on a block in `template_html` is one of: `is-style-<slug>` (variation), a wp-core class (`alignwide`, `alignfull`, etc.), or a class explicitly required by the source TSX for behavior the agent is not free to drop. NO ad-hoc BEM-style handles whose sole job is to back `&.<name>{...}` rules in `theme_json_patch.blocks` or a variation. If a recurring visual identity needs a class anchor, register it as a `block_style_variations[]` entry instead.
-11. For every `&.<custom-class>{...}` selector that does appear in any `css` field, confirm the `<custom-class>` is `is-style-<registered-slug>` — NOT a className you invented. CSS keyed off invented classes is the anti-pattern this skill exists to prevent.
-12. Every JSX call whose tag matches a `=== registered patterns ===` `name` was emitted as `<!-- wp:pattern {"slug":"<slug>"} /-->`, not inlined. Slug used verbatim.
-13. No `function`, `import`, `const imgFoo`, or TypeScript syntax remains.
+1. No tools were called. Output is exactly one JSON object, valid, no fences, no prose.
+2. `template_html` starts with `<!-- wp:` and balances opening/closing block comments. JSON inside every block comment attribute parses.
+3. If `theme_json_patch` is present, it has only `blocks` and/or `custom` at the top level — no `variations` anywhere inside.
+4. If `block_style_variations` is present, every entry's slug starts with `neptune-` AND its `is-style-<slug>` class appears on at least one block in `template_html`. Every `is-style-neptune-<slug>` class on a block is backed EITHER by an existing-variations inventory entry OR a new `block_style_variations[]` entry — never both, never neither.
+5. CSS only used when no pre-exposed structured property could express the rule. Specifically, before writing any of `aspect-ratio`, `min-height`, `gap`, `padding`, `margin`, `border-*`, `box-shadow`, `outline-*`, `font-*`, `letter-spacing`, `line-height`, `text-transform`, `background`, or `color` into a `css` field, verify the structured equivalent (`dimensions.aspectRatio`, `dimensions.minHeight`, `spacing.blockGap`, `spacing.padding`, `spacing.margin`, `border.*`, `shadow`, `outline.*`, `typography.*`, `color.*`) cannot be used.
+6. `template_html` contains zero raw HTML `style="..."` attributes (including empty `style=""`) and zero instance-level `"style":{...}` JSON block attributes — except the canonical `"style":{"spacing":{"blockGap":"var:preset|spacing|<slug>"}}` on layout containers. Every styling decision is realized via `theme_json_patch.blocks`, `block_style_variations[]`, or that one canonical instance-level shape.
+7. Every flex / grid / constrained container uses the `layout` block attribute (`layout:{"type":"flex"|"grid"|"constrained",...}`) — NOT emulated via a custom `className` plus a CSS rule. Inter-child gap goes in `style.spacing.blockGap`, not a `gap:...` declaration in `css`.
+8. No `wp:group` declares its own `contentSize` or `wideSize` under `layout` unless the section legitimately departs from project-wide widths (rare). Width is `align:"wide"` / `align:"full"` / no align, driven by `theme.json.settings.layout`. Narrower content uses `style.spacing.padding.left/right` (or a registered variation), not a custom `contentSize`.
+9. Every `className` on a block is one of: `is-style-<slug>` (variation), a wp-core class (`alignwide`, `alignfull`, etc.), or a class explicitly required by the source TSX for behavior the agent is not free to drop. NO ad-hoc BEM-style handles whose sole job is to back `&.<name>{...}` rules. For every `&.<custom-class>{...}` selector that does appear in a `css` field, confirm `<custom-class>` is `is-style-<registered-slug>` — NOT a className you invented.
+10. Every JSX call whose tag matches a `=== registered patterns ===` `name` was emitted as `<!-- wp:pattern {"slug":"<slug>"} /-->`, not inlined. Slug used verbatim.
+11. No `function`, `import`, `const imgFoo`, or TypeScript syntax remains.
