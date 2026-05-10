@@ -9,6 +9,7 @@ import {readFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import {listPulls, writePullMeta} from '../lib/design-walk.js';
 import EventList, {type LogEvent} from '../lib/event-list.js';
+import {parseRootElementSize} from '../integrations/figma/handoff-parse.js';
 import type {Loaded} from './setup-project/types.js';
 
 type Props = {
@@ -186,26 +187,6 @@ async function* verifyScreenshots(
 		kind: 'step',
 		message: `Done — ${matched} matched, ${mismatched} mismatched`,
 	};
-}
-
-// Reads width/height from the first element in metadata.xml. The
-// element is whatever the user selected in Figma — currently either
-// <instance> (component instance) or <frame> (raw frame). XML prolog
-// (<?xml … ?>), DOCTYPE, and comments are skipped because the leading
-// `<?` / `<!` are excluded by the [a-zA-Z] anchor on the tag name.
-export function parseRootElementSize(
-	xml: string,
-): {width: number; height: number} | null {
-	const m = /<([a-zA-Z][\w-]*)\b[^>]*>/.exec(xml);
-	if (!m) return null;
-	const tag = m[0];
-	const w = /\bwidth="([0-9.]+)"/.exec(tag)?.[1];
-	const h = /\bheight="([0-9.]+)"/.exec(tag)?.[1];
-	if (w === undefined || h === undefined) return null;
-	const width = Number(w);
-	const height = Number(h);
-	if (!Number.isFinite(width) || !Number.isFinite(height)) return null;
-	return {width, height};
 }
 
 const PNG_SIGNATURE = [137, 80, 78, 71, 13, 10, 26, 10];

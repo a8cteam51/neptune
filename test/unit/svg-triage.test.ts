@@ -156,7 +156,11 @@ test('triageSvgs writes kept SVGs as PNG, removes the original SVG', async t => 
 			runAgent: async () =>
 				JSON.stringify([
 					{constName: 'imgLogo', keep: true, reason: 'logo'},
-					{constName: 'imgDivider', keep: false, reason: '1px line'},
+					{
+						constName: 'imgDivider',
+						keep: false,
+						reason: 'Horizontal 1px divider line, full-width.',
+					},
 				]),
 			rasterize: stubRasterize,
 		},
@@ -175,10 +179,38 @@ test('triageSvgs writes kept SVGs as PNG, removes the original SVG', async t => 
 	t.false(await fileExists(logo.path));
 	t.false(await fileExists(divider.path));
 
-	t.deepEqual(
-		result.discarded.map(a => a.constName),
-		['imgDivider'],
+	// Triage-discard records carry the agent's description so build/refine
+	// agents can pick a structural replacement without re-deriving intent.
+	t.is(result.discarded.length, 1);
+	t.deepEqual(result.discarded[0], {
+		constName: 'imgDivider',
+		filename: 'divider.svg',
+		description: 'Horizontal 1px divider line, full-width.',
+		cause: 'triage',
+	});
+});
+
+test('triageSvgs falls back to a default description when the agent omits one', async t => {
+	const dir = await makeTmpDir(t);
+	const logo = await writeFixture(dir, 'logo.svg', SVG_LOGO, 'imgLogo');
+
+	const result = await triageSvgs(
+		[logo],
+		'/cwd',
+		'/plugin',
+		new AbortController().signal,
+		() => {},
+		{
+			runAgent: async () =>
+				JSON.stringify([{constName: 'imgLogo', keep: false, reason: ''}]),
+			rasterize: stubRasterize,
+		},
 	);
+
+	t.is(result.kept.length, 0);
+	t.is(result.discarded.length, 1);
+	t.is(result.discarded[0]!.cause, 'triage');
+	t.true(result.discarded[0]!.description.length > 0);
 });
 
 test('triageSvgs defaults missing verdicts to keep (and rasterizes them)', async t => {
@@ -199,10 +231,10 @@ test('triageSvgs defaults missing verdicts to keep (and rasterizes them)', async
 		},
 	);
 
-	t.deepEqual(
-		result.kept.map(a => a.constName).sort(),
-		['imgLogo', 'imgOrphan'],
-	);
+	t.deepEqual(result.kept.map(a => a.constName).sort(), [
+		'imgLogo',
+		'imgOrphan',
+	]);
 	for (const asset of result.kept) {
 		t.is(asset.kind, 'raster');
 		t.regex(asset.filename, /\.png$/);
@@ -272,10 +304,11 @@ test('triageSvgs discards SVGs whose render failed and warns', async t => {
 
 	t.is(agentCalled, 0); // No renderable SVGs → no agent call
 	t.is(result.kept.length, 0);
-	t.deepEqual(
-		result.discarded.map(a => a.constName),
-		['imgLogo'],
-	);
+	t.is(result.discarded.length, 1);
+	const failed = result.discarded[0]!;
+	t.is(failed.constName, 'imgLogo');
+	t.is(failed.cause, 'renderFail');
+	t.regex(failed.description, /rasterize/i);
 	t.true(warnings.some(m => /Could not rasterize/i.test(m)));
 	// Original SVG is deleted to avoid leaving stale unused files.
 	t.false(await fileExists(logo.path));
@@ -316,6 +349,10 @@ test('triageSvgs drops every SVG when the whole-batch rasterizer throws', async 
 	t.is(result.kept.length, 0);
 	t.is(result.discarded.length, 2);
 	t.true(warnings.some(m => /rasterization failed/i.test(m)));
+	for (const d of result.discarded) {
+		t.is(d.cause, 'renderFail');
+		t.regex(d.description, /Rasterization batch failed/);
+	}
 	t.false(await fileExists(logo.path));
 	t.false(await fileExists(divider.path));
 });

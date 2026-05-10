@@ -3,13 +3,23 @@
 // asset server. We download those bytes to design/<slug>/assets/ so the
 // pull is self-contained once the local server stops serving.
 //
-// Filtering: PNG/JPG/GIF/WEBP and SVG are kept. Each ref is tagged with
-// `kind` ('raster' | 'svg') so downstream can decide what to do — rasters
-// go straight to the WP media library, SVGs are rasterized to PNG and
-// triaged by an agent first (see source/integrations/figma/svg-triage.ts)
-// because Figma's code generator emits both real logos/illustrations
-// AND decorative dividers/ornaments as SVG, and only the former are
-// worth keeping. The WP media library only ever receives rasters.
+// Filtering: PNG/JPG/GIF/WEBP and SVG are kept. Each ref is tagged
+// with `kind` ('raster' | 'svg') so downstream can decide what to do.
+// This module only downloads and tags; it does not rasterize, triage,
+// or upload. Rasters flow straight to the WP media library
+// (source/integrations/studio/pull-asset-upload.ts). SVGs are flagged
+// for triage; downstream (source/integrations/figma/svg-triage.ts)
+// rasterizes each to PNG and runs a vision agent that classifies it
+// as keep (logos, brand marks, illustrations, content icons —
+// uploaded as PNG) or discard (dividers, ornaments, decorative
+// gradients — deleted, with the agent's 1-sentence description
+// persisted to meta.json for the build agent's structural-
+// replacement choice). The split exists because Figma's code
+// generator emits both real artwork AND decoration as SVG, and the
+// build agent can already express decoration structurally
+// (border / wp:separator / background) — uploading decoration just
+// clutters the media library. The WP media library only ever
+// receives rasters.
 //
 // Asset GETs are confirmed NOT subject to the MCP rate limit, so we don't
 // guard against 429 here. Each fetch carries a per-asset timeout and the

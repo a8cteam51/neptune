@@ -14,7 +14,10 @@
 //   5. Caller (refine-templates.tsx) lets the user pick which diffs to
 //      apply (default-all-selected) and submits the approved subset.
 //   6. apply-diff agent: selected diffs + current template + theme.json
-//      + variables.json → updated markup. Overwrite the template.
+//      + variables.json + existing block style variations + dev
+//      annotations + the per-pull media library mappings (uploaded
+//      constName→{id, url} plus discarded-SVG constName→description)
+//      → updated markup. Overwrite the template.
 //
 // All artifacts (live.png, diff.png, template-diff-report.json) live
 // alongside the design screenshot for inspection. This module owns no
@@ -411,7 +414,10 @@ export async function runApply(
 			reviewPhase.devAnnotationsText,
 		);
 	}
-	const assetMappings = formatAssetMappingsContext(reviewPhase.pull.assets);
+	const assetMappings = formatAssetMappingsContext(
+		reviewPhase.pull.assets,
+		reviewPhase.pull.discardedAssets,
+	);
 	if (assetMappings) {
 		sections.push('', '=== media library mappings ===', assetMappings);
 	}

@@ -29,6 +29,31 @@ export type PulledAsset = {
 	kind: 'raster' | 'svg';
 };
 
+// Per-asset record for SVG references that were intentionally NOT
+// imported into the WP media library. The triage agent decides which
+// SVGs are valuable content vs. pure decoration; rejects (dividers,
+// ornaments, gradient overlays) are deleted from disk but logged here
+// so build/refine agents see WHY the const has no media mapping.
+// Without this, an unmapped const looked indistinguishable from a bug
+// and the agent had to guess the structural replacement (border /
+// wp:separator / background / drop) from code.tsx alone.
+//
+// `cause` distinguishes intentional rejection from pipeline failure so
+// downstream logic (and humans reading meta.json) can tell "the model
+// said no" from "we couldn't render it":
+//   - 'triage'      — agent verdict keep=false. `description` is the
+//                     agent's 1-sentence summary of what the image was.
+//   - 'renderFail'  — Chromium couldn't rasterize the SVG (or the
+//                     PNG write failed). `description` carries the
+//                     error message; the agent has no concept of what
+//                     the image depicted.
+export type DiscardedAsset = {
+	constName: string;
+	filename: string;
+	description: string;
+	cause: 'triage' | 'renderFail';
+};
+
 export type PullMeta = {
 	pageName: string;
 	slug: string;
@@ -71,4 +96,11 @@ export type PullMeta = {
 	// Build/refine agents read this mapping to swap code.tsx
 	// localhost:3845 references for real attachment ids and URLs.
 	assets?: PulledAsset[];
+	// SVG references the triage agent rejected (or that failed to
+	// rasterize) and that therefore have no entry in `assets`. Carries
+	// the constName plus a description of what the image was, so build/
+	// refine agents can pick a structural replacement (border /
+	// wp:separator / background / drop / wp:html) without having to
+	// re-derive the visual's intent from code.tsx alone.
+	discardedAssets?: DiscardedAsset[];
 };

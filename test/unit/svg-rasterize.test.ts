@@ -6,10 +6,7 @@ import {
 } from '../../source/lib/svg-rasterize.js';
 
 test('parseViewBox: standard space-separated', t => {
-	t.deepEqual(
-		parseViewBox('<svg viewBox="0 0 64 64"></svg>'),
-		{w: 64, h: 64},
-	);
+	t.deepEqual(parseViewBox('<svg viewBox="0 0 64 64"></svg>'), {w: 64, h: 64});
 });
 
 test('parseViewBox: figma-style with decimal sizes', t => {
@@ -22,10 +19,10 @@ test('parseViewBox: figma-style with decimal sizes', t => {
 });
 
 test('parseViewBox: comma-separated values', t => {
-	t.deepEqual(
-		parseViewBox('<svg viewBox="0,0,200,60"></svg>'),
-		{w: 200, h: 60},
-	);
+	t.deepEqual(parseViewBox('<svg viewBox="0,0,200,60"></svg>'), {
+		w: 200,
+		h: 60,
+	});
 });
 
 test('parseViewBox: returns undefined when missing', t => {
@@ -37,15 +34,17 @@ test('parseViewBox: returns undefined when w/h non-positive', t => {
 });
 
 test('parseIntrinsicDims: absolute pixel width/height', t => {
-	t.deepEqual(
-		parseIntrinsicDims('<svg width="200" height="60"></svg>'),
-		{w: 200, h: 60},
-	);
+	t.deepEqual(parseIntrinsicDims('<svg width="200" height="60"></svg>'), {
+		w: 200,
+		h: 60,
+	});
 });
 
 test('parseIntrinsicDims: ignores percentage values', t => {
 	t.is(
-		parseIntrinsicDims('<svg width="100%" height="100%" viewBox="0 0 200 60"></svg>'),
+		parseIntrinsicDims(
+			'<svg width="100%" height="100%" viewBox="0 0 200 60"></svg>',
+		),
 		undefined,
 	);
 });

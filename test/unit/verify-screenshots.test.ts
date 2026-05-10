@@ -1,9 +1,7 @@
 import test from 'ava';
 import {Buffer} from 'node:buffer';
-import {
-	parseRootElementSize,
-	readPngSize,
-} from '../../source/commands/verify-screenshots.js';
+import {parseRootElementSize} from '../../source/integrations/figma/handoff-parse.js';
+import {readPngSize} from '../../source/commands/verify-screenshots.js';
 
 test('parseRootElementSize: extracts width/height from first <instance>', t => {
 	t.deepEqual(

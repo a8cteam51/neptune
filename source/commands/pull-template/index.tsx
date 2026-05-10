@@ -11,9 +11,15 @@
 //                  free-form mode.
 //   configuring  — pageName + WordPress template file entry. PageName is
 //                  locked when arrived from a title-card pick.
-//   pulling      — FigmaPull renders; onSuccess does asset download,
-//                  scaffolding, special-pull extraction, then writes
-//                  meta.json. Errors surface in FigmaPull's error UI.
+//   pulling      — FigmaPull renders; onSuccess does asset download
+//                  (from Figma's localhost:3845 server into design/
+//                  <slug>/assets/), SVG triage (vision agent decides
+//                  keep-as-PNG vs. discard-as-decoration), WP media
+//                  library import for the kept rasters, post_content
+//                  validation, template / page scaffolding, special-
+//                  pull title-card extraction, then writes meta.json
+//                  with the resulting asset / discardedAsset records.
+//                  Errors surface in FigmaPull's error UI.
 //   message      — terminal error (couldn't load pull status). User
 //                  presses any key to return to the menu.
 //
@@ -49,6 +55,7 @@ import {
 } from '../../lib/wp-pages.js';
 import {resolve} from 'node:path';
 import type {
+	DiscardedAsset,
 	PulledAsset,
 	SpecialPullKind,
 	TitleCardRef,
@@ -353,12 +360,16 @@ export default function PullTemplate({activeProject, onDone}: Props) {
 				// through the triage agent first — Figma emits both real
 				// imagery and decorative shapes as SVG, and we only want
 				// the former in the WP media library. Discarded SVG files
-				// are deleted from disk inside triageSvgs.
+				// are deleted from disk inside triageSvgs but their
+				// constName + 1-sentence description are returned in
+				// `triage.discarded` and persisted to meta.json so build/
+				// refine agents see WHY a const has no media mapping.
 				//
 				// Skipped entirely for special pulls (style guide, templates):
 				// those are metadata pulls without imagery the build agents
 				// reference.
 				let pulledAssets: PulledAsset[] | undefined;
+				let discardedAssets: DiscardedAsset[] | undefined;
 				if (!isSpecial && downloadResult.assets.length > 0) {
 					const rasters = downloadResult.assets.filter(
 						a => a.kind === 'raster',
@@ -371,6 +382,9 @@ export default function PullTemplate({activeProject, onDone}: Props) {
 						signal,
 						emit,
 					);
+					if (triage.discarded.length > 0) {
+						discardedAssets = triage.discarded;
+					}
 					const toUpload = [...rasters, ...triage.kept];
 					if (toUpload.length > 0) {
 						const wpRoot = resolve(activeProject.dir, 'wordpress');
@@ -488,6 +502,7 @@ export default function PullTemplate({activeProject, onDone}: Props) {
 					pageId,
 					contentOnly: phase.contentOnly || undefined,
 					assets: pulledAssets,
+					discardedAssets,
 				});
 			}}
 			onDone={onDone}

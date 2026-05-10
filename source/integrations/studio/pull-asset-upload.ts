@@ -10,9 +10,16 @@
 // upload restrictions therefore never come into play here.
 //
 // Each pull opens its own Studio session: media imports are sequential
-// (wp-cli is one tool call per file) and we tolerate a session drop
-// between assets — partial mappings are still useful, callers can
-// re-pull to fill the gaps.
+// (wp-cli is one tool call per file). Per-file failures are caught
+// and logged as warnings — the loop keeps going and the partial
+// mapping is returned. A pull with 7 of 10 image refs mapped is more
+// useful than a pull that aborts at the first wp-cli hiccup: the
+// build agent treats unmapped refs as discards (and emits a
+// structural replacement) regardless of WHY the const is unmapped,
+// so a failed upload just turns into a "decoration-class" fallback
+// rather than a hard pull failure. Aborts (signal.aborted) still
+// escalate — those are user-initiated cancellations, not network
+// hiccups.
 import {openStudioSession} from './mcp.js';
 import {importMediaFile} from './media-import.js';
 import type {DownloadedAsset} from '../figma/assets-fetch.js';
@@ -32,24 +39,42 @@ export async function uploadPulledAssets(
 	});
 	const session = await openStudioSession({signal});
 	const out: PulledAsset[] = [];
+	let failed = 0;
 	try {
 		for (const asset of assets) {
 			if (signal.aborted) throw new Error('Asset upload aborted.');
-			const result = await importMediaFile(session, wpRoot, asset.path);
-			out.push({
-				constName: asset.constName,
-				filename: asset.filename,
-				mediaId: result.id,
-				mediaUrl: result.url,
-				kind: asset.kind,
-			});
-			onEvent({
-				kind: 'step',
-				message: `Imported ${asset.filename} → id=${result.id} (${asset.constName}, ${asset.kind})`,
-			});
+			try {
+				const result = await importMediaFile(session, wpRoot, asset.path);
+				out.push({
+					constName: asset.constName,
+					filename: asset.filename,
+					mediaId: result.id,
+					mediaUrl: result.url,
+					kind: asset.kind,
+				});
+				onEvent({
+					kind: 'step',
+					message: `Imported ${asset.filename} → id=${result.id} (${asset.constName}, ${asset.kind})`,
+				});
+			} catch (err) {
+				if (signal.aborted) throw err;
+				failed++;
+				onEvent({
+					kind: 'warn',
+					message: `Failed to import ${asset.filename} (${asset.constName}); skipping — the build agent will treat it as an unmapped ref: ${
+						err instanceof Error ? err.message : String(err)
+					}`,
+				});
+			}
 		}
 	} finally {
 		session.close();
+	}
+	if (failed > 0) {
+		onEvent({
+			kind: 'step',
+			message: `Media import: ${out.length} imported, ${failed} failed (proceeding with partial mapping)`,
+		});
 	}
 	return out;
 }

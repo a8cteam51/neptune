@@ -1,9 +1,12 @@
 // Shared core for the page-content build flow. Feeds one
 // usesPostContent pull's design/<slug>/code.tsx (plus theme.json,
-// variables/all-variables.json, and any existing block style
-// variations) to the configured agent provider with the tsx-to-blocks skill,
-// then writes the resulting Gutenberg block markup to the matching
-// wp_post (page) via the page-set wp neptune CLI.
+// variables/all-variables.json, any existing block style variations,
+// dev annotations, the registered-patterns inventory, and the
+// per-pull media library mappings — uploaded constName→{id, url}
+// plus discarded-SVG constName→description) to the configured agent
+// provider with the tsx-to-blocks skill, then writes the resulting
+// Gutenberg block markup to the matching wp_post (page) via the
+// page-set wp neptune CLI.
 //
 // Mirrors build-template, but: only sees pulls flagged usesPostContent;
 // targets a wp_post (page) via lib/wp-pages.ts; tells the skill to
@@ -169,12 +172,20 @@ export async function runBuildContent(
 			message: `Captured ${noteCount} dev annotation${noteCount === 1 ? '' : 's'} on ${devAnnotations.length} node${devAnnotations.length === 1 ? '' : 's'}`,
 		});
 	}
-	const assetMappings = formatAssetMappingsContext(pull.assets);
+	const assetMappings = formatAssetMappingsContext(
+		pull.assets,
+		pull.discardedAssets,
+	);
 	if (assetMappings) {
 		baseSections.push('', '=== media library mappings ===', assetMappings);
+		const mapped = pull.assets?.length ?? 0;
+		const discarded = pull.discardedAssets?.length ?? 0;
+		const parts: string[] = [];
+		if (mapped > 0) parts.push(`${mapped} mapped`);
+		if (discarded > 0) parts.push(`${discarded} discarded`);
 		onEvent({
 			kind: 'step',
-			message: `Loaded ${pull.assets!.length} media library mapping${pull.assets!.length === 1 ? '' : 's'}`,
+			message: `Loaded media library context: ${parts.join(', ')}`,
 		});
 	}
 	const baseContext = baseSections.join('\n');

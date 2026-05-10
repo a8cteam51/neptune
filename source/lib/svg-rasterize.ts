@@ -29,7 +29,12 @@
 //     and disabling them prevents an exotic SVG from executing
 //     anything during render.
 import {readFile} from 'node:fs/promises';
-import {chromium, type Browser, type BrowserContext, type Page} from 'playwright';
+import {
+	chromium,
+	type Browser,
+	type BrowserContext,
+	type Page,
+} from 'playwright';
 
 export type RasterizeOptions = {
 	maxWidth?: number;
@@ -163,14 +168,17 @@ html, body { margin: 0; padding: 0; background: transparent; }
 		throw new Error('SVG element not parsed into the page');
 	}
 
-	await page.evaluate(args => {
-		const el = document.querySelector('.frame > svg') as SVGElement | null;
-		if (el) {
-			el.style.setProperty('display', 'block', 'important');
-			el.style.setProperty('width', `${args.w}px`, 'important');
-			el.style.setProperty('height', `${args.h}px`, 'important');
-		}
-	}, {w: dims.width, h: dims.height});
+	await page.evaluate(
+		args => {
+			const el = document.querySelector('.frame > svg') as SVGElement | null;
+			if (el) {
+				el.style.setProperty('display', 'block', 'important');
+				el.style.setProperty('width', `${args.w}px`, 'important');
+				el.style.setProperty('height', `${args.h}px`, 'important');
+			}
+		},
+		{w: dims.width, h: dims.height},
+	);
 
 	return await locator.screenshot({
 		type: 'png',

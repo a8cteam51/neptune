@@ -24,7 +24,10 @@ This skill is a single-shot prompt → JSON transform. Do NOT call any tools —
 - Optionally `=== registered patterns ===` — a JSON array of block patterns already registered in the theme (`name`, `slug`). When code.tsx invokes a function whose PascalCase name exactly matches a `name` entry, emit `<!-- wp:pattern {"slug":"<slug>"} /-->` for that JSX element instead of inlining the function body. See "Registered patterns" below.
 - Optionally a screenshot of the intended design, to help disambiguate unclear pieces of TSX. Do not describe the screenshot in your response.
 - Optionally a `=== dev annotations ===` section. These are non-binding designer notes attached to specific TSX nodes (originally `data-development-annotations` in code.tsx). Treat them as designer intent that explains a region's purpose or behavior — they may clarify which content is placeholder vs. final, why a state looks the way it does, or how a region is expected to render once filled in. Use them to inform conversion decisions, not as user-facing text.
-- Optionally a `=== media library mappings ===` section listing `<constName> → id=<n>, url=<...>` entries. Each entry maps a `const imgFoo = "http://localhost:3845/..."` declaration in code.tsx to a real attachment already imported into the WordPress media library. See "Image handling" below.
+- Optionally a `=== media library mappings ===` section. It has up to two parts:
+  - **Mapped entries** — `<constName> → id=<n>, url=<...>` lines. Each maps a `const imgFoo = "http://localhost:3845/..."` declaration in code.tsx to a real attachment already imported into the WordPress media library.
+  - **Discarded entries** — `<constName>: <description>` lines (some tagged `[render failure]`). These are SVG references the triage step rejected as decoration (or that failed to rasterize) and that have NO media item. The description is a 1-sentence record of what the rendered image was — it is the primary signal for picking a structural replacement when you encounter the const in code.tsx. See "Handling SVG and unmapped image references" below.
+  - Any const that appears in NEITHER list is also unmapped and is treated identically to a discarded entry, just without an explicit description.
 
 ## Scope vocabulary
 
@@ -40,12 +43,13 @@ Inline prompts dispatch by emitting a single `SCOPE: <TOKEN>` line that selects 
 
 ## Neptune semantic annotations
 
-Some TSX nodes carry a `data-neptune-annotations="<role>"` attribute. They fall into two distinct categories with different handling:
+Some TSX nodes carry a `data-neptune-annotations="<role>"` attribute. They fall into three distinct categories with different handling:
 
-- **Block-mapping annotations** substitute the marked node 1:1 with a specific WordPress dynamic block.
+- **Block-mapping annotations** substitute the marked node 1:1 with a specific WordPress dynamic block, dropping its inner content.
+- **Container-mapping annotations** substitute the marked node with a wrapper block whose CHILDREN come from converting the JSX node's children — the inner content is preserved (and itself gets converted), it is not dropped.
 - **Region-scope annotations** mark a structural region (header, footer, page body) that the build pipeline routes to its own template artifact. They are never converted in-place — the active scope (set by the user's scope instruction) dictates whether each region becomes a placeholder, a `wp:template-part` reference, gets sliced out, or IS the only region you convert.
 
-Both kinds of annotations are stripped from the emitted markup; only their effect on the conversion remains.
+All three kinds of annotations are stripped from the emitted markup; only their effect on the conversion remains.
 
 ### Block-mapping annotations
 
@@ -62,6 +66,55 @@ Substitute the marked node with the matching WordPress block instead of converti
 | `comments-list`       | `<!-- wp:comments /-->` with default child blocks     |
 
 Do NOT also emit a `wp:heading` (or other literal block) next to `wp:post-title` for the same node — the dynamic block replaces the literal entirely.
+
+### Container-mapping annotations
+
+| Annotation value | Emit                                                                            |
+| ---------------- | ------------------------------------------------------------------------------- |
+| `query-loop`     | `wp:query` wrapping a `wp:post-template` whose contents are the node's children |
+
+#### `query-loop` → `wp:query` + `wp:post-template`
+
+A `data-neptune-annotations="query-loop"` attribute marks a JSX node that visually represents a list / grid of posts pulled from a database query. Substitute the marked node with a `wp:query` block, place a `wp:post-template` inside it, and convert the marked node's children INTO the post-template.
+
+**Block name:** the editor UI calls this the "Query Loop block" but its WordPress slug is `core/query` — emit `<!-- wp:query ... -->`. Do NOT emit `<!-- wp:query-loop -->`; that slug does not exist and the block parser will reject it. The annotation value (`query-loop`) is the designer's vocabulary, not the WP block name.
+
+Shape:
+
+```
+<!-- wp:query {"queryId":<n>,"query":{"perPage":<n>,"postType":"post","inherit":false,...}} -->
+<div class="wp-block-query">
+	<!-- wp:post-template -->
+		[the annotated node's children, converted by the standard rules]
+	<!-- /wp:post-template -->
+</div>
+<!-- /wp:query -->
+```
+
+Conversion rules:
+
+- The annotated node's children become the contents of `wp:post-template`. Convert them normally — block-mapping annotations (`post-title`, `post-date`, `post-featured-image`, `post-excerpt`, `post-author`, `post-navigation`) inside the loop produce the per-post dynamic blocks the template renders for each matching post.
+- One iteration only. If the JSX duplicates the same card markup three times (Figma often shows a list by repeating the design), inline the FIRST iteration only; `wp:post-template` repeats it server-side per post. Same when the JSX uses `.map()` over a hard-coded array — convert the body of the map callback as the single iteration and discard the array.
+- The wrapping `<div class="wp-block-query">` is required — the block's `save()` function emits it, and a missing wrapper fails block validation in the editor.
+- The annotated node's own background, padding, border, layout, etc., translate onto the `wp:query` block (`style.color.background`, `style.spacing.padding`, `border`, `layout`) the same way they would on any wrapper block. Per-card visual styling translates onto `wp:post-template`.
+
+Query attributes (read from JSX context where possible, otherwise use the defaults):
+
+| Attribute         | Default          | Override when                                                                                                                              |
+| ----------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `queryId`         | `0`              | Multiple `query-loop` annotations on the same page need distinct ids; increment per occurrence.                                            |
+| `query.postType`  | `"post"`         | Surrounding heading or annotated subtree clearly references a CPT ("Products", "Events", "Case studies") — use the matching CPT slug.      |
+| `query.perPage`   | `10`             | The JSX shows N visible cards (e.g. a 3×2 grid → `6`). Use that count.                                                                     |
+| `query.inherit`   | `false`          | Always `false` for explicit `query-loop` annotations. (`inherit:true` is for archive templates that reuse the URL's main query — that's a separate scope, not this annotation.) |
+| `query.order`     | `"desc"`         | Visible "Oldest first" / sort UI says ascending — use `"asc"`.                                                                             |
+| `query.orderBy`   | `"date"`         | UI clearly sorts by something else (title, menu_order). Otherwise keep `"date"`.                                                           |
+
+Optional siblings of `wp:post-template` inside the wrapper `<div class="wp-block-query">`:
+
+- `wp:query-pagination` (containing `wp:query-pagination-previous`, `wp:query-pagination-numbers`, `wp:query-pagination-next`) when the JSX shows pagination controls below the grid.
+- `wp:query-no-results` for an empty-state message. If the JSX includes empty-state markup tied to the loop, convert it here. Otherwise emit a single `wp:paragraph` with a sensible default like "No posts found.".
+
+If the annotated subtree contains a heading or intro paragraph that visibly belongs OUTSIDE the per-card iteration (e.g. "Latest articles" above the grid), keep that heading/paragraph as a sibling of the `wp:query` block, not inside `wp:post-template` — only the parts that repeat per post belong in the post-template.
 
 ### Region-scope annotations
 
@@ -108,7 +161,7 @@ The output IS the page body (`post_content`); the surrounding template (header, 
 - Ignore `header` and `footer` subtrees entirely.
 - Do NOT emit `wp:template-part` (the wrapper template owns those references).
 - Do NOT emit `wp:post-content` (your output IS the post content).
-- Do NOT emit `wp:post-title`, `wp:post-date`, etc. — those belong to the wrapper.
+- Do NOT emit `wp:post-title`, `wp:post-date`, etc. as page-level chrome — those belong to the wrapper. Exception: inside a `data-neptune-annotations="query-loop"` subtree, `wp:post-title` / `wp:post-date` etc. are per-iteration placeholders for each looped post, not for the current page; they are required and allowed there.
 
 ## Registered patterns
 
@@ -286,12 +339,12 @@ When a value isn't a preset and is reused across multiple blocks (e.g. a recurri
 | `<p>` / span text runs                                        | `wp:paragraph`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | `<a>` styled like a button (background, padding, rounded)     | `wp:button` inside `wp:buttons`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | `<a>` plain text link, or text link in nav                    | `wp:paragraph` with an `<a>`, or `wp:navigation-link` if inside a nav                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| `<img>` with const source in `=== media library mappings ===` | `wp:image` (id + url from the mapping)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| `<img>` with const source NOT in the mapping (SVG ref)        | See "Handling SVG and unmapped image references" — never an empty `wp:image`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `<img>` with const source in the mapped entries of `=== media library mappings ===` | `wp:image` (id + url from the mapped entry)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `<img>` with const source in the discarded entries (or absent from the section) | See "Handling SVG and unmapped image references" — read the discarded-entry description if present, then translate to a structural replacement; never an empty `wp:image`                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | Two-column / three-column grids                               | `wp:columns` containing `wp:column` children                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `<ul>` / `<ol>`                                               | `wp:list` with nested `wp:list-item`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | Inline `<svg>`                                                | See "Handling SVG and unmapped image references" — `wp:html` is a last resort                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| Repeating items rendered via `.map(...)`                      | Inline the rendered result. Do NOT generate dynamic blocks.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| Repeating items rendered via `.map(...)`                      | Default: inline the rendered result. Do NOT generate dynamic blocks. Exception: when the `.map` is inside a `data-neptune-annotations="query-loop"` subtree, convert the single map-iteration body into the post-template instead — see "Container-mapping annotations".                                                                                                                                                                                                                                                                                                                                                                            |
 
 If a piece of TSX is purely presentational scaffolding (e.g. an empty wrapper div with only `flex` utilities), collapse it. Don't translate one-for-one if it adds nothing.
 
@@ -343,9 +396,15 @@ Read field attributes from the JSX:
 
 ## Handling SVG and unmapped image references
 
-Two cases produce no `=== media library mappings ===` entry: (a) `<img src={imgFoo}>` where `imgFoo` references an SVG asset (Figma generates these for non-bitmap visuals — dividers, ornaments, icons), and (b) inline `<svg>...</svg>` markup directly in the JSX. In both cases the right output is a STRUCTURED block expression of the visual's intent — NOT a `wp:image` with empty `src` (forbidden — renders as a broken-image placeholder), and NOT necessarily `wp:html` with raw SVG.
+Two cases produce no mapped media entry: (a) `<img src={imgFoo}>` where `imgFoo` references an SVG asset (Figma generates these for non-bitmap visuals — dividers, ornaments, icons), and (b) inline `<svg>...</svg>` markup directly in the JSX. In both cases the right output is a STRUCTURED block expression of the visual's intent — NOT a `wp:image` with empty `src` (forbidden — renders as a broken-image placeholder), and NOT necessarily `wp:html` with raw SVG.
 
-Use the JSX context — dimensions, position, parent classes, alt/aria attributes, sibling structure — to pick the right interpretation. Walk this priority order and stop at the first option that fits.
+Picking the right interpretation: combine the available signals in this order:
+
+1. **Discarded-entry description** in `=== media library mappings ===` (case (a) only). When the const appears in the discarded-entries list, the line gives you a 1-sentence record of what the rendered image actually depicted, written by the triage agent that saw it. This is the strongest signal — read it before falling back to JSX inspection. For lines tagged `[render failure]` the description is the renderer's error message, not visual intent — fall back to JSX context for those.
+2. **JSX context** — dimensions, position, parent classes, alt/aria attributes, sibling structure. The only signal in case (b), and the fallback in case (a) when no description is available.
+3. **Inline SVG bytes** (case (b) only) — `<path>`, `<rect>`, stroke widths, fills, gradients. Useful for confirming a category (e.g. a single-segment narrow-stroke path is a divider).
+
+Walk this priority order and stop at the first option that fits.
 
 1. **Decorative line / divider** (single-segment path, narrow stroke, full-width or full-height span). Examples: a `<svg viewBox="0 0 1376 1">` with a single horizontal `<path>`; a 1px-tall absolutely-positioned div between two sections. Emit `wp:separator` when the line stands alone between siblings, or apply `border.top` / `border.bottom` / `border.left` / `border.right` on the parent block when the line is the parent's edge. Read the colour from the SVG's `stroke` (or surrounding CSS variable); if it resolves to a theme.json palette slug, use the slug.
 2. **Background ornament** (filled shape positioned absolutely behind content, decorative blob, gradient stripe). Translate to `style.color.background` / `style.color.gradient` on the parent block, or to a `background-image` rule on a registered `block_style_variations[]` entry that the parent block claims via `is-style-<slug>`. Drop the SVG element from the block tree.
@@ -378,7 +437,7 @@ When a class uses a CSS variable like `var(--eureka/contrast-1,#21201c)`, resolv
 - Variation slugs in `block_style_variations[]` MUST be prefixed `neptune-` so they don't collide with theme defaults.
 - When adding a border to a single edge of a block, ensure other edges are explicitly set to `0px` to avoid unintended borders from theme styles.
 - Do NOT invent project-specific `className` values whose only purpose is to give a CSS rule a selector. If you find yourself wanting to write `theme_json_patch.blocks["core/<x>"].css = "&.foo{...}"` to back a class you just made up, choose instead one of: (a) a `block_style_variations[]` entry the block claims via `is-style-<slug>` (CSS keyed off `&.is-style-<slug>` or `&` inside the variation is fine — the variation's class is registered, not invented per-template); (b) structured properties on the block (`style.spacing`, `style.dimensions`, `style.border`, `style.typography`, ...) plus a `layout:{...}` attribute when the rule is layout. The `metadata.name` field on a block (used for human-readable labels in the editor's list view) is NOT a styling hook and is fine. Block-internal child selectors inside a variation's or block's `css` field (`& img`, `& .wp-block-button__link`, `& > .wp-block-group`) are also fine — they don't depend on a custom `className`.
-- For `wp:image` blocks: resolve the source against the `=== media library mappings ===` section. If the JSX `<img>`'s `src` references a const whose name appears in the mapping, use that entry's `id` and `url` (`"id":<id>` in attrs, `<img src="<url>" class="wp-image-<id>">`). If the const is NOT in the mapping (typically an SVG reference: divider, ornament, icon), do NOT emit a `wp:image` at all — see "Handling SVG and unmapped image references" below. Empty `wp:image` (`src=""` with no `id`) is forbidden: WP renders it as a broken-image placeholder. Never use Figma's local asset URLs (`http://localhost:3845/...`) and never invent file paths.
+- For `wp:image` blocks: resolve the source against the `=== media library mappings ===` section. If the JSX `<img>`'s `src` references a const that appears in the mapped entries (the `<constName> → id=<n>, url=<...>` lines), use that entry's `id` and `url` (`"id":<id>` in attrs, `<img src="<url>" class="wp-image-<id>">`). If the const appears in the discarded entries (the `<constName>: <description>` lines) or is absent from the section entirely, do NOT emit a `wp:image` — see "Handling SVG and unmapped image references" below. Empty `wp:image` (`src=""` with no `id`) is forbidden: WP renders it as a broken-image placeholder. Never use Figma's local asset URLs (`http://localhost:3845/...`) and never invent file paths.
 - Never wrap the response in markdown code fences.
 
 ## Self-check before responding

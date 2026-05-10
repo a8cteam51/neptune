@@ -12,12 +12,18 @@
 //      "logo vs divider" — far stronger than parsing path bytes.
 //   3. Kept verdicts → PNG written to disk next to the original with
 //      a .png basename, original .svg deleted, asset returned with
-//      kind='raster'.
-//   4. Discarded verdicts → original .svg deleted; nothing returned.
+//      kind='raster' in `kept`.
+//   4. Discarded verdicts → original .svg deleted; the constName plus
+//      the agent's 1-sentence description of what the image was is
+//      returned in `discarded` (cause='triage') so build/refine
+//      agents downstream can pick a structural replacement (border /
+//      wp:separator / background / drop) without re-deriving intent
+//      from code.tsx alone.
 //   5. Render failures (per-asset or whole-batch) → original .svg
-//      deleted; nothing returned. The build agent has structural-
-//      replacement paths for missing imagery and will fall back
-//      cleanly. Loud warning so the user can fix the renderer.
+//      deleted; the constName + the renderer's error message is
+//      returned in `discarded` (cause='renderFail'). Loud warning so
+//      the user can fix the renderer; build agents see the constName
+//      had imagery but no media item.
 import {rm} from 'node:fs/promises';
 import {basename, dirname, extname, join} from 'node:path';
 import {writeFileAtomic} from '../../lib/atomic-write.js';
@@ -30,6 +36,7 @@ import {
 } from '../../lib/agent-stream.js';
 import type {LogEvent} from '../../lib/event-list.js';
 import {rasterizeSvgs} from '../../lib/svg-rasterize.js';
+import type {DiscardedAsset} from '../../lib/types.js';
 
 export type TriageVerdict = {
 	constName: string;
@@ -42,9 +49,12 @@ export type SvgTriageResult = {
 	// in .png, kind === 'raster', path points to the new file.
 	kept: DownloadedAsset[];
 	// Source SVGs that were either render-failed or rejected by the
-	// agent. Files have already been removed from disk; the array is
-	// purely informational for logging.
-	discarded: DownloadedAsset[];
+	// agent. Files have already been removed from disk. Each entry
+	// carries the constName + a short description of what the image
+	// was so the caller can persist them in meta.json — build/refine
+	// agents downstream rely on this to pick a structural replacement
+	// for the missing image.
+	discarded: DiscardedAsset[];
 	verdicts: TriageVerdict[];
 };
 
@@ -83,50 +93,67 @@ export async function triageSvgs(
 	const renderErrors = new Map<string, string>();
 	let renders: Array<Buffer | undefined>;
 	try {
-		renders = await rasterizer(candidates.map(a => a.path), {
-			signal,
-			maxWidth: RASTER_MAX_EDGE,
-			maxHeight: RASTER_MAX_EDGE,
-			onWarn: (failedPath, err) => {
-				renderErrors.set(
-					failedPath,
-					err instanceof Error ? err.message : String(err),
-				);
+		renders = await rasterizer(
+			candidates.map(a => a.path),
+			{
+				signal,
+				maxWidth: RASTER_MAX_EDGE,
+				maxHeight: RASTER_MAX_EDGE,
+				onWarn: (failedPath, err) => {
+					renderErrors.set(
+						failedPath,
+						err instanceof Error ? err.message : String(err),
+					);
+				},
 			},
-		});
+		);
 	} catch (err) {
 		// Whole-batch failure (browser launch, etc.) — every SVG is now
 		// un-uploadable. Drop the lot loudly so the user knows imagery
 		// is missing from this pull.
+		const message = err instanceof Error ? err.message : String(err);
 		onEvent({
 			kind: 'warn',
 			message: `SVG rasterization failed; dropping all ${candidates.length} SVG${
 				candidates.length === 1 ? '' : 's'
-			} from this pull: ${err instanceof Error ? err.message : String(err)}`,
+			} from this pull: ${message}`,
 		});
 		await deleteAll(candidates, onEvent);
-		return {kept: [], discarded: [...candidates], verdicts: []};
+		return {
+			kept: [],
+			discarded: candidates.map(asset =>
+				renderFailDiscard(asset, `Rasterization batch failed: ${message}`),
+			),
+			verdicts: [],
+		};
 	}
 
 	const renderable: Array<{asset: DownloadedAsset; png: Buffer}> = [];
-	const renderFailed: DownloadedAsset[] = [];
+	const renderFailed: DiscardedAsset[] = [];
 	for (let i = 0; i < candidates.length; i++) {
 		const png = renders[i];
 		const asset = candidates[i]!;
 		if (png) {
 			renderable.push({asset, png});
 		} else {
-			renderFailed.push(asset);
+			const detail = renderErrors.get(asset.path);
+			renderFailed.push(
+				renderFailDiscard(
+					asset,
+					detail ? `Could not rasterize: ${detail}` : 'Could not rasterize.',
+				),
+			);
+			onEvent({
+				kind: 'warn',
+				message: detail
+					? `Could not rasterize ${asset.filename}; dropping (no PNG to upload). ${detail}`
+					: `Could not rasterize ${asset.filename}; dropping (no PNG to upload).`,
+			});
+			// Remove the .svg from disk so the pull dir doesn't keep
+			// stale assets the build agent might stumble on. Cleanup
+			// pairs with the discard record above.
+			await safeRm(asset.path, onEvent, asset.filename);
 		}
-	}
-	for (const asset of renderFailed) {
-		const detail = renderErrors.get(asset.path);
-		onEvent({
-			kind: 'warn',
-			message: detail
-				? `Could not rasterize ${asset.filename}; dropping (no PNG to upload). ${detail}`
-				: `Could not rasterize ${asset.filename}; dropping (no PNG to upload).`,
-		});
 	}
 
 	let verdicts: TriageVerdict[] = [];
@@ -146,7 +173,7 @@ export async function triageSvgs(
 	const verdictByName = new Map(verdicts.map(v => [v.constName, v]));
 
 	const kept: DownloadedAsset[] = [];
-	const agentDiscarded: DownloadedAsset[] = [];
+	const agentDiscarded: DiscardedAsset[] = [];
 
 	for (const {asset, png} of renderable) {
 		const verdict = verdictByName.get(asset.constName);
@@ -158,26 +185,37 @@ export async function triageSvgs(
 				const pngAsset = await materializeAsPng(asset, png);
 				kept.push(pngAsset);
 			} catch (err) {
+				const message = err instanceof Error ? err.message : String(err);
 				onEvent({
 					kind: 'warn',
-					message: `Could not write PNG for ${asset.filename}; dropping: ${
-						err instanceof Error ? err.message : String(err)
-					}`,
+					message: `Could not write PNG for ${asset.filename}; dropping: ${message}`,
 				});
-				agentDiscarded.push(asset);
+				// Materialize-fail is a pipeline failure (the agent said
+				// keep), not a triage decision — record under renderFail
+				// so downstream context reflects "we lost the bytes",
+				// not "we judged this decoration".
+				agentDiscarded.push(
+					renderFailDiscard(asset, `Could not write PNG: ${message}`),
+				);
 				await safeRm(asset.path, onEvent, asset.filename);
 			}
 		} else {
-			agentDiscarded.push(asset);
+			agentDiscarded.push({
+				constName: asset.constName,
+				filename: asset.filename,
+				// Fallback when the agent rejected the SVG but forgot the
+				// reason field. Filename is the only non-redundant fact
+				// we can carry forward (constName is already in the
+				// record's header), so include it — Figma sometimes
+				// encodes a hint in the filename ("divider-line.svg")
+				// even when the hash form is opaque.
+				description:
+					verdict.reason ||
+					`Discarded by triage as decoration; agent omitted a description (source SVG was ${asset.filename}). Fall back to JSX context (parent classes, dimensions, position) when picking a structural replacement.`,
+				cause: 'triage',
+			});
 			await safeRm(asset.path, onEvent, asset.filename);
 		}
-	}
-
-	// Render-failed originals also need their .svg files removed so the
-	// pull directory doesn't keep stale assets the build agent might
-	// stumble on.
-	for (const asset of renderFailed) {
-		await safeRm(asset.path, onEvent, asset.filename);
 	}
 
 	onEvent({
@@ -191,6 +229,18 @@ export async function triageSvgs(
 		kept,
 		discarded: [...agentDiscarded, ...renderFailed],
 		verdicts,
+	};
+}
+
+function renderFailDiscard(
+	asset: DownloadedAsset,
+	description: string,
+): DiscardedAsset {
+	return {
+		constName: asset.constName,
+		filename: asset.filename,
+		description,
+		cause: 'renderFail',
 	};
 }
 
@@ -288,7 +338,11 @@ function buildPromptHeader(count: number): string {
 		'- Discard: dividers, separators, ornaments, decorative shapes, single-rectangle backgrounds, gradients, and anything whose only purpose is visual texture. The build agent has a structural-replacement path (border / wp:separator / background) for these — uploading them clutters the media library.',
 		'- When unsure, KEEP. False positives clutter the library; false negatives lose real artwork. Bias toward keeping.',
 		'',
-		'Output a single JSON array (no surrounding prose, no markdown fences) with one object per input ref. Each object has exactly: { "constName": string, "keep": boolean, "reason": string (1 short sentence) }. Return verdicts in the same order as the input.',
+		'Output a single JSON array (no surrounding prose, no markdown fences) with one object per input ref. Each object has exactly: { "constName": string, "keep": boolean, "reason": string }. Return verdicts in the same order as the input.',
+		'',
+		'Reason field: one short sentence describing what the rendered image depicts. The downstream build agent reads this — for kept items it is informational, for discarded items it is the ONLY surviving record of what the image was, and the agent uses it to pick a structural replacement (border / wp:separator / background / drop). So:',
+		'- For DISCARDS, lead with the structural category, then any visual specifics. Examples: "Horizontal 1px divider line, full-width." / "Decorative gradient blob behind hero section." / "Single rounded-rectangle background shape." / "Vertical full-height separator on left edge." Avoid bare verdicts like "decorative shape" — say what the shape IS.',
+		'- For KEEPS, describe the subject. Examples: "Company wordmark in black." / "Photograph-style illustration of a person at a desk." / "Checkmark glyph used in a feature list."',
 		'',
 		`There are ${count} SVG${count === 1 ? '' : 's'} to triage:`,
 	].join('\n');

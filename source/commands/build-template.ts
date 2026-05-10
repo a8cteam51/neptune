@@ -1,10 +1,14 @@
 // Shared core for the template-build flow. Feeds one pull's
 // design/<slug>/code.tsx (plus the theme's theme.json,
-// variables/all-variables.json, and any existing block style
-// variations) to the configured agent provider with the tsx-to-blocks skill,
-// then writes the resulting Gutenberg block markup to the pull's
-// wp_template / wp_template_part post in the WordPress database via
-// Studio's wp-cli.
+// variables/all-variables.json, any existing block style variations,
+// dev annotations from code.tsx, the registered-patterns inventory,
+// and the per-pull media library mappings — uploaded constName→{id,
+// url} plus discarded-SVG constName→description) to the configured
+// agent provider with the tsx-to-blocks skill, then writes the
+// resulting Gutenberg block markup to the pull's wp_template /
+// wp_template_part post in the WordPress database via Studio's
+// wp-cli. The envelope's theme_json_patch deep-merges into theme.json
+// and block_style_variations[] write to <theme>/styles/blocks/*.json.
 //
 // The UI shell lives in build-templates.tsx — it picks the pulls and
 // calls runBuild for each. This module owns no React; it's pure I/O
@@ -166,12 +170,20 @@ export async function runBuild(
 			message: `Captured ${noteCount} dev annotation${noteCount === 1 ? '' : 's'} on ${devAnnotations.length} node${devAnnotations.length === 1 ? '' : 's'}`,
 		});
 	}
-	const assetMappings = formatAssetMappingsContext(pull.assets);
+	const assetMappings = formatAssetMappingsContext(
+		pull.assets,
+		pull.discardedAssets,
+	);
 	if (assetMappings) {
 		baseSections.push('', '=== media library mappings ===', assetMappings);
+		const mapped = pull.assets?.length ?? 0;
+		const discarded = pull.discardedAssets?.length ?? 0;
+		const parts: string[] = [];
+		if (mapped > 0) parts.push(`${mapped} mapped`);
+		if (discarded > 0) parts.push(`${discarded} discarded`);
 		onEvent({
 			kind: 'step',
-			message: `Loaded ${pull.assets!.length} media library mapping${pull.assets!.length === 1 ? '' : 's'}`,
+			message: `Loaded media library context: ${parts.join(', ')}`,
 		});
 	}
 	const baseContext = baseSections.join('\n');

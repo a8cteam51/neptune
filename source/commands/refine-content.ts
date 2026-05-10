@@ -12,8 +12,10 @@
 //      comments, etc.) belongs to the template and is refined elsewhere.
 //   4. Caller approves the diff subset.
 //   5. apply-diff agent: selected diffs + current page markup +
-//      theme.json + variables → updated post-content markup. Persist
-//      via wp neptune page-set.
+//      theme.json + variables + existing block style variations + dev
+//      annotations + the per-pull media library mappings (uploaded
+//      constName→{id, url} plus discarded-SVG constName→description)
+//      → updated post-content markup. Persist via wp neptune page-set.
 //
 // Reuses pure helpers from refine-template.ts (parseDiffReport,
 // parseApplyEnvelope, validateApplyCoverage) since the agent envelopes
@@ -350,7 +352,10 @@ export async function runApplyContent(
 			reviewPhase.devAnnotationsText,
 		);
 	}
-	const assetMappings = formatAssetMappingsContext(reviewPhase.pull.assets);
+	const assetMappings = formatAssetMappingsContext(
+		reviewPhase.pull.assets,
+		reviewPhase.pull.discardedAssets,
+	);
 	if (assetMappings) {
 		sections.push('', '=== media library mappings ===', assetMappings);
 	}
