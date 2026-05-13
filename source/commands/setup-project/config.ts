@@ -85,10 +85,8 @@ function normalizeConfig(
 			wordpressInstalled: parsed.steps?.wordpressInstalled ?? false,
 			wpContentCloned: parsed.steps?.wpContentCloned ?? false,
 			studioSiteCreated: parsed.steps?.studioSiteCreated ?? false,
-			placeholderUploaded: parsed.steps?.placeholderUploaded ?? false,
 		},
 		variablesBuiltAt: parsed.variablesBuiltAt,
-		placeholderImage: parsed.placeholderImage,
 		patterns: Array.isArray(parsed.patterns)
 			? parsed.patterns.filter((n): n is string => typeof n === 'string')
 			: undefined,
@@ -117,7 +115,6 @@ function newConfig(now: Clock): NeptuneConfig {
 			wordpressInstalled: false,
 			wpContentCloned: false,
 			studioSiteCreated: false,
-			placeholderUploaded: false,
 		},
 	};
 }

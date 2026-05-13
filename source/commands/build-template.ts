@@ -324,23 +324,6 @@ function buildUserContent(
 	return content;
 }
 
-// Instructions appended to the agent prompt when a placeholder image
-// has been registered. Both the build and refine flows share this so
-// the rule is identical in both contexts.
-export function placeholderInstructions(placeholder: {
-	id: number;
-	url: string;
-}): string {
-	return [
-		`A placeholder image is uploaded to the WordPress media library.`,
-		`Use it for EVERY wp:image block you emit:`,
-		`  - Block attrs: {"id":${placeholder.id}}`,
-		`  - <img> src: ${placeholder.url}`,
-		`  - <img> class includes: wp-image-${placeholder.id}`,
-		`Never leave src empty and never invent a different URL.`,
-	].join('\n');
-}
-
 // Maps a template role + post-content flag onto the SCOPE token
 // vocabulary the tsx-to-blocks and apply-diff skills both define.
 // Keep returns aligned with those skills' "Scope vocabulary" tables.

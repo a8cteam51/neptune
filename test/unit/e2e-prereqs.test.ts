@@ -33,7 +33,6 @@ async function setupProject(
 				wordpressInstalled: true,
 				wpContentCloned: true,
 				studioSiteCreated: true,
-				placeholderUploaded: true,
 			},
 			...overrides,
 		},

@@ -13,8 +13,7 @@ export type StepKey =
 	| 'themeConfigured'
 	| 'wordpressInstalled'
 	| 'wpContentCloned'
-	| 'studioSiteCreated'
-	| 'placeholderUploaded';
+	| 'studioSiteCreated';
 
 export type Steps = {
 	initialized: boolean;
@@ -24,15 +23,6 @@ export type Steps = {
 	wordpressInstalled: boolean;
 	wpContentCloned: boolean;
 	studioSiteCreated: boolean;
-	placeholderUploaded: boolean;
-};
-
-// Single placeholder attachment uploaded during setup. build-template
-// and refine-template inject this into agent prompts so any wp:image
-// block resolves to a real, viewable asset instead of an empty src.
-export type PlaceholderImage = {
-	id: number;
-	url: string;
 };
 
 export type NeptuneConfig = {
@@ -45,7 +35,6 @@ export type NeptuneConfig = {
 	design: {pagesDir: string};
 	steps: Steps;
 	variablesBuiltAt?: string;
-	placeholderImage?: PlaceholderImage;
 	// Pattern names (PascalCase, matching the function name in code.tsx)
 	// the user picked in Extract patterns. Source of truth for which
 	// patterns surface in Pull pattern. On-disk folders under

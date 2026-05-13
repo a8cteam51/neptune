@@ -19,7 +19,6 @@ This skill is a single-shot prompt → JSON transform. Do NOT call any tools —
 - Optionally `theme.json` — the active theme's settings. ALWAYS use its preset slugs in preference to inlined raw values. The `theme.json` you receive is the single source of truth for what's already registered project-wide.
 - Optionally `variables.json` — the flat token map originally scraped from Figma. Useful when a Tailwind class references a CSS variable that you need to resolve back to a preset.
 - Optionally `=== existing block style variations ===` — a JSON array of variations already registered for this theme (slug, title, blockTypes, styles). When one of these matches what you need, REUSE it by applying the existing `is-style-<slug>` class — do NOT redeclare it in `block_style_variations[]`.
-- Optionally `=== placeholder image ===` — an attachment id and URL. Use those values for every `wp:image` block (`"id":<id>` in attrs, `<img src="<url>" class="wp-image-<id>">`).
 
 ## Output format
 
@@ -130,7 +129,6 @@ NEVER write to `styles.css` or any other top-level theme.json key.
 - **Wrap in a top-level container.** Patterns should have a single root `wp:group` (or equivalent layout block) so they slot cleanly into a parent layout. If the TSX has multiple sibling top-level elements, wrap them in a `wp:group`.
 - **No dynamic blocks for repeating items.** If the source TSX maps over a list (`items.map(...)`), inline the rendered children rather than emitting query loops. Patterns are static markup the user can edit after insertion.
 - **Self-contained styling.** A pattern that depends on a class defined elsewhere will look broken when inserted into a different template. Push project-wide styling to `theme_json_patch.blocks` so it applies everywhere.
-- **Image handling.** Use the placeholder image (when provided) for every `wp:image`. Never use Figma's local asset URLs.
 
 ## Block mapping
 

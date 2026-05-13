@@ -39,7 +39,6 @@ import {
 	writePatternFile,
 	type PatternSource,
 } from '../lib/patterns.js';
-import {placeholderInstructions} from './build-template.js';
 import {openStudioSession} from '../integrations/studio/mcp.js';
 import type {Loaded} from './setup-project/types.js';
 
@@ -170,14 +169,6 @@ export async function runBuildPattern(
 			kind: 'step',
 			message: `Captured ${noteCount} dev annotation${noteCount === 1 ? '' : 's'} on ${devAnnotations.length} node${devAnnotations.length === 1 ? '' : 's'}`,
 		});
-	}
-	const placeholder = loaded.config.placeholderImage;
-	if (placeholder) {
-		sections.push(
-			'',
-			'=== placeholder image ===',
-			placeholderInstructions(placeholder),
-		);
 	}
 	const baseContext = sections.join('\n');
 

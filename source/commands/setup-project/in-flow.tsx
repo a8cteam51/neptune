@@ -8,7 +8,6 @@ import ThemeStep from './step-theme.js';
 import WordPressInstallStep from './step-wordpress-install.js';
 import WpContentCloneStep from './step-wp-content-clone.js';
 import StudioSiteStep from './step-studio-site.js';
-import PlaceholderUploadStep from './step-placeholder-upload.js';
 import {nextPendingStep} from './steps-meta.js';
 import type {Loaded, NeptuneConfig} from './types.js';
 
@@ -60,14 +59,6 @@ export default function InFlow({
 				) : null}
 				{step === 'studioSiteCreated' ? (
 					<StudioSiteStep
-						projectDir={loaded.dir}
-						config={loaded.config}
-						onComplete={onAdvance}
-						onAbort={onAbort}
-					/>
-				) : null}
-				{step === 'placeholderUploaded' ? (
-					<PlaceholderUploadStep
 						projectDir={loaded.dir}
 						config={loaded.config}
 						onComplete={onAdvance}
