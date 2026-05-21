@@ -44,6 +44,7 @@ import {
 import type {LogEvent} from '../lib/event-list.js';
 import {pageTargetFor, pageTargetLabel, writePage} from '../lib/wp-pages.js';
 import {openStudioSession} from '../integrations/studio/mcp.js';
+import {ensureQueryLoopPosts} from '../lib/wp-query-loop.js';
 import type {Loaded} from './setup-project/types.js';
 import type {PullMeta} from '../lib/types.js';
 
@@ -214,7 +215,7 @@ export async function runBuildContent(
 
 	const userContent = buildUserContent(baseContext, screenshotBase64);
 
-	onEvent({kind: 'step', message: 'Invoking configured agent provider…'});
+	onEvent({kind: 'step', message: 'Invoking Claude agent…'});
 
 	const responseText = await agentRunner(
 		userContent,
@@ -236,6 +237,7 @@ export async function runBuildContent(
 	let cacheNeedsFlush = false;
 	try {
 		await writePage(session, wpRoot, target, out);
+		await ensureQueryLoopPosts(session, wpRoot, out, onEvent);
 		if (envelope.theme_json_patch) {
 			const patchResult = await applyThemeJsonPatch(
 				themeJsonPath,

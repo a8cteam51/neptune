@@ -254,8 +254,8 @@ export default function RefineTemplates({activeProject, onDone}: Props) {
 						selected template, Neptune captures a screenshot, diffs against the
 						design, and AUTO-APPLIES every visual difference the diff agent
 						reports — no per-diff review. Existing template posts will be
-						overwritten. Each refine is two paid agent provider calls plus a
-						browser capture.
+						overwritten. Each refine is two paid agent calls plus a browser
+						capture.
 					</Text>
 					<Box marginTop={1}>
 						<Text dimColor>

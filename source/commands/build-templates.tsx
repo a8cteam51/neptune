@@ -201,8 +201,7 @@ export default function BuildTemplates({activeProject, onDone}: Props) {
 					<Text>
 						Toggle off any you don't want to rebuild and press Enter. Existing
 						database rows for the selected templates will be overwritten
-						(revision history is preserved). Each build is a paid agent provider
-						call.
+						(revision history is preserved). Each build is a paid agent call.
 					</Text>
 				</Box>
 				<Box marginTop={1}>

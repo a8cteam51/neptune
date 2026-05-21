@@ -2,7 +2,7 @@
 // patterns/<Name>/code.tsx (plus theme.json, the variables index, the
 // pattern's screenshot, dev annotations, the existing block-style
 // variations inventory, and the registered-patterns inventory) to the
-// configured agent provider with the tsx-to-pattern skill, then writes the
+// Claude agent with the tsx-to-pattern skill, then writes the
 // resulting block markup as a PHP file at
 // <theme>/patterns/<kebab-slug>.php that WordPress core auto-registers
 // from the docblock header.
@@ -196,7 +196,7 @@ export async function runBuildPattern(
 
 	const userContent = buildUserContent(src.name, baseContext, screenshotBase64);
 
-	onEvent({kind: 'step', message: 'Invoking configured agent provider…'});
+	onEvent({kind: 'step', message: 'Invoking Claude agent…'});
 
 	const responseText = await agentRunner(
 		userContent,

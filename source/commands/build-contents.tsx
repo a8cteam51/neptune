@@ -201,8 +201,7 @@ export default function BuildContents({activeProject, onDone}: Props) {
 					<Text>
 						Toggle off any you don&apos;t want to build and press Enter.
 						Existing page posts for the selected pulls will be overwritten
-						(revision history is preserved). Each build is a paid agent provider
-						call.
+						(revision history is preserved). Each build is a paid agent call.
 					</Text>
 				</Box>
 				<Box marginTop={1}>

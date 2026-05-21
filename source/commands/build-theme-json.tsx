@@ -1,5 +1,5 @@
 // First merges design/*/variables.json into variables/all-variables.json,
-// then feeds that to the configured agent provider with the theme-json skill
+// then feeds that to the Claude agent with the theme-json skill
 // (which exposes a theme-json skill) and writes the result to
 // wp-content/themes/<theme>/theme.json. Streams progress events throughout.
 //
@@ -211,7 +211,7 @@ function ConfirmOverwrite({
 				<Box marginTop={1}>
 					<Text>
 						Running the build will overwrite this file and consume a paid agent
-						provider call.
+						call.
 					</Text>
 				</Box>
 			</Box>
@@ -281,7 +281,7 @@ export async function buildThemeJson(
 		message: `Loaded variables/all-variables.json (${variablesText.length} bytes)`,
 	});
 
-	onEvent({kind: 'step', message: 'Invoking configured agent provider…'});
+	onEvent({kind: 'step', message: 'Invoking Claude agent…'});
 
 	// Lead sentence carries the trigger words from the theme-json skill's
 	// description so the SDK auto-invokes it; the skill body owns the

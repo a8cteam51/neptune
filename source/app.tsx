@@ -280,14 +280,6 @@ export default function App({name, startCwd}: Props) {
 						<Text dimColor>No active project — run Setup / Load Project.</Text>
 					)}
 					{activeProject ? <SiteStatusLine status={siteStatus} /> : null}
-					{activeProject ? (
-						<Text>
-							Agent provider:{' '}
-							<Text color="green" bold>
-								{providerLabel(activeProject.config.provider)}
-							</Text>
-						</Text>
-					) : null}
 					{autoLoadError ? <Text color="yellow">{autoLoadError}</Text> : null}
 				</Box>
 			</Box>
@@ -300,10 +292,6 @@ export default function App({name, startCwd}: Props) {
 			</Box>
 		</Box>
 	);
-}
-
-function providerLabel(provider: 'claude' | 'codex'): string {
-	return provider === 'codex' ? 'Codex' : 'Claude';
 }
 
 function SiteStatusLine({status}: {status: 'pending' | SiteStatus | null}) {

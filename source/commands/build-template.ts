@@ -3,8 +3,8 @@
 // variables/all-variables.json, any existing block style variations,
 // dev annotations from code.tsx, the registered-patterns inventory,
 // and the per-pull media library mappings — uploaded constName→{id,
-// url} plus discarded-SVG constName→description) to the configured
-// agent provider with the tsx-to-blocks skill, then writes the
+// url} plus discarded-SVG constName→description) to the Claude
+// agent with the tsx-to-blocks skill, then writes the
 // resulting Gutenberg block markup to the pull's wp_template /
 // wp_template_part post in the WordPress database via Studio's
 // wp-cli. The envelope's theme_json_patch deep-merges into theme.json
@@ -47,6 +47,7 @@ import {
 	writeTemplate,
 } from '../lib/wp-templates.js';
 import {openStudioSession} from '../integrations/studio/mcp.js';
+import {ensureQueryLoopPosts} from '../lib/wp-query-loop.js';
 import type {Loaded} from './setup-project/types.js';
 import type {PullMeta} from '../lib/types.js';
 
@@ -217,7 +218,7 @@ export async function runBuild(
 		pull.usesPostContent === true,
 	);
 
-	onEvent({kind: 'step', message: 'Invoking configured agent provider…'});
+	onEvent({kind: 'step', message: 'Invoking Claude agent…'});
 
 	const responseText = await agentRunner(
 		userContent,
@@ -235,6 +236,7 @@ export async function runBuild(
 	let cacheNeedsFlush = false;
 	try {
 		await writeTemplate(session, wpRoot, target, out);
+		await ensureQueryLoopPosts(session, wpRoot, out, onEvent);
 		if (envelope.theme_json_patch) {
 			const patchResult = await applyThemeJsonPatch(
 				themeJsonPath,

@@ -11,25 +11,32 @@ import SelectionLine from './selection-line.js';
 import {slugify} from './special-meta.js';
 
 // Canonical content surfaces for the two block-theme templates that
-// ship a default post in a fresh WordPress install. Pulling these
-// templates should NEVER create a new page — the body lives in the
-// pre-existing seed post, and the live preview targets that post's URL
-// directly.
+// ship a default post in a fresh WordPress install. The first pull of
+// each targets the seed post (no new page is created). `multiInstance`
+// controls what happens on subsequent pulls of the same template:
+//   - single.html (false): only one wp_post (the seed Hello World at
+//     id 1) is ever the target. Additional pulls still write to it.
+//   - page.html (true): the template wrapper is shared, but each
+//     additional pull writes to its OWN wp_page so multiple designs
+//     using page.html don't overwrite each other.
 type CanonicalTarget = {
 	pageSlug: string;
 	postType: PagePostType;
 	previewPath: string;
+	multiInstance: boolean;
 };
 const CANONICAL_TARGETS: Record<string, CanonicalTarget> = {
 	'single.html': {
 		pageSlug: 'hello-world',
 		postType: 'post',
 		previewPath: '/?p=1',
+		multiInstance: false,
 	},
 	'page.html': {
 		pageSlug: 'sample-page',
 		postType: 'page',
 		previewPath: '/sample-page',
+		multiInstance: true,
 	},
 };
 
@@ -157,12 +164,22 @@ export default function ConfigureView({
 			setCollidingPull(other ?? null);
 			if (other) {
 				setUsesPostContent(true);
-				if (canonical) {
+				// single-instance canonical (single.html): every pull still
+				// targets the same seed post — don't create a new one.
+				if (canonical && !canonical.multiInstance) {
 					setPageSlug(canonical.pageSlug);
 					setPostType(canonical.postType);
+					setPreviewPath(canonical.previewPath);
 					setStage('previewPath');
 					return;
 				}
+				// multi-instance canonical (page.html) or non-canonical
+				// collision: each pull gets its own wp_post sharing the
+				// template wrapper. Pre-fill pageSlug with the pull's own
+				// slug so the user can hit Enter to accept.
+				setPageSlug(slug);
+				setPostType(canonical?.postType ?? 'page');
+				setPreviewPath(`/${slug}`);
 				setStage('pageSlug');
 				return;
 			}
@@ -348,11 +365,20 @@ export default function ConfigureView({
 							{`${templateStem}.html is already defined by pull "${collidingPull.slug}". This pull will only contribute page content; the wrapper won't be rebuilt.`}
 						</Text>
 					) : null}
-					{canonicalTargetFor(`${templateStem}.html`) ? (
-						<Text dimColor>
-							{`${templateStem}.html writes to the existing ${postType} "${pageSlug}" — no new page is created.`}
-						</Text>
-					) : null}
+					{(() => {
+						const c = canonicalTargetFor(`${templateStem}.html`);
+						if (!c) return null;
+						// Only show the "writes to existing seed" hint when we're
+						// actually pointed at the canonical seed. In a page.html
+						// collision we're creating a new page, so this hint would
+						// be misleading.
+						if (pageSlug !== c.pageSlug) return null;
+						return (
+							<Text dimColor>
+								{`${templateStem}.html writes to the existing ${postType} "${pageSlug}" — no new page is created.`}
+							</Text>
+						);
+					})()}
 					<Text bold>
 						{postType === 'post'
 							? 'Post slug (the wp_post that hosts this content)'

@@ -1,9 +1,6 @@
 // Project-config types live here; pull-level types (PullMeta,
 // TitleCardRef, SpecialPullKind) live in lib/types.ts so the lib layer
 // doesn't depend on commands/.
-import type {AgentProvider} from '../../lib/agent-provider.js';
-
-export type {AgentProvider} from '../../lib/agent-provider.js';
 
 export const CONFIG_FILENAME = 'neptune-config.json';
 
@@ -28,7 +25,6 @@ export type Steps = {
 export type NeptuneConfig = {
 	createdAt: string;
 	updatedAt: string;
-	provider: AgentProvider;
 	projectName?: string;
 	gitRepo?: string;
 	themeSlug?: string;

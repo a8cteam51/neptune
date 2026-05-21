@@ -261,7 +261,7 @@ export default function RefineContents({activeProject, onDone}: Props) {
 						reports — no per-diff review. The diff agent is scoped to the page
 						body only; wrapper chrome (header, footer, post-title) is refined
 						via Refine templates. Existing page content will be overwritten.
-						Each refine is two paid agent provider calls plus a browser capture.
+						Each refine is two paid agent calls plus a browser capture.
 					</Text>
 					<Box marginTop={1}>
 						<Text dimColor>

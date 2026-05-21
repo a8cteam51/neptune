@@ -888,7 +888,7 @@ export default function E2E({activeProject, onDone}: Props) {
 					</Text>
 					<Box marginTop={1}>
 						<Text color="yellow" bold>
-							Each selected phase issues paid agent provider calls.
+							Each selected phase issues paid agent calls.
 						</Text>
 					</Box>
 					<Text dimColor>

@@ -23,7 +23,6 @@ async function setupProject(
 		config: {
 			createdAt: '2026-05-06T00:00:00Z',
 			updatedAt: '2026-05-06T00:00:00Z',
-			provider: 'claude',
 			design: {pagesDir: 'design'},
 			steps: {
 				initialized: true,

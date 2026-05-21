@@ -4,7 +4,6 @@
 // design-walk.ts for the rationale.
 import {mkdir, readdir, readFile, stat} from 'node:fs/promises';
 import {resolve} from 'node:path';
-import {normalizeAgentProvider} from '../../lib/agent-provider.js';
 import {writeFileAtomic} from '../../lib/atomic-write.js';
 import {realClock, type Clock} from '../../lib/clock.js';
 import {CONFIG_FILENAME, type Loaded, type NeptuneConfig} from './types.js';
@@ -69,10 +68,6 @@ function normalizeConfig(
 	return {
 		createdAt: parsed.createdAt ?? ts,
 		updatedAt: parsed.updatedAt ?? ts,
-		provider: normalizeAgentProvider(
-			(parsed as {provider?: unknown}).provider,
-			`${CONFIG_FILENAME} provider`,
-		),
 		projectName: parsed.projectName,
 		gitRepo: parsed.gitRepo,
 		themeSlug: parsed.themeSlug,
@@ -105,7 +100,6 @@ function newConfig(now: Clock): NeptuneConfig {
 	return {
 		createdAt: ts,
 		updatedAt: ts,
-		provider: 'claude',
 		design: {pagesDir: 'design'},
 		steps: {
 			initialized: true,

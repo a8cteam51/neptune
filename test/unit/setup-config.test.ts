@@ -6,18 +6,21 @@ import {makeTmpDir} from '../helpers/tmp.js';
 
 const now = () => '2026-05-07T00:00:00.000Z';
 
-test('loadOrInit writes provider: claude for new projects', async t => {
+test('loadOrInit writes a fresh config for new projects', async t => {
 	const projectDirectory = await makeTmpDir(t);
 	const loaded = await loadOrInit(projectDirectory, now);
-	t.is(loaded.config.provider, 'claude');
+	t.is(loaded.mode, 'created');
+	t.is(loaded.config.design.pagesDir, 'design');
+	t.true(loaded.config.steps.initialized);
 	const raw = await readFile(
 		join(projectDirectory, 'neptune-config.json'),
 		'utf8',
 	);
-	t.is(JSON.parse(raw).provider, 'claude');
+	const parsed = JSON.parse(raw);
+	t.is(parsed.design.pagesDir, 'design');
 });
 
-test('loadOrInit defaults old configs without provider to claude', async t => {
+test('loadOrInit continues an existing config without rewriting timestamps', async t => {
 	const projectDirectory = await makeTmpDir(t);
 	await writeFile(
 		join(projectDirectory, 'neptune-config.json'),
@@ -29,38 +32,6 @@ test('loadOrInit defaults old configs without provider to claude', async t => {
 		}),
 	);
 	const loaded = await loadOrInit(projectDirectory, now);
-	t.is(loaded.config.provider, 'claude');
-});
-
-test('loadOrInit accepts provider: codex', async t => {
-	const projectDirectory = await makeTmpDir(t);
-	await writeFile(
-		join(projectDirectory, 'neptune-config.json'),
-		JSON.stringify({
-			provider: 'codex',
-			createdAt: '2026-05-06T00:00:00.000Z',
-			updatedAt: '2026-05-06T00:00:00.000Z',
-			design: {pagesDir: 'design'},
-			steps: {initialized: true},
-		}),
-	);
-	const loaded = await loadOrInit(projectDirectory, now);
-	t.is(loaded.config.provider, 'codex');
-});
-
-test('loadOrInit rejects unknown providers', async t => {
-	const projectDirectory = await makeTmpDir(t);
-	await writeFile(
-		join(projectDirectory, 'neptune-config.json'),
-		JSON.stringify({
-			provider: 'openai',
-			createdAt: '2026-05-06T00:00:00.000Z',
-			updatedAt: '2026-05-06T00:00:00.000Z',
-			design: {pagesDir: 'design'},
-			steps: {initialized: true},
-		}),
-	);
-	await t.throwsAsync(loadOrInit(projectDirectory, now), {
-		message: /provider/,
-	});
+	t.is(loaded.mode, 'continued');
+	t.is(loaded.config.createdAt, '2026-05-06T00:00:00.000Z');
 });

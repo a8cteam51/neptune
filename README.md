@@ -1,6 +1,6 @@
 # Neptune
 
-Neptune is an interactive CLI that turns Figma designs into working WordPress block themes. It pulls a page from Figma (Tailwind TSX + variables + screenshot), runs a local WordPress site under [Studio](https://developer.wordpress.com/studio/), and uses the configured agent provider to convert each pull into Gutenberg block markup, a `theme.json`, and any block style variations the design needs. Refinements happen by capturing the live render, diffing it against the design, and applying only the differences.
+Neptune is an interactive CLI that turns Figma designs into working WordPress block themes. It pulls a page from Figma (Tailwind TSX + variables + screenshot), runs a local WordPress site under [Studio](https://developer.wordpress.com/studio/), and uses the Claude Agent SDK to convert each pull into Gutenberg block markup, a `theme.json`, and any block style variations the design needs. Refinements happen by capturing the live render, diffing it against the design, and applying only the differences.
 
 The intent is to keep the human at the menu — Neptune drives Figma, the file system, the Studio site, and the agents. Failures stop early and surface in the UI, so a paid agent call only fires when its inputs are good.
 
@@ -18,7 +18,7 @@ You'll also need:
 
 - Studio for Mac/Windows running, with at least one site created (for local WP).
 - Figma's MCP server enabled (the plugin pulls TSX, assets, dev notes via MCP).
-- An Anthropic API key for the default Claude provider, or Codex authentication / API key if `neptune-config.json` sets `"provider": "codex"`.
+- An Anthropic API key for the Claude Agent SDK.
 
 ## What it does
 
@@ -65,7 +65,7 @@ The arrows are forward-only because each step is gated on the previous step's ar
 
 ## Architecture
 
-Neptune is a small Ink (React-in-the-terminal) app that orchestrates four kinds of side effects: Figma MCP calls, file system writes, Studio's `wp-cli` MCP, and the configured agent SDK. Each command is a self-contained `runX(...)` async function — the React component is a thin shell around it.
+Neptune is a small Ink (React-in-the-terminal) app that orchestrates four kinds of side effects: Figma MCP calls, file system writes, Studio's `wp-cli` MCP, and the Claude Agent SDK. Each command is a self-contained `runX(...)` async function — the React component is a thin shell around it.
 
 ```
 source/
@@ -94,7 +94,7 @@ source/
     view-template-diff.tsx      Capture + odiff with no agent call
     capture-screens.tsx         Headless JPEG capture of every non-special pull's live URL (share-ready snapshots, no agent calls)
   lib/
-    agent-stream.ts             Agent SDK driver — Claude by default, Codex when configured; emits a structured `usage` LogEvent per call
+    agent-stream.ts             Claude Agent SDK driver; emits a structured `usage` LogEvent per call
     event-list.tsx              Streaming event list renderer
     sectioned-menu.tsx          Top-level menu with non-selectable section headers
     multi-select.tsx            Checkbox list (used by every "toggle off what you don't want" picker)
@@ -113,7 +113,6 @@ source/
     build-variables.ts          variables/* merge
     dev-annotations.ts          Designer notes extraction
     atomic-write.ts             tmp-file-then-rename writes
-    agent-provider.ts           Selects Claude vs. Codex SDK per neptune-config.json
   integrations/
     figma/
       mcp.ts                    Figma MCP session, get_code / get_screenshot / get_metadata / get_variable_defs
@@ -274,7 +273,6 @@ Unit tests live under `test/unit/`. They cover the parsing and envelope-validati
 Per-project state lives in `<project>/neptune-config.json`. The shape is in `source/commands/setup-project/types.ts`; the bits that matter to other commands are:
 
 - `themeSlug` — the WP theme directory name. Required before build/refine.
-- `provider` — agent SDK provider. Defaults to `claude`; set to `codex` to run agent tasks through the OpenAI Codex SDK. Codex receives the same `plugins/neptune-tools/skills/<name>/SKILL.md` instructions inline because its SDK does not accept Claude-style local plugin paths.
 - `steps` — boolean map of which setup steps have completed. The wizard resumes from the first `false`.
 - `design.pagesDir` — the Figma file URL used as the source of pulls.
 - `patterns` — array of PascalCase pattern names the user selected in Extract patterns. Pull pattern lists these; End-to-end build refuses to start if any selected name lacks a pulled `patterns/<Name>/code.tsx`.

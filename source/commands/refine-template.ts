@@ -77,6 +77,7 @@ import {
 	writeTemplate,
 	type TemplateTarget,
 } from '../lib/wp-templates.js';
+import {ensureQueryLoopPosts} from '../lib/wp-query-loop.js';
 import type {Loaded} from './setup-project/types.js';
 
 export type DiffEntry = {
@@ -501,6 +502,7 @@ export async function runApply(
 	let cacheNeedsFlush = false;
 	try {
 		await writeTemplate(session, wpRoot, reviewPhase.target, out);
+		await ensureQueryLoopPosts(session, wpRoot, out, onEvent);
 		if (envelope.theme_json_patch) {
 			const patchResult = await applyThemeJsonPatch(
 				themeJsonPath,

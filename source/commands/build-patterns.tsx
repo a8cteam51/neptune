@@ -222,8 +222,8 @@ export default function BuildPatterns({activeProject, onDone}: Props) {
 					</Text>
 					<Text>
 						Toggle off any you don&apos;t want to build and press Enter. Each
-						selected pattern is one paid agent provider call. Existing pattern
-						PHP files at the same slug will be overwritten.
+						selected pattern is one paid agent call. Existing pattern PHP files
+						at the same slug will be overwritten.
 					</Text>
 				</Box>
 				<Box marginTop={1}>

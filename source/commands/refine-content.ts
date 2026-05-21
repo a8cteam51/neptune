@@ -55,6 +55,7 @@ import {
 	writePage,
 	type PageTarget,
 } from '../lib/wp-pages.js';
+import {ensureQueryLoopPosts} from '../lib/wp-query-loop.js';
 import {
 	parseApplyEnvelope,
 	parseDiffReport,
@@ -435,6 +436,7 @@ export async function runApplyContent(
 	let cacheNeedsFlush = false;
 	try {
 		await writePage(session, wpRoot, reviewPhase.target, out);
+		await ensureQueryLoopPosts(session, wpRoot, out, onEvent);
 		if (envelope.theme_json_patch) {
 			const patchResult = await applyThemeJsonPatch(
 				themeJsonPath,
