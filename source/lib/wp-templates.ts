@@ -1,13 +1,10 @@
-// Reads and writes WordPress block-theme templates and template parts
-// against the database (post types `wp_template` / `wp_template_part`)
-// via the `wp neptune template-*` subcommands shipped with the active
-// theme (<theme>/inc/class-neptune-cli.php). Once a post exists for a
-// given (slug, theme), WP serves it instead of the theme file — so
-// DB-first edits preserve user changes from the Site Editor and give
-// us revision history for free.
-import {b64Arg, runNeptuneCli, strArg} from './neptune-cli.js';
-import {dBoolean, dNullable, dObject, dString} from './decode.js';
-import type {StudioSession} from '../integrations/studio/mcp.js';
+// Target builders for WordPress block-theme templates / template parts.
+//
+// The runtime read/write of `wp_template` and `wp_template_part` posts
+// now lives in source/integrations/haydi/client.ts (readTemplateViaHaydi
+// / writeTemplateViaHaydi). This module is the pure-data half: turn a
+// templateFile + pageName into a `TemplateTarget` that callers thread
+// through to the Haydi helpers. No I/O, no PHP, no studio session.
 import {templateSubdir} from './template-scaffold.js';
 
 export type TemplatePostType = 'wp_template' | 'wp_template_part';
@@ -49,69 +46,4 @@ export function defaultTitleFromSlug(slug: string): string {
 		.filter(p => p.length > 0)
 		.map(p => p.charAt(0).toUpperCase() + p.slice(1))
 		.join(' ');
-}
-
-const dGetResult = dObject({
-	found: dBoolean,
-	content: dNullable(dString),
-});
-
-export async function readTemplate(
-	session: StudioSession,
-	nameOrPath: string,
-	target: TemplateTarget,
-): Promise<string | null> {
-	const result = await runNeptuneCli(
-		session,
-		nameOrPath,
-		'template-get',
-		{
-			type: strArg(target.type),
-			slug: strArg(target.slug),
-		},
-		dGetResult,
-	);
-	if (!result.found) return null;
-	return result.content ?? '';
-}
-
-const dEnsureResult = dObject({created: dBoolean});
-
-export async function ensureTemplate(
-	session: StudioSession,
-	nameOrPath: string,
-	target: TemplateTarget,
-): Promise<{created: boolean}> {
-	const result = await runNeptuneCli(
-		session,
-		nameOrPath,
-		'template-ensure',
-		{
-			type: strArg(target.type),
-			slug: strArg(target.slug),
-			title: b64Arg(target.title),
-		},
-		dEnsureResult,
-	);
-	return {created: result.created};
-}
-
-export async function writeTemplate(
-	session: StudioSession,
-	nameOrPath: string,
-	target: TemplateTarget,
-	content: string,
-): Promise<void> {
-	await runNeptuneCli(
-		session,
-		nameOrPath,
-		'template-set',
-		{
-			type: strArg(target.type),
-			slug: strArg(target.slug),
-			title: b64Arg(target.title),
-			content: b64Arg(content),
-		},
-		dEnsureResult,
-	);
 }

@@ -7,7 +7,26 @@ import {defaultSpawn, type Spawn} from '../../lib/spawn.js';
 import {stripAnsi} from '../../lib/strip-ansi.js';
 import type {LogEvent} from '../../lib/event-list.js';
 
-const REQUIRED_PLUGINS = ['create-block-theme', 'safe-svg', 'jetpack'];
+// `source` is whatever `wp plugin install` accepts: a wordpress.org
+// slug, an http(s) URL to a .zip, or a local path. `label` is what we
+// print in the step log so URLs don't bloat the timeline.
+type RequiredPlugin = {label: string; source: string};
+
+const REQUIRED_PLUGINS: RequiredPlugin[] = [
+	{label: 'create-block-theme', source: 'create-block-theme'},
+	{label: 'safe-svg', source: 'safe-svg'},
+	{label: 'jetpack', source: 'jetpack'},
+	// Haydi ships as a GitHub release asset, not on wordpress.org.
+	// GitHub's /releases/latest/download/<asset> URL always redirects
+	// to the newest tagged release's asset, so wp-cli (which follows
+	// redirects) picks up the current version with no version pinning
+	// to maintain on our side.
+	{
+		label: 'haydi-full-extensions',
+		source:
+			'https://github.com/Automattic/haydi/releases/latest/download/haydi-full-extensions.zip',
+	},
+];
 
 // Jetpack modules to enable post-activation. Both work without a
 // WordPress.com connection on local Studio sites — `blocks` ships
@@ -45,10 +64,10 @@ export async function* createStudioSite(
 	for (const plugin of REQUIRED_PLUGINS) {
 		yield {
 			kind: 'step',
-			message: `studio wp plugin install ${plugin} --activate`,
+			message: `studio wp plugin install ${plugin.label} --activate`,
 		};
 		await runStudio(
-			['wp', 'plugin', 'install', plugin, '--activate', '--path', wpDir],
+			['wp', 'plugin', 'install', plugin.source, '--activate', '--path', wpDir],
 			signal,
 			spawn,
 		);

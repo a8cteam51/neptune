@@ -5,8 +5,8 @@
 // a given template.
 //
 // The actual scaffold (creating an empty wp_template / wp_template_part
-// post for a freshly-pulled template) lives in lib/wp-templates.ts —
-// see ensureTemplate.
+// post for a freshly-pulled template) lives in
+// integrations/haydi/client.ts — see ensureTemplateViaHaydi.
 const PARTS_FILES = new Set(['header.html', 'footer.html']);
 
 export function templateSubdir(templateFile: string): 'parts' | 'templates' {

@@ -45,14 +45,13 @@ import {
 } from '../../integrations/figma/mcp.js';
 import FigmaPull from '../../integrations/figma/pull.js';
 import {realClock} from '../../lib/clock.js';
-import {openStudioSession} from '../../integrations/studio/mcp.js';
 import {uploadPulledAssets} from '../../integrations/studio/pull-asset-upload.js';
-import {ensureTemplate, templateTargetFor} from '../../lib/wp-templates.js';
 import {
-	ensurePage,
-	pageTargetFor,
-	type PagePostType,
-} from '../../lib/wp-pages.js';
+	ensurePageViaHaydi,
+	ensureTemplateViaHaydi,
+} from '../../integrations/haydi/client.js';
+import {templateTargetFor} from '../../lib/wp-templates.js';
+import {type PagePostType} from '../../lib/wp-pages.js';
 import {resolve} from 'node:path';
 import type {
 	DiscardedAsset,
@@ -431,34 +430,48 @@ export default function PullTemplate({activeProject, onDone}: Props) {
 					if (!phase.templateFile) {
 						throw new Error('templateFile missing for non-special pull.');
 					}
-					const wpRoot = resolve(activeProject.dir, 'wordpress');
-					const studio = await openStudioSession({signal});
-					try {
-						// Skip wrapper scaffold for content-only pulls — the
-						// pull that owns the templateFile already scaffolded it.
-						if (!phase.contentOnly) {
-							const target = templateTargetFor(
-								phase.templateFile,
-								phase.pageName,
-							);
-							const result = await ensureTemplate(studio, wpRoot, target);
-							scaffolded = result.created;
-						}
-						if (phase.usesPostContent && phase.pageSlug) {
-							const pageTarget = pageTargetFor(
-								phase.pageSlug,
-								phase.pageName,
-								phase.postType ?? 'page',
-							);
-							const ensured = await ensurePage(studio, wpRoot, pageTarget);
-							pageId = ensured.id;
-							emit({
-								kind: 'step',
-								message: `${pageTarget.postType === 'post' ? 'Post' : 'Page'} ${ensured.created ? 'created' : 'found'}: ${pageTarget.postType}:${pageTarget.slug} (id ${ensured.id})`,
-							});
-						}
-					} finally {
-						studio.close();
+					const haydi = activeProject.config.haydi;
+					if (!haydi) {
+						throw new Error(
+							'haydi config missing from neptune-config.json. Non-special pulls scaffold their wp_template + page records on the running site via Haydi MCP; add { "haydi": { "url": "...", "token": "..." } } to the project config (token from WP Admin → Haydi → Remote Access).',
+						);
+					}
+					// Skip wrapper scaffold for content-only pulls — the
+					// pull that owns the templateFile already scaffolded it.
+					if (!phase.contentOnly) {
+						const target = templateTargetFor(
+							phase.templateFile,
+							phase.pageName,
+						);
+						const result = await ensureTemplateViaHaydi(
+							haydi,
+							{type: target.type, slug: target.slug, title: target.title},
+							signal,
+						);
+						scaffolded = result.created;
+					}
+					if (phase.usesPostContent && phase.pageSlug) {
+						const postType: PagePostType = phase.postType ?? 'page';
+						const ensured = await ensurePageViaHaydi(
+							haydi,
+							{
+								postType,
+								slug: phase.pageSlug,
+								title:
+									phase.pageName ||
+									phase.pageSlug
+										.split(/[-_]/u)
+										.filter(p => p.length > 0)
+										.map(p => p.charAt(0).toUpperCase() + p.slice(1))
+										.join(' '),
+							},
+							signal,
+						);
+						pageId = ensured.id;
+						emit({
+							kind: 'step',
+							message: `${postType === 'post' ? 'Post' : 'Page'} ${ensured.created ? 'created' : 'found'}: ${postType}:${phase.pageSlug} (id ${ensured.id})`,
+						});
 					}
 				}
 

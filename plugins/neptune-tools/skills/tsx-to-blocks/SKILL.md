@@ -1,6 +1,6 @@
 ---
 name: tsx-to-blocks
-description: Use when converting a Figma-generated React + Tailwind component (code.tsx) into Gutenberg block markup for a WordPress block theme template or template part. Outputs a JSON envelope containing the block markup plus an optional theme.json patch for project-wide style registrations.
+description: Use when converting a Figma-generated React + Tailwind component (code.tsx) into Gutenberg block markup for a WordPress block theme template, template part, or page body. The agent persists every artifact itself via the pull-writer skill — block markup to wp_template / wp_template_part / page / post posts via Haydi MCP, theme.json + block style variation files to disk via Edit / Write. No JSON envelope is returned to the host; the host parses a terse plaintext summary of what was written.
 ---
 
 # TSX → Gutenberg block markup
@@ -9,7 +9,16 @@ Convert a single React + Tailwind component (the output of Figma's code generato
 
 ## Operating mode
 
-This skill is a single-shot prompt → JSON transform. Do NOT call any tools — no Agent / Task subagent dispatch, no Read / Write / Edit / Bash, no MCP. Neptune validates and persists the JSON envelope itself. The only valid output is the JSON object described under "Output format".
+You are converting one TSX component to Gutenberg block markup AND persisting every artifact yourself — block markup, theme.json edits, block style variation files, cache flush. The host loads the **pull-writer** skill alongside this one; pull-writer ships the canonical recipes for each persistence step.
+
+Available tools:
+
+- `Read`, `Glob`, `Grep` — for inspecting the local theme + sibling templates if you need to.
+- `Edit`, `Write` — for the local file edits (theme.json, `styles/blocks/*.json`). The host's working directory is the project root; the theme lives at `wordpress/wp-content/themes/<themeSlug>/`.
+- `mcp__haydi__haydi_run_php` — for the wp_template / wp_template_part / page / post writes and the cache flush. See pull-writer Recipes 2, 4, 5.
+- NO `Task` (no nested subagents). NO `Bash` (file ops go through Edit / Write).
+
+Final response: a terse plaintext summary, one line per artifact written. NO JSON envelope. NO markdown fences around markup. NO narration.
 
 ## Inputs the user will give you
 
@@ -63,9 +72,20 @@ Substitute the marked node with the matching WordPress block instead of converti
 | `post-excerpt`        | `<!-- wp:post-excerpt /-->`                           |
 | `post-featured-image` | `<!-- wp:post-featured-image /-->`                    |
 | `post-navigation`     | `<!-- wp:post-navigation-link /-->` (next + previous) |
-| `comments-list`       | `<!-- wp:comments /-->` with default child blocks     |
+| `post-comments`       | `<!-- wp:comments /-->` with default child blocks     |
+| `site-logo`           | `<!-- wp:site-logo /-->`                              |
 
 Do NOT also emit a `wp:heading` (or other literal block) next to `wp:post-title` for the same node — the dynamic block replaces the literal entirely.
+
+#### Site-wide side-effect: `site-logo`
+
+`wp:site-logo` is a SITE-wide block — it reads the `site_logo` option and the `custom_logo` theme mod and renders that one image everywhere it appears. Emitting the block is not enough: a fresh Studio site has no logo set, so the block renders an empty placeholder and the visual diff fails for the wrong reason.
+
+After persisting markup that contains `<!-- wp:site-logo /-->`, call **pull-writer Recipe 10** (Set site logo) with the attachment id you resolve from the `imgFoo` constant that lived inside the annotated subtree (look it up in `=== media library mappings ===`). Recipe 10 updates the `site_logo` option AND `custom_logo` theme mod in one call, applies to every template that renders the block, and is idempotent — if the option already points at that attachment, it's a no-op.
+
+This side-effect fires regardless of scope. A logo annotated inside a `header` region surfaces here from the HEADER pull's build; the same annotation in a non-header template surfaces from that template's build. Calling Recipe 10 twice with the same attachment id is safe.
+
+Skip Recipe 10 when the annotated subtree carries no resolvable image (no `<img>` inside, or the inner `imgFoo` was a discarded SVG) and emit one line saying so.
 
 ### Container-mapping annotations
 
@@ -115,6 +135,14 @@ Optional siblings of `wp:post-template` inside the wrapper `<div class="wp-block
 - `wp:query-no-results` for an empty-state message. If the JSX includes empty-state markup tied to the loop, convert it here. Otherwise emit a single `wp:paragraph` with a sensible default like "No posts found.".
 
 If the annotated subtree contains a heading or intro paragraph that visibly belongs OUTSIDE the per-card iteration (e.g. "Latest articles" above the grid), keep that heading/paragraph as a sibling of the `wp:query` block, not inside `wp:post-template` — only the parts that repeat per post belong in the post-template.
+
+#### Seeding posts so the loop renders
+
+`wp:query` with `inherit:false` renders against the WordPress post DB. A fresh Studio site has one published post (the seed "Hello world", id 1), so a 6-card grid renders as a 1-card grid and every subsequent visual diff fails for the wrong reason.
+
+After persisting markup that contains at least one `wp:query` with `inherit:false` and `postType:"post"`, call **pull-writer Recipe 8** (Seed posts for query loops) with `count` equal to the largest `perPage` across the query loops in the persisted markup. The recipe clones post 1 (content, excerpt, taxonomy terms, featured image, non-internal meta) the number of times needed to reach `count` published posts total; it is idempotent across re-runs.
+
+Skip Recipe 8 entirely when the loop's `postType` is a CPT — the seed post is type `post`, and the recipe explicitly errors on a mismatched source type. Emit one line in your summary (`skipped seed: query loop over CPT 'products' — author manually`) so the human knows the loop will render empty until the CPT has rows.
 
 ### Region-scope annotations
 
@@ -185,54 +213,82 @@ Rules:
 
 ## Output format
 
-Return ONLY a single JSON object. No markdown fences. No preamble. No commentary. No explanation.
+This skill never emits a JSON envelope. The HOST never parses your text. You persist every artifact yourself, via the tool surface, then report a terse plaintext summary.
 
-```jsonc
-{
-	"template_html": "<!-- wp:group ... --><!-- /wp:group -->",
-	"theme_json_patch": {
-		"blocks": {
-			"core/heading": {
-				"typography": {"letterSpacing": "-0.02em"},
-			},
-		},
-		"custom": {
-			"hero": {"ribbonOffset": "24px"},
-		},
-	},
-	"block_style_variations": [
-		{
-			"slug": "neptune-fill-small",
-			"title": "Fill Small",
-			"blockTypes": ["core/button"],
-			"styles": {
-				"spacing": {
-					"padding": {
-						"top": "8px",
-						"right": "16px",
-						"bottom": "8px",
-						"left": "16px",
-					},
-				},
-				"typography": {"fontSize": "14px"},
-			},
-		},
-	],
-}
+The host loads the **pull-writer** skill alongside this one. That skill ships the canonical recipes for every persistence operation you will run; follow them verbatim and only deviate when you have a specific reason that you also state in your summary.
+
+### Scope: POST-CONTENT-BODY
+
+You are converting the post body. There is no template wrapper, no project-wide style registration. Use **pull-writer Recipe 4** (Page / post write) to persist the converted markup to the wp_post the host names in the task brief (postType + slug + title). The marked subtree (`data-neptune-annotations="post-content"`) is what you convert; ignore header / footer / chrome around it.
+
+After persisting, emit one line:
+
+```
+wrote <postType>:<slug> (id <N>, <bytes> bytes)
 ```
 
-### Field rules
+If the converted subtree contains `<!-- wp:post-featured-image /-->` (emitted from a `data-neptune-annotations="post-featured-image"` annotation), also call **pull-writer Recipe 9** (Set featured image) with the post id Recipe 4 returned and the attachment id you resolve from the `imgFoo` constant that lived inside the annotated subtree (look it up in `=== media library mappings ===`). The dynamic block renders `_thumbnail_id` — without Recipe 9 it renders empty and the visual diff against the design fails for the wrong reason. Skip Recipe 9 when the annotated subtree carries no resolvable image (no `<img>` inside, or the inner `imgFoo` was a discarded SVG) and emit one line saying so.
 
-- `template_html`: the full block markup. Must start with `<!-- wp:` and have matching opening/closing comments. The string value is dropped verbatim into a `wp_template`/`wp_template_part`/`wp_post` `post_content` field, so:
-  - Do NOT include `<html>`, `<head>`, or `<body>`.
-  - Do NOT include the React function signature, props types, imports, or any TS.
-  - Do NOT include the `const imgFoo = "http://localhost:3845/..."` declarations.
-- `theme_json_patch` (optional): omit entirely when the conversion needs no theme-wide registrations. When present, it must contain `blocks` and/or `custom` and nothing else. Neptune deep-merges these into `theme.json`'s `styles.blocks` and `settings.custom` subtrees respectively. All other theme.json keys are off-limits and preserved. Do NOT put `variations` under `theme_json_patch.blocks.<x>` — variations live in their own field, see below.
-- `block_style_variations` (optional): array of editor-pickable block style variations. Each entry becomes a file at `<theme>/styles/blocks/<slug>.json` that WP 6.6+ auto-registers at theme init. Entry shape:
-  - `slug` — required. Kebab-case, MUST start with `neptune-` (e.g. `neptune-fill-small`). Generates the editor class `is-style-<slug>`.
-  - `title` — required. Human-readable label shown in the editor's style switcher.
-  - `blockTypes` — required. Non-empty array of block names (`core/x` or `vendor/x`); one variation can target multiple blocks.
-  - `styles` — required. theme.json `styles` shape — color / typography / spacing / border / elements / blocks / css. Settings, patterns, and templates are NOT allowed here.
+If you needed to register a project-wide style or a variation, push the rule back into the WRAPPER scope's pull — post bodies do not register project-wide styles.
+
+### Scope: PAGE / HEADER / FOOTER / WRAPPER
+
+You are converting a template (`wp_template`) or template part (`wp_template_part`). The host names the target `(type, slug, title)` in the task brief. You produce three logical artifacts; each persists through a different recipe:
+
+| Artifact | Recipe | Mandatory? |
+|---|---|---|
+| Block markup | **pull-writer Recipe 2** (Template write) | Yes — always |
+| theme.json extensions | **pull-writer Recipe 6** (theme.json Read + Write) | Only when the conversion legitimately registers new structured properties under `styles.blocks` / `settings.custom` |
+| Block style variation file(s) | **pull-writer Recipe 7** (variation file Write) | Only when a recurring styled instance warrants registration; reuse existing variations from the context section first |
+
+After ANY change to theme.json or `styles/blocks/*.json`, call **pull-writer Recipe 5** (cache flush) once at the end. One flush per run, not one per file.
+
+#### Mandatory ordering
+
+1. Write the template body to the wp_post FIRST (Recipe 2). The template references presets / variations that don't yet exist in the DB, but WP resolves those lazily; it is safe to register them after.
+2. Apply theme.json patch (Recipe 6) if needed.
+3. Write block style variation files (Recipe 7) if needed.
+4. Flush the cache (Recipe 5) if you touched theme.json or any variation file.
+
+This sequencing keeps the most important artifact safe even if a later step fails — the template's markup landed first.
+
+#### Mandatory summary
+
+After persistence, emit one line per artifact written. Examples:
+
+```
+wrote wp_template:single (id 42, 1289 bytes)
+edited wp-content/themes/<themeSlug>/theme.json (extended styles.blocks.core/heading + settings.custom.hero)
+wrote wp-content/themes/<themeSlug>/styles/blocks/neptune-callout-dark.json
+flushed theme.json cache
+```
+
+No JSON envelope, no markdown fences around the markup, no narration around the summary.
+
+### Hard rules for the markup itself
+
+- Must start with `<!-- wp:` and have matching opening/closing block comments.
+- Do NOT include `<html>`, `<head>`, or `<body>`.
+- Do NOT include the React function signature, props types, imports, or any TS.
+- Do NOT include the `const imgFoo = "http://localhost:3845/..."` declarations.
+- Raw inline `style="..."` HTML attributes on rendered elements are FORBIDDEN — they break Gutenberg's block validation. Promote every value to theme.json or a registered variation.
+
+### Hard rules for theme.json
+
+The pull-writer Recipe 6 covers the mechanics. The shape rules:
+
+- Only touch `styles.blocks["core/<x>"]` and `settings.custom`. Everything else is owned by the variables build and the theme scaffold.
+- DEEP-MERGE into whatever's there. Read the current values first; your write extends rather than replaces.
+- NEVER put a `variations` field under `styles.blocks["core/<x>"]`. Variations live in their own files (Recipe 7), and merging them into theme.json is a dead-write path.
+
+### Hard rules for block style variations
+
+The pull-writer Recipe 7 covers the mechanics. The shape rules:
+
+- `slug` MUST start with `neptune-` (kebab-case). The class WP generates is `is-style-<slug>`; the prefix avoids collisions with theme defaults.
+- `blockTypes` is a non-empty array of block names; one variation can apply to multiple blocks.
+- `styles` is the theme.json `styles` shape — color / typography / spacing / border / elements / blocks / css. Settings, patterns, templates NOT allowed.
+- Reuse an existing variation from `=== existing block style variations ===` when one matches — apply the `is-style-<slug>` class to the block, do not redeclare.
 
 ## Where to put style information
 
@@ -442,12 +498,22 @@ When a class uses a CSS variable like `var(--eureka/contrast-1,#21201c)`, resolv
 
 ## Self-check before responding
 
-1. No tools were called. Output is exactly one JSON object, valid, no fences, no prose.
-2. `template_html` starts with `<!-- wp:` and balances opening/closing block comments. JSON inside every block comment attribute parses.
-3. If `theme_json_patch` is present, it has only `blocks` and/or `custom` at the top level — no `variations` anywhere inside.
-4. If `block_style_variations` is present, every entry's slug starts with `neptune-` AND its `is-style-<slug>` class appears on at least one block in `template_html`. Every `is-style-neptune-<slug>` class on a block is backed EITHER by an existing-variations inventory entry OR a new `block_style_variations[]` entry — never both, never neither.
+Throughout this skill the field names `theme_json_patch.blocks["core/<x>"]` and `block_style_variations[]` appear as mental shorthand for two on-disk destinations:
+
+| Mental shorthand | Actual destination | Recipe |
+|---|---|---|
+| `theme_json_patch.blocks["core/<x>"]` | `theme.json`'s `styles.blocks["core/<x>"]` subtree | pull-writer Recipe 6 |
+| `theme_json_patch.custom` | `theme.json`'s `settings.custom` subtree | pull-writer Recipe 6 |
+| `block_style_variations[]` entry | one file at `styles/blocks/<slug>.json` | pull-writer Recipe 7 |
+
+Read the rules below using the shorthand; the recipes own the mechanics of writing those locations.
+
+1. Block markup persists via pull-writer Recipe 2 (template) or Recipe 4 (page/post content). Then theme.json edits (Recipe 6) if any. Then variation files (Recipe 7) if any. Then ONE cache flush (Recipe 5) if you touched theme.json or any variation file. Then a terse plaintext summary — one line per artifact, no JSON, no commentary.
+2. Block markup starts with `<!-- wp:` and balances opening/closing block comments. JSON inside every block comment attribute parses.
+3. theme.json edits ONLY touch `styles.blocks` and `settings.custom`. No `variations` field anywhere inside `styles.blocks["core/<x>"]` — variations live in their own files via Recipe 7.
+4. Every block style variation file's slug starts with `neptune-` AND its `is-style-<slug>` class appears on at least one block in the markup. Every `is-style-neptune-<slug>` class on a block is backed EITHER by an existing-variations inventory entry OR a new `styles/blocks/<slug>.json` file — never both, never neither.
 5. CSS only used when no pre-exposed structured property could express the rule. Specifically, before writing any of `aspect-ratio`, `min-height`, `gap`, `padding`, `margin`, `border-*`, `box-shadow`, `outline-*`, `font-*`, `letter-spacing`, `line-height`, `text-transform`, `background`, or `color` into a `css` field, verify the structured equivalent (`dimensions.aspectRatio`, `dimensions.minHeight`, `spacing.blockGap`, `spacing.padding`, `spacing.margin`, `border.*`, `shadow`, `outline.*`, `typography.*`, `color.*`) cannot be used.
-6. `template_html` contains zero raw HTML `style="..."` attributes (including empty `style=""`) and zero instance-level `"style":{...}` JSON block attributes — except the canonical `"style":{"spacing":{"blockGap":"var:preset|spacing|<slug>"}}` on layout containers. Every styling decision is realized via `theme_json_patch.blocks`, `block_style_variations[]`, or that one canonical instance-level shape.
+6. Block markup contains zero raw HTML `style="..."` attributes (including empty `style=""`) and zero instance-level `"style":{...}` JSON block attributes — except the canonical `"style":{"spacing":{"blockGap":"var:preset|spacing|<slug>"}}` on layout containers. Every styling decision is realized via theme.json's `styles.blocks`, a variation file, or that one canonical instance-level shape.
 7. Every flex / grid / constrained container uses the `layout` block attribute (`layout:{"type":"flex"|"grid"|"constrained",...}`) — NOT emulated via a custom `className` plus a CSS rule. Inter-child gap goes in `style.spacing.blockGap`, not a `gap:...` declaration in `css`.
 8. No `wp:group` declares its own `contentSize` or `wideSize` under `layout` unless the section legitimately departs from project-wide widths (rare). Width is `align:"wide"` / `align:"full"` / no align, driven by `theme.json.settings.layout`. Narrower content uses `style.spacing.padding.left/right` (or a registered variation), not a custom `contentSize`.
 9. Every `className` on a block is one of: `is-style-<slug>` (variation), a wp-core class (`alignwide`, `alignfull`, etc.), or a class explicitly required by the source TSX for behavior the agent is not free to drop. NO ad-hoc BEM-style handles whose sole job is to back `&.<name>{...}` rules. For every `&.<custom-class>{...}` selector that does appear in a `css` field, confirm `<custom-class>` is `is-style-<registered-slug>` — NOT a className you invented.

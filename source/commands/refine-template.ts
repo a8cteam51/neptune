@@ -37,25 +37,16 @@ import {
 	type DiffPull,
 } from '../lib/template-diff.js';
 import {
-	applyBlockStyleVariations,
-	applyThemeJsonPatch,
-	flushThemeJsonCache,
 	formatBlockStyleVariationsContext,
 	readBlockStyleVariations,
-	type BlockStyleVariation,
-	type ThemeJsonPatch,
 } from '../lib/theme-json-patch.js';
-import {
-	parseAgentJson,
-	parseBlockStyleVariationsField,
-	parseThemeJsonPatchField,
-} from '../lib/build-envelope.js';
 import {
 	extractDevAnnotations,
 	formatDevAnnotationsSection,
 } from '../lib/dev-annotations.js';
 import type {LogEvent} from '../lib/event-list.js';
-import {openStudioSession} from '../integrations/studio/mcp.js';
+import {HAYDI_TOOL_ALLOWLIST, haydiMcpServers} from '../lib/haydi-mcp.js';
+import {preflight, readTemplateViaHaydi} from '../integrations/haydi/client.js';
 import {
 	dArrayLenient,
 	dBoolean,
@@ -65,19 +56,17 @@ import {
 	dString,
 	dStringy,
 	decode,
-	type DecodeError,
 } from '../lib/decode.js';
 import {templateRole, templateSubdir} from '../lib/template-scaffold.js';
 import {formatAssetMappingsContext} from '../lib/asset-mappings.js';
 import {scopeForTemplate} from './build-template.js';
 import {
-	readTemplate,
 	targetLabel,
 	templateTargetFor,
-	writeTemplate,
 	type TemplateTarget,
 } from '../lib/wp-templates.js';
-import type {Loaded} from './setup-project/types.js';
+import {parseAgentJson} from '../lib/build-envelope.js';
+import type {HaydiConfig, Loaded} from './setup-project/types.js';
 
 export type DiffEntry = {
 	id: string;
@@ -132,12 +121,20 @@ export async function runDiagnose(
 			'themeSlug missing from neptune-config.json — finish theme setup first.',
 		);
 	}
+	const haydi = loaded.config.haydi;
+	if (!haydi) {
+		throw new Error(
+			'haydi config missing from neptune-config.json. Refine template reads + writes the template post via Haydi MCP; add { "haydi": { "url": "...", "token": "..." } } to the project config.',
+		);
+	}
+	onEvent({kind: 'step', message: `Pinging Haydi at ${haydi.url}…`});
+	await preflight(haydi, signal);
+	onEvent({kind: 'step', message: 'Haydi extensions verified'});
 
 	const target = templateTargetFor(pull.templateFile, pull.pageName);
-	const wpRoot = resolve(loaded.dir, 'wordpress');
 	const filePath = templatePath(loaded.dir, themeSlug, pull.templateFile);
 	const currentTemplate = await loadCurrentTemplate(
-		wpRoot,
+		haydi,
 		target,
 		filePath,
 		signal,
@@ -351,18 +348,6 @@ export type SkippedEntry = {
 	reason: string;
 };
 
-export type ApplyEnvelope = {
-	// `null` when the agent omitted or emptied the field. Callers fall
-	// back to the current markup unchanged and surface a warning so the
-	// user knows no markup edit landed even though applied/skipped
-	// entries may still be useful.
-	template_html: string | null;
-	theme_json_patch?: ThemeJsonPatch;
-	block_style_variations?: BlockStyleVariation[];
-	applied: AppliedEntry[];
-	skipped: SkippedEntry[];
-};
-
 export async function runApply(
 	loaded: Loaded,
 	reviewPhase: {
@@ -383,9 +368,33 @@ export async function runApply(
 	size: number;
 	applied: AppliedEntry[];
 	skipped: SkippedEntry[];
-	themeJsonTouched: string[];
 }> {
 	const agentRunner = deps.runAgent ?? runAgent;
+
+	const themeSlug = loaded.config.themeSlug;
+	if (!themeSlug) {
+		throw new Error(
+			'themeSlug missing from neptune-config.json — finish theme setup first.',
+		);
+	}
+	const haydi = loaded.config.haydi;
+	if (!haydi) {
+		throw new Error(
+			'haydi config missing from neptune-config.json. Refine template persists via Haydi MCP; add { "haydi": { "url": "...", "token": "..." } } to the project config.',
+		);
+	}
+	onEvent({kind: 'step', message: `Pinging Haydi at ${haydi.url}…`});
+	await preflight(haydi, signal);
+	onEvent({kind: 'step', message: 'Haydi extensions verified'});
+
+	const themePath = resolve(
+		loaded.dir,
+		'wordpress',
+		'wp-content',
+		'themes',
+		themeSlug,
+	);
+	const themeJsonPath = resolve(themePath, 'theme.json');
 
 	const sections: string[] = [
 		'=== diffs.json ===',
@@ -422,204 +431,152 @@ export async function runApply(
 		sections.push('', '=== media library mappings ===', assetMappings);
 	}
 
-	onEvent({kind: 'step', message: 'Invoking apply-diff agent…'});
-
 	const applyScope = scopeForTemplate(
 		templateRole(reviewPhase.pull.templateFile),
 		reviewPhase.pull.usesPostContent === true,
 	);
-	const responseText = await agentRunner(
+
+	const instructions =
+		`Use the apply-diff skill (SCOPE: ${applyScope}) to revise the existing template markup per the approved diffs below. Persist every artifact yourself via the pull-writer recipes.\n\n` +
+		`Target wp_template:\n` +
+		`  type  = ${reviewPhase.target.type}\n` +
+		`  slug  = ${reviewPhase.target.slug}\n` +
+		`  title = ${JSON.stringify(reviewPhase.target.title)}\n\n` +
+		`Theme paths:\n` +
+		`  theme.json     = ${themeJsonPath}\n` +
+		`  variations dir = ${join(themePath, 'styles', 'blocks')}\n\n` +
+		`Persistence order (from pull-writer):\n` +
+		`  1. Recipe 2 (Template write) — persist the revised markup.\n` +
+		`  2. Recipe 6 (theme.json Read + Write) — only if a diff legitimately requires extending styles.blocks or settings.custom.\n` +
+		`  3. Recipe 7 (variation file Write) — only if a diff legitimately requires a NEW editor-pickable variation; reuse existing ones from the inventory first.\n` +
+		`  4. Recipe 5 (cache flush) — once at the end, iff Recipe 6 or 7 ran.\n\n` +
+		`Final response: one terse persistence line per artifact, plus an APPLIED or SKIPPED line for every diff id in the input. Format:\n` +
+		`  APPLIED <diff-id>: <one-line summary of the change you made>\n` +
+		`  SKIPPED <diff-id>: <one-sentence reason>\n` +
+		`Every diff id MUST appear exactly once across APPLIED + SKIPPED — the host enforces coverage.`;
+
+	onEvent({
+		kind: 'step',
+		message: 'Invoking apply-diff agent (persists via Haydi)…',
+	});
+
+	const finalText = await agentRunner(
 		[
-			{
-				type: 'text',
-				text: `Use the apply-diff skill. SCOPE: ${applyScope}. Template file: ${reviewPhase.pull.templateFile}. Apply the rules from the skill's "Scope: ${applyScope}" row of the scope-vocabulary table verbatim.`,
-			},
+			{type: 'text', text: instructions},
 			{type: 'text', text: sections.join('\n')},
-			{
-				type: 'text',
-				text: 'Respond with the JSON envelope ONLY. Begin your reply with `{` and end with `}`. No preamble, no analysis, no commentary, no markdown fences, no trailing summary.',
-			},
 		],
 		{
 			cwd: loaded.dir,
 			pluginPath: PLUGIN_PATH,
 			signal,
+			mcpServers: haydiMcpServers(haydi),
+			allowedTools: [
+				'Read',
+				'Edit',
+				'Write',
+				'Glob',
+				'Grep',
+				...HAYDI_TOOL_ALLOWLIST,
+			],
+			maxTurns: 30,
 		},
 		onEvent,
 	);
 
-	const envelope = parseApplyEnvelope(responseText, msg =>
-		onEvent({kind: 'warn', message: msg}),
-	);
-	validateApplyCoverage(
-		envelope,
+	const {applied, skipped} = parseApplyOutcomes(finalText);
+	validateOutcomeCoverage(
+		applied,
+		skipped,
 		approved.map(a => a.id),
 	);
 
-	for (const entry of envelope.applied) {
+	for (const entry of applied) {
 		onEvent({
 			kind: 'success',
 			message: `Applied ${entry.id}: ${entry.summary}`,
 		});
 	}
-	for (const entry of envelope.skipped) {
+	for (const entry of skipped) {
 		onEvent({
 			kind: 'warn',
 			message: `Skipped ${entry.id}: ${entry.reason}`,
 		});
 	}
 
-	const markup = envelope.template_html ?? reviewPhase.currentTemplate;
-	if (envelope.template_html === null) {
-		onEvent({
-			kind: 'warn',
-			message:
-				'apply-diff agent returned no template_html — keeping current markup unchanged. ' +
-				'Any applied/skipped entries are reported below for visibility.',
-		});
-	}
-	const out = markup.endsWith('\n') ? markup : markup + '\n';
-
-	const wpRoot = resolve(loaded.dir, 'wordpress');
-	const themeSlug = loaded.config.themeSlug;
-	if (!themeSlug) {
+	// Post-flight: read the template back from Haydi and confirm
+	// non-empty content. If the agent dropped APPLIED/SKIPPED summary
+	// lines but didn't actually persist, fail loud now.
+	const persisted = await readTemplateViaHaydi(
+		haydi,
+		{type: reviewPhase.target.type, slug: reviewPhase.target.slug},
+		signal,
+	);
+	const label = targetLabel(reviewPhase.target);
+	if (persisted === null) {
 		throw new Error(
-			'themeSlug missing from neptune-config.json — finish theme setup first.',
+			`Agent finished but no ${label} post was found via Haydi. The apply likely failed silently.\n\nAgent's final message (first 500 chars): ${finalText.slice(0, 500)}`,
 		);
 	}
-	const themeJsonPath = resolve(
-		wpRoot,
-		'wp-content',
-		'themes',
-		themeSlug,
-		'theme.json',
-	);
-
-	let themeJsonTouched: string[] = [];
-	const themePath = resolve(wpRoot, 'wp-content', 'themes', themeSlug);
-	const session = await openStudioSession({signal});
-	let cacheNeedsFlush = false;
-	try {
-		await writeTemplate(session, wpRoot, reviewPhase.target, out);
-		if (envelope.theme_json_patch) {
-			const patchResult = await applyThemeJsonPatch(
-				themeJsonPath,
-				envelope.theme_json_patch,
-			);
-			if (patchResult.wrote) {
-				themeJsonTouched = patchResult.touched;
-				onEvent({
-					kind: 'success',
-					message: `Patched theme.json (${patchResult.touched.join(', ')})`,
-				});
-				cacheNeedsFlush = true;
-			}
-		}
-		if (envelope.block_style_variations) {
-			const writeResult = await applyBlockStyleVariations(
-				themePath,
-				envelope.block_style_variations,
-			);
-			if (writeResult.written.length > 0) {
-				onEvent({
-					kind: 'success',
-					message: `Registered ${writeResult.written.length} block style variation${writeResult.written.length === 1 ? '' : 's'}`,
-				});
-				cacheNeedsFlush = true;
-			}
-		}
-		if (cacheNeedsFlush) {
-			await flushThemeJsonCache(session, wpRoot);
-		}
-	} finally {
-		session.close();
+	const size = persisted.length;
+	if (size === 0) {
+		throw new Error(
+			`Agent finished but ${label} has empty post_content.\n\nAgent's final message (first 500 chars): ${finalText.slice(0, 500)}`,
+		);
 	}
 
-	const label = targetLabel(reviewPhase.target);
-	onEvent({
-		kind: 'success',
-		message: `Wrote ${out.length} bytes to ${label}`,
-	});
+	onEvent({kind: 'success', message: `Wrote ${size} bytes to ${label}`});
 
 	return {
 		path: label,
-		size: out.length,
-		applied: envelope.applied,
-		skipped: envelope.skipped,
-		themeJsonTouched,
-	};
-}
-
-const dApplyEntry = dObject({id: dString, summary: dString});
-const dSkipEntry = dObject({id: dString, reason: dString});
-
-// Validates the apply-diff agent's JSON envelope. Throws on top-level
-// schema mismatches; per-entry failures in applied / skipped are
-// reported via onWarn and the entry is dropped. theme_json_patch is
-// validated structurally (object or absent) but its inner shape is
-// trusted — applyThemeJsonPatch enforces what subtrees are reachable.
-export function parseApplyEnvelope(
-	input: string,
-	onWarn?: (msg: string) => void,
-): ApplyEnvelope {
-	const parsed = parseAgentJson(input, 'apply-diff');
-	if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-		throw new Error('apply-diff response is not a JSON object.');
-	}
-	const obj = parsed as Record<string, unknown>;
-
-	// Tolerated as null when missing/empty so the run continues with
-	// the current markup unchanged. Throwing here would discard a
-	// usable applied/skipped report that still tells the user what
-	// the agent decided to do.
-	const rawHtml = obj['template_html'];
-	const html =
-		typeof rawHtml === 'string' && rawHtml.trim() !== '' ? rawHtml : null;
-
-	const drop = (kind: string) => (path: string, err: DecodeError) => {
-		onWarn?.(`Dropped ${kind} entry at ${path}: ${err.message}`);
-	};
-
-	const applied = decode(
-		dArrayLenient(dApplyEntry, drop('applied')),
-		obj['applied'] ?? [],
-		'apply-diff.applied',
-	);
-	const skipped = decode(
-		dArrayLenient(dSkipEntry, drop('skipped')),
-		obj['skipped'] ?? [],
-		'apply-diff.skipped',
-	);
-
-	const theme_json_patch = parseThemeJsonPatchField(
-		obj['theme_json_patch'],
-		'apply-diff',
-	);
-	const block_style_variations = parseBlockStyleVariationsField(
-		obj['block_style_variations'],
-		'apply-diff',
-	);
-
-	return {
-		template_html: html,
+		size,
 		applied,
 		skipped,
-		theme_json_patch,
-		block_style_variations,
 	};
 }
 
-// Verifies the agent accounted for every approved diff (each id appears
-// in either `applied` or `skipped`). Throws if any are unaccounted for —
-// previous behaviour silently dropped diffs and the user had no way to
-// tell what landed.
-export function validateApplyCoverage(
-	envelope: ApplyEnvelope,
+// Parses the agent's terse summary lines, picking out APPLIED <id>:
+// <summary> and SKIPPED <id>: <reason> entries. Tolerates leading
+// whitespace, blank lines, and other persistence summary lines
+// (`wrote ...`, `edited ...`, `flushed ...`) — anything not matching
+// the prefix is ignored.
+//
+// Format chosen for parseability against agent output that may include
+// other narration: the `APPLIED `/`SKIPPED ` prefix anchors the line,
+// the first `:` after the id separates id from text. Ids that contain
+// `:` are not supported (diff ids in practice are slug-shaped).
+export function parseApplyOutcomes(text: string): {
+	applied: AppliedEntry[];
+	skipped: SkippedEntry[];
+} {
+	const applied: AppliedEntry[] = [];
+	const skipped: SkippedEntry[] = [];
+	for (const line of text.split(/\r?\n/u)) {
+		const trimmed = line.trim();
+		if (trimmed === '') continue;
+		const m = /^(APPLIED|SKIPPED)\s+([^\s:][^:]*?):\s+(.+)$/.exec(trimmed);
+		if (!m) continue;
+		const [, kind, id, rest] = m;
+		const entry = {id: id!.trim(), text: rest!.trim()};
+		if (kind === 'APPLIED') {
+			applied.push({id: entry.id, summary: entry.text});
+		} else {
+			skipped.push({id: entry.id, reason: entry.text});
+		}
+	}
+	return {applied, skipped};
+}
+
+// Verifies every approved diff id appears exactly once across applied
+// + skipped. The host fails the run if any id is missing — silent diff
+// drops are the old envelope's failure mode and we keep that contract.
+export function validateOutcomeCoverage(
+	applied: AppliedEntry[],
+	skipped: SkippedEntry[],
 	approvedIds: string[],
 ): void {
 	const accounted = new Set([
-		...envelope.applied.map(a => a.id),
-		...envelope.skipped.map(s => s.id),
+		...applied.map(a => a.id),
+		...skipped.map(s => s.id),
 	]);
 	const missing = approvedIds.filter(id => !accounted.has(id));
 	if (missing.length === 0) return;
@@ -627,7 +584,7 @@ export function validateApplyCoverage(
 		`apply-diff agent did not account for diff id${
 			missing.length === 1 ? '' : 's'
 		}: ${missing.join(', ')}. ` +
-			'Each approved diff must appear in "applied" or "skipped".',
+			'Each approved diff must appear in an APPLIED or SKIPPED summary line.',
 	);
 }
 
@@ -635,18 +592,16 @@ export function validateApplyCoverage(
 // Site Editor and Neptune both write); falls back to the theme's
 // shipped file if there's no DB row yet.
 async function loadCurrentTemplate(
-	wpRoot: string,
+	haydi: HaydiConfig,
 	target: TemplateTarget,
 	filePath: string,
 	signal: AbortSignal,
 ): Promise<string> {
-	const session = await openStudioSession({signal});
-	let dbContent: string | null;
-	try {
-		dbContent = await readTemplate(session, wpRoot, target);
-	} finally {
-		session.close();
-	}
+	const dbContent = await readTemplateViaHaydi(
+		haydi,
+		{type: target.type, slug: target.slug},
+		signal,
+	);
 	if (dbContent !== null) return dbContent;
 
 	try {

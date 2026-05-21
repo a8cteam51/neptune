@@ -15,11 +15,11 @@
 //      theme.json + variables + existing block style variations + dev
 //      annotations + the per-pull media library mappings (uploaded
 //      constName→{id, url} plus discarded-SVG constName→description)
-//      → updated post-content markup. Persist via wp neptune page-set.
+//      → updated post-content markup. Persist via Haydi run_php.
 //
 // Reuses pure helpers from refine-template.ts (parseDiffReport,
-// parseApplyEnvelope, validateApplyCoverage) since the agent envelopes
-// are identical — only the persistence target differs.
+// parseApplyOutcomes, validateOutcomeCoverage) since the agent
+// surfaces are identical — only the persistence target differs.
 import {readFile} from 'node:fs/promises';
 import {join, resolve} from 'node:path';
 import {dirname} from 'node:path';
@@ -35,9 +35,6 @@ import {
 	type DiffPull,
 } from '../lib/template-diff.js';
 import {
-	applyBlockStyleVariations,
-	applyThemeJsonPatch,
-	flushThemeJsonCache,
 	formatBlockStyleVariationsContext,
 	readBlockStyleVariations,
 } from '../lib/theme-json-patch.js';
@@ -46,19 +43,19 @@ import {
 	formatDevAnnotationsSection,
 } from '../lib/dev-annotations.js';
 import type {LogEvent} from '../lib/event-list.js';
-import {openStudioSession} from '../integrations/studio/mcp.js';
+import {HAYDI_TOOL_ALLOWLIST, haydiMcpServers} from '../lib/haydi-mcp.js';
 import {formatAssetMappingsContext} from '../lib/asset-mappings.js';
+import {preflight, readPageViaHaydi} from '../integrations/haydi/client.js';
 import {
 	pageTargetFor,
 	pageTargetLabel,
-	readPage,
-	writePage,
 	type PageTarget,
 } from '../lib/wp-pages.js';
+import type {HaydiConfig} from './setup-project/types.js';
 import {
-	parseApplyEnvelope,
+	parseApplyOutcomes,
 	parseDiffReport,
-	validateApplyCoverage,
+	validateOutcomeCoverage,
 	type AppliedEntry,
 	type DiffEntry,
 	type DiffReport,
@@ -108,15 +105,23 @@ export async function runDiagnoseContent(
 			'themeSlug missing from neptune-config.json — finish theme setup first.',
 		);
 	}
+	const haydi = loaded.config.haydi;
+	if (!haydi) {
+		throw new Error(
+			'haydi config missing from neptune-config.json. Refine content reads + writes the page post via Haydi MCP; add { "haydi": { "url": "...", "token": "..." } } to the project config.',
+		);
+	}
+	onEvent({kind: 'step', message: `Pinging Haydi at ${haydi.url}…`});
+	await preflight(haydi, signal);
+	onEvent({kind: 'step', message: 'Haydi extensions verified'});
 
 	const target = pageTargetFor(
 		pull.pageSlug,
 		pull.pageName,
 		pull.postType ?? 'page',
 	);
-	const wpRoot = resolve(loaded.dir, 'wordpress');
 
-	const currentContent = await loadCurrentPage(wpRoot, target, signal);
+	const currentContent = await loadCurrentPage(haydi, target, signal);
 	onEvent({
 		kind: 'step',
 		message: `Loaded current page content (${currentContent.length} bytes)`,
@@ -321,9 +326,33 @@ export async function runApplyContent(
 	size: number;
 	applied: AppliedEntry[];
 	skipped: SkippedEntry[];
-	themeJsonTouched: string[];
 }> {
 	const agentRunner = deps.runAgent ?? runAgent;
+
+	const themeSlug = loaded.config.themeSlug;
+	if (!themeSlug) {
+		throw new Error(
+			'themeSlug missing from neptune-config.json — finish theme setup first.',
+		);
+	}
+	const haydi = loaded.config.haydi;
+	if (!haydi) {
+		throw new Error(
+			'haydi config missing from neptune-config.json. Refine content persists via Haydi MCP; add { "haydi": { "url": "...", "token": "..." } } to the project config.',
+		);
+	}
+	onEvent({kind: 'step', message: `Pinging Haydi at ${haydi.url}…`});
+	await preflight(haydi, signal);
+	onEvent({kind: 'step', message: 'Haydi extensions verified'});
+
+	const themePath = resolve(
+		loaded.dir,
+		'wordpress',
+		'wp-content',
+		'themes',
+		themeSlug,
+	);
+	const themeJsonPath = resolve(themePath, 'theme.json');
 
 	const sections: string[] = [
 		'=== diffs.json ===',
@@ -360,127 +389,101 @@ export async function runApplyContent(
 		sections.push('', '=== media library mappings ===', assetMappings);
 	}
 
-	onEvent({kind: 'step', message: 'Invoking apply-diff agent…'});
+	const instructions =
+		`Use the apply-diff skill (SCOPE: POST-CONTENT-BODY) to revise the page body markup per the approved diffs below. Persist via the pull-writer recipes.\n\n` +
+		`Target wp_post:\n` +
+		`  postType = ${reviewPhase.target.postType}\n` +
+		`  slug     = ${reviewPhase.target.slug}\n` +
+		`  title    = ${JSON.stringify(reviewPhase.target.title)}\n\n` +
+		`Theme paths (for theme.json or variation edits if a diff requires them):\n` +
+		`  theme.json     = ${themeJsonPath}\n` +
+		`  variations dir = ${join(themePath, 'styles', 'blocks')}\n\n` +
+		`Persistence order (from pull-writer):\n` +
+		`  1. Recipe 4 (Page / post write) — persist the revised page body.\n` +
+		`  2. Recipe 6 (theme.json Read + Write) — only if a diff legitimately requires extending styles.blocks or settings.custom. Page bodies rarely register project-wide styles; default to NOT touching theme.json.\n` +
+		`  3. Recipe 7 (variation file Write) — only if a diff legitimately requires a NEW editor-pickable variation; reuse existing ones first.\n` +
+		`  4. Recipe 5 (cache flush) — once at the end, iff Recipe 6 or 7 ran.\n\n` +
+		`Final response: one terse persistence line per artifact, plus an APPLIED or SKIPPED line for every diff id in the input. Format:\n` +
+		`  APPLIED <diff-id>: <one-line summary of the change>\n` +
+		`  SKIPPED <diff-id>: <one-sentence reason>\n` +
+		`Every diff id MUST appear exactly once across APPLIED + SKIPPED — the host enforces coverage.`;
 
-	const responseText = await agentRunner(
+	onEvent({
+		kind: 'step',
+		message: 'Invoking apply-diff agent (persists via Haydi)…',
+	});
+
+	const finalText = await agentRunner(
 		[
-			{
-				type: 'text',
-				text: `Use the apply-diff skill. SCOPE: POST-CONTENT-BODY. Page slug: ${reviewPhase.pull.pageSlug}. Apply the rules from the skill's "Scope: POST-CONTENT-BODY" row of the scope-vocabulary table verbatim.`,
-			},
+			{type: 'text', text: instructions},
 			{type: 'text', text: sections.join('\n')},
-			{
-				type: 'text',
-				text: 'Respond with the JSON envelope ONLY. Begin your reply with `{` and end with `}`. No preamble, no analysis, no commentary, no markdown fences, no trailing summary.',
-			},
 		],
 		{
 			cwd: loaded.dir,
 			pluginPath: PLUGIN_PATH,
 			signal,
+			mcpServers: haydiMcpServers(haydi),
+			allowedTools: [
+				'Read',
+				'Edit',
+				'Write',
+				'Glob',
+				'Grep',
+				...HAYDI_TOOL_ALLOWLIST,
+			],
+			maxTurns: 30,
 		},
 		onEvent,
 	);
 
-	const envelope = parseApplyEnvelope(responseText, msg =>
-		onEvent({kind: 'warn', message: msg}),
-	);
-	validateApplyCoverage(
-		envelope,
+	const {applied, skipped} = parseApplyOutcomes(finalText);
+	validateOutcomeCoverage(
+		applied,
+		skipped,
 		approved.map(a => a.id),
 	);
 
-	for (const entry of envelope.applied) {
+	for (const entry of applied) {
 		onEvent({
 			kind: 'success',
 			message: `Applied ${entry.id}: ${entry.summary}`,
 		});
 	}
-	for (const entry of envelope.skipped) {
+	for (const entry of skipped) {
 		onEvent({
 			kind: 'warn',
 			message: `Skipped ${entry.id}: ${entry.reason}`,
 		});
 	}
 
-	const markup = envelope.template_html ?? reviewPhase.currentContent;
-	if (envelope.template_html === null) {
-		onEvent({
-			kind: 'warn',
-			message:
-				'apply-diff agent returned no template_html — keeping current page content unchanged. ' +
-				'Any applied/skipped entries are reported below for visibility.',
-		});
-	}
-	const out = markup.endsWith('\n') ? markup : markup + '\n';
-
-	const wpRoot = resolve(loaded.dir, 'wordpress');
-	const themeSlug = loaded.config.themeSlug;
-	if (!themeSlug) {
+	const persisted = await readPageViaHaydi(
+		haydi,
+		{
+			postType: reviewPhase.target.postType,
+			slug: reviewPhase.target.slug,
+		},
+		signal,
+	);
+	const label = pageTargetLabel(reviewPhase.target);
+	if (persisted === null) {
 		throw new Error(
-			'themeSlug missing from neptune-config.json — finish theme setup first.',
+			`Agent finished but no ${label} post was found via Haydi.\n\nAgent's final message (first 500 chars): ${finalText.slice(0, 500)}`,
 		);
 	}
-	const themeJsonPath = resolve(
-		wpRoot,
-		'wp-content',
-		'themes',
-		themeSlug,
-		'theme.json',
-	);
-
-	let themeJsonTouched: string[] = [];
-	const themePath = resolve(wpRoot, 'wp-content', 'themes', themeSlug);
-	const session = await openStudioSession({signal});
-	let cacheNeedsFlush = false;
-	try {
-		await writePage(session, wpRoot, reviewPhase.target, out);
-		if (envelope.theme_json_patch) {
-			const patchResult = await applyThemeJsonPatch(
-				themeJsonPath,
-				envelope.theme_json_patch,
-			);
-			if (patchResult.wrote) {
-				themeJsonTouched = patchResult.touched;
-				onEvent({
-					kind: 'success',
-					message: `Patched theme.json (${patchResult.touched.join(', ')})`,
-				});
-				cacheNeedsFlush = true;
-			}
-		}
-		if (envelope.block_style_variations) {
-			const writeResult = await applyBlockStyleVariations(
-				themePath,
-				envelope.block_style_variations,
-			);
-			if (writeResult.written.length > 0) {
-				onEvent({
-					kind: 'success',
-					message: `Registered ${writeResult.written.length} block style variation${writeResult.written.length === 1 ? '' : 's'}`,
-				});
-				cacheNeedsFlush = true;
-			}
-		}
-		if (cacheNeedsFlush) {
-			await flushThemeJsonCache(session, wpRoot);
-		}
-	} finally {
-		session.close();
+	const size = persisted.content.length;
+	if (size === 0) {
+		throw new Error(
+			`Agent finished but ${label} has empty post_content.\n\nAgent's final message (first 500 chars): ${finalText.slice(0, 500)}`,
+		);
 	}
 
-	const label = pageTargetLabel(reviewPhase.target);
-	onEvent({
-		kind: 'success',
-		message: `Wrote ${out.length} bytes to ${label}`,
-	});
+	onEvent({kind: 'success', message: `Wrote ${size} bytes to ${label}`});
 
 	return {
 		path: label,
-		size: out.length,
-		applied: envelope.applied,
-		skipped: envelope.skipped,
-		themeJsonTouched,
+		size,
+		applied,
+		skipped,
 	};
 }
 
@@ -488,17 +491,15 @@ export async function runApplyContent(
 // templates there's no theme-file fallback — pages live only in the DB,
 // so a missing row means Build content hasn't run yet.
 async function loadCurrentPage(
-	wpRoot: string,
+	haydi: HaydiConfig,
 	target: PageTarget,
 	signal: AbortSignal,
 ): Promise<string> {
-	const session = await openStudioSession({signal});
-	let dbResult;
-	try {
-		dbResult = await readPage(session, wpRoot, target);
-	} finally {
-		session.close();
-	}
+	const dbResult = await readPageViaHaydi(
+		haydi,
+		{postType: target.postType, slug: target.slug},
+		signal,
+	);
 	if (dbResult === null) {
 		throw new Error(
 			`No page post found for ${pageTargetLabel(target)}. Run Build content first.`,

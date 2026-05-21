@@ -281,12 +281,7 @@ export default function App({name, startCwd}: Props) {
 					)}
 					{activeProject ? <SiteStatusLine status={siteStatus} /> : null}
 					{activeProject ? (
-						<Text>
-							Agent provider:{' '}
-							<Text color="green" bold>
-								{providerLabel(activeProject.config.provider)}
-							</Text>
-						</Text>
+						<HaydiTokenWarning haydi={activeProject.config.haydi} />
 					) : null}
 					{autoLoadError ? <Text color="yellow">{autoLoadError}</Text> : null}
 				</Box>
@@ -300,10 +295,6 @@ export default function App({name, startCwd}: Props) {
 			</Box>
 		</Box>
 	);
-}
-
-function providerLabel(provider: 'claude' | 'codex'): string {
-	return provider === 'codex' ? 'Codex' : 'Claude';
 }
 
 function SiteStatusLine({status}: {status: 'pending' | SiteStatus | null}) {
@@ -341,6 +332,28 @@ function SiteStatusLine({status}: {status: 'pending' | SiteStatus | null}) {
 				● unknown
 			</Text>{' '}
 			<Text dimColor>{status.reason}</Text>
+		</Text>
+	);
+}
+
+// Surfaces a prominent "you forgot the haydi token" warning on the
+// main menu so the user can't silently land in a state where every
+// build / refine command will fail with the same auth error. Renders
+// nothing when haydi config is fully populated OR entirely absent
+// (the latter being a "haven't run setup yet" state, surfaced
+// elsewhere).
+function HaydiTokenWarning({
+	haydi,
+}: {
+	haydi: import('./commands/setup-project/types.js').HaydiConfig | undefined;
+}) {
+	if (!haydi || haydi.token) return null;
+	return (
+		<Text color="yellow">
+			Haydi token: <Text bold>missing</Text> — paste the Bearer token from WP
+			Admin → Haydi → Remote Access into neptune-config.json under{' '}
+			<Text bold>haydi.token</Text>. Build / refine commands will fail until
+			this is set.
 		</Text>
 	);
 }

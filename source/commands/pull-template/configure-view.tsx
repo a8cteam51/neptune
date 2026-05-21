@@ -8,34 +8,8 @@ import {listPulls} from '../../lib/design-walk.js';
 import type {PullMeta} from '../../lib/types.js';
 import type {PagePostType} from '../../lib/wp-pages.js';
 import SelectionLine from './selection-line.js';
+import {canonicalTargetFor} from './canonical-targets.js';
 import {slugify} from './special-meta.js';
-
-// Canonical content surfaces for the two block-theme templates that
-// ship a default post in a fresh WordPress install. Pulling these
-// templates should NEVER create a new page — the body lives in the
-// pre-existing seed post, and the live preview targets that post's URL
-// directly.
-type CanonicalTarget = {
-	pageSlug: string;
-	postType: PagePostType;
-	previewPath: string;
-};
-const CANONICAL_TARGETS: Record<string, CanonicalTarget> = {
-	'single.html': {
-		pageSlug: 'hello-world',
-		postType: 'post',
-		previewPath: '/?p=1',
-	},
-	'page.html': {
-		pageSlug: 'sample-page',
-		postType: 'page',
-		previewPath: '/sample-page',
-	},
-};
-
-function canonicalTargetFor(templateFile: string): CanonicalTarget | null {
-	return CANONICAL_TARGETS[templateFile.toLowerCase()] ?? null;
-}
 
 type Stage =
 	| 'pageName'
@@ -139,49 +113,80 @@ export default function ConfigureView({
 		setTemplateStem(trimmed);
 		const fullFile = `${trimmed}.html`;
 		const canonical = canonicalTargetFor(fullFile);
-		setPreviewPath(canonical?.previewPath ?? defaultPreviewPath(fullFile));
 		setError('');
 
-		// Check whether another pull already owns this templateFile so we
-		// can force content-only mode and skip re-asking the user about
-		// usesPostContent (the answer is forced to true).
+		// Detect prior pull that already owns this templateFile so we can
+		// force content-only mode (its wrapper isn't rebuilt) and route
+		// the slug prompt away from any canonical default — two pulls
+		// must NOT share a pageSlug or they overwrite each other's body.
+		let other: PullMeta | null = null;
 		try {
 			const pulls = await listPulls(projectDir);
-			const other = pulls.find(
-				p =>
-					p.special === undefined &&
-					p.slug !== slug &&
-					p.templateFile?.toLowerCase() === fullFile.toLowerCase() &&
-					!p.contentOnly,
-			);
-			setCollidingPull(other ?? null);
-			if (other) {
-				setUsesPostContent(true);
-				if (canonical) {
-					setPageSlug(canonical.pageSlug);
-					setPostType(canonical.postType);
-					setStage('previewPath');
-					return;
-				}
-				setStage('pageSlug');
-				return;
-			}
+			other =
+				pulls.find(
+					p =>
+						p.special === undefined &&
+						p.slug !== slug &&
+						p.templateFile?.toLowerCase() === fullFile.toLowerCase() &&
+						!p.contentOnly,
+				) ?? null;
 		} catch {
-			// Best-effort — fall through to the usual prompt.
+			// Best-effort — fall through with no collision detected.
+		}
+		setCollidingPull(other);
+
+		// Forced canonical (single.html): always writes to the seed
+		// Hello World post (id 1). Submit immediately; never prompt for
+		// slug or previewPath, even on collision — there's only one post
+		// id 1, so two pulls knowingly share it.
+		if (canonical?.forced) {
+			setUsesPostContent(true);
+			setPageSlug(canonical.pageSlug);
+			setPostType(canonical.postType);
+			setPreviewPath(canonical.previewPath);
+			onSubmit({
+				pageName: pageName.trim(),
+				slug,
+				templateFile: fullFile,
+				previewPath: canonical.previewPath,
+				usesPostContent: true,
+				pageSlug: canonical.pageSlug,
+				postType: canonical.postType,
+				contentOnly: other !== null,
+			});
+			return;
 		}
 
-		// single.html / page.html have a fixed content surface (the
-		// pre-existing Hello World post and Sample Page respectively).
-		// Skip the usesPostContent / pageSlug prompts entirely so we
-		// never accidentally create a new page that shadows them.
+		// Collision branch (non-forced): another pull owns the wrapper.
+		// This pull only contributes a page body, and that body MUST go
+		// to a distinct wp_post. Default the slug to the pull's own slug
+		// (typically from the title card) rather than to any canonical
+		// default; otherwise multiple page.html pulls all write to
+		// "sample-page" and clobber each other.
+		if (other) {
+			setUsesPostContent(true);
+			setPageSlug(slug);
+			setPreviewPath(`/${slug}`);
+			if (canonical) {
+				setPostType(canonical.postType);
+			}
+			setStage('pageSlug');
+			return;
+		}
+
+		// First non-forced canonical pull (e.g. page.html): pre-fill the
+		// canonical defaults and let the user confirm previewPath.
 		if (canonical) {
 			setUsesPostContent(true);
 			setPageSlug(canonical.pageSlug);
 			setPostType(canonical.postType);
+			setPreviewPath(canonical.previewPath);
 			setStage('previewPath');
 			return;
 		}
 
+		// Non-canonical template: ask the post-content question.
+		setPreviewPath(defaultPreviewPath(fullFile));
 		setStage('usesPostContent');
 	};
 
@@ -348,7 +353,7 @@ export default function ConfigureView({
 							{`${templateStem}.html is already defined by pull "${collidingPull.slug}". This pull will only contribute page content; the wrapper won't be rebuilt.`}
 						</Text>
 					) : null}
-					{canonicalTargetFor(`${templateStem}.html`) ? (
+					{canonicalTargetFor(`${templateStem}.html`) && !collidingPull ? (
 						<Text dimColor>
 							{`${templateStem}.html writes to the existing ${postType} "${pageSlug}" — no new page is created.`}
 						</Text>

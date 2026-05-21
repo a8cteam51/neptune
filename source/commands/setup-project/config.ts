@@ -4,10 +4,14 @@
 // design-walk.ts for the rationale.
 import {mkdir, readdir, readFile, stat} from 'node:fs/promises';
 import {resolve} from 'node:path';
-import {normalizeAgentProvider} from '../../lib/agent-provider.js';
 import {writeFileAtomic} from '../../lib/atomic-write.js';
 import {realClock, type Clock} from '../../lib/clock.js';
-import {CONFIG_FILENAME, type Loaded, type NeptuneConfig} from './types.js';
+import {
+	CONFIG_FILENAME,
+	type HaydiConfig,
+	type Loaded,
+	type NeptuneConfig,
+} from './types.js';
 
 export async function loadOrInit(
 	dest: string,
@@ -69,10 +73,6 @@ function normalizeConfig(
 	return {
 		createdAt: parsed.createdAt ?? ts,
 		updatedAt: parsed.updatedAt ?? ts,
-		provider: normalizeAgentProvider(
-			(parsed as {provider?: unknown}).provider,
-			`${CONFIG_FILENAME} provider`,
-		),
 		projectName: parsed.projectName,
 		gitRepo: parsed.gitRepo,
 		themeSlug: parsed.themeSlug,
@@ -90,6 +90,38 @@ function normalizeConfig(
 		patterns: Array.isArray(parsed.patterns)
 			? parsed.patterns.filter((n): n is string => typeof n === 'string')
 			: undefined,
+		haydi: normalizeHaydiConfig(
+			(parsed as {haydi?: unknown}).haydi,
+			`${CONFIG_FILENAME} haydi`,
+		),
+	};
+}
+
+function normalizeHaydiConfig(
+	value: unknown,
+	label: string,
+): HaydiConfig | undefined {
+	if (value === undefined || value === null) return undefined;
+	if (typeof value !== 'object' || Array.isArray(value)) {
+		throw new Error(`${label} must be an object when present.`);
+	}
+	const obj = value as Record<string, unknown>;
+	const url = obj['url'];
+	const token = obj['token'];
+	if (typeof url !== 'string' || url.trim() === '') {
+		throw new Error(`${label}.url must be a non-empty string.`);
+	}
+	if (!/^https?:\/\//i.test(url)) {
+		throw new Error(`${label}.url must start with http:// or https://.`);
+	}
+	// Token is optional in the file because the setup flow can write
+	// the URL before the user has copied the token. Commands that USE
+	// Haydi validate non-empty at their boundary.
+	const cleanToken =
+		typeof token === 'string' && token.trim() !== '' ? token : undefined;
+	return {
+		url: url.replace(/\/+$/, ''),
+		...(cleanToken ? {token: cleanToken} : {}),
 	};
 }
 
@@ -105,7 +137,6 @@ function newConfig(now: Clock): NeptuneConfig {
 	return {
 		createdAt: ts,
 		updatedAt: ts,
-		provider: 'claude',
 		design: {pagesDir: 'design'},
 		steps: {
 			initialized: true,

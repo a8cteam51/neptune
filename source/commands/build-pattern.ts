@@ -2,10 +2,13 @@
 // patterns/<Name>/code.tsx (plus theme.json, the variables index, the
 // pattern's screenshot, dev annotations, the existing block-style
 // variations inventory, and the registered-patterns inventory) to the
-// configured agent provider with the tsx-to-pattern skill, then writes the
-// resulting block markup as a PHP file at
-// <theme>/patterns/<kebab-slug>.php that WordPress core auto-registers
-// from the docblock header.
+// agent with the tsx-to-pattern + pull-writer skills loaded and a
+// Haydi MCP server attached. The agent computes the pattern metadata,
+// assembles the PHP file (docblock + block markup body) AND writes
+// it itself via the Write tool. theme.json edits + variation files +
+// cache flush flow through the same pull-writer recipes the other
+// builds use. The host post-flight reads the PHP file back and
+// validates the docblock header.
 //
 // The UI shell lives in build-patterns.tsx — it picks the sources and
 // calls runBuildPattern for each. This module owns no React.
@@ -24,22 +27,17 @@ import {
 import type {LogEvent} from '../lib/event-list.js';
 import {readIfExists} from '../lib/fs-helpers.js';
 import {
-	applyBlockStyleVariations,
-	applyThemeJsonPatch,
-	flushThemeJsonCache,
 	formatBlockStyleVariationsContext,
 	readBlockStyleVariations,
 } from '../lib/theme-json-patch.js';
+import {HAYDI_TOOL_ALLOWLIST, haydiMcpServers} from '../lib/haydi-mcp.js';
+import {preflight} from '../integrations/haydi/client.js';
 import {
 	formatRegisteredPatternsContext,
 	kebabFromPascalCase,
 	listRegisteredPatterns,
-	parsePatternEnvelope,
-	serializePatternPhp,
-	writePatternFile,
 	type PatternSource,
 } from '../lib/patterns.js';
-import {openStudioSession} from '../integrations/studio/mcp.js';
 import type {Loaded} from './setup-project/types.js';
 
 const moduleDir = dirname(fileURLToPath(import.meta.url));
@@ -63,6 +61,22 @@ export async function runBuildPattern(
 			'themeSlug missing from neptune-config — finish theme setup first.',
 		);
 	}
+	const haydi = loaded.config.haydi;
+	if (!haydi) {
+		throw new Error(
+			'haydi config missing from neptune-config.json. Build pattern persists via Haydi MCP (cache flush) and writes the pattern PHP file via the local Write tool. Add { "haydi": { "url": "...", "token": "..." } } to the project config.',
+		);
+	}
+	onEvent({kind: 'step', message: `Pinging Haydi at ${haydi.url}…`});
+	await preflight(haydi, signal);
+	onEvent({kind: 'step', message: 'Haydi extensions verified'});
+
+	const slug = kebabFromPascalCase(src.name);
+	if (!slug) {
+		throw new Error(
+			`Cannot derive a kebab-case slug from pattern name "${src.name}".`,
+		);
+	}
 
 	onEvent({
 		kind: 'step',
@@ -72,6 +86,7 @@ export async function runBuildPattern(
 	const wpRoot = resolve(loaded.dir, 'wordpress');
 	const themePath = resolve(wpRoot, 'wp-content', 'themes', themeSlug);
 	const themeJsonPath = resolve(themePath, 'theme.json');
+	const patternPath = resolve(themePath, 'patterns', `${slug}.php`);
 
 	const themeJsonText = await readIfExists(themeJsonPath);
 	if (themeJsonText) {
@@ -112,12 +127,6 @@ export async function runBuildPattern(
 		});
 	}
 
-	// Patterns can reference other registered patterns. Surface the
-	// inventory the same way build-template / build-content do so the
-	// agent emits `<!-- wp:pattern {"slug":"..."} /-->` for nested
-	// references instead of inlining a copy. listRegisteredPatterns
-	// reads the theme's PHP files; in a sequential build (e.g. E2E)
-	// patterns built earlier in the same run will already be present.
 	const registeredPatterns = await listRegisteredPatterns(
 		loaded.dir,
 		themeSlug,
@@ -142,7 +151,7 @@ export async function runBuildPattern(
 		sections.push(
 			'',
 			'=== existing block style variations ===',
-			'These variations are already registered. Reuse them by adding the matching `is-style-<slug>` class to a block instead of redefining them. Only emit a new entry in `block_style_variations[]` when none of these fits.',
+			'These variations are already registered. Reuse them by adding the matching `is-style-<slug>` class to a block instead of redefining them. Only register a NEW variation file when none of these fits.',
 			variationsContext,
 		);
 	}
@@ -150,7 +159,7 @@ export async function runBuildPattern(
 		sections.push(
 			'',
 			'=== registered patterns ===',
-			'These block patterns are already registered in the theme. When the TSX invokes a function whose PascalCase name matches one of these `name` entries, emit `<!-- wp:pattern {"slug":"<slug>"} /-->` for that JSX element instead of inlining the function body. Use the `slug` field verbatim. Match is case-sensitive and exact on the function name.',
+			'These block patterns are already registered in the theme. When the TSX invokes a function whose PascalCase name matches one of these `name` entries, emit `<!-- wp:pattern {"slug":"<slug>"} /-->` for that JSX element instead of inlining the function body.',
 			patternsContext,
 		);
 	}
@@ -194,101 +203,116 @@ export async function runBuildPattern(
 		? screenshotBuf.toString('base64')
 		: null;
 
-	const userContent = buildUserContent(src.name, baseContext, screenshotBase64);
+	const userContent = buildUserContent({
+		name: src.name,
+		slug,
+		themeSlug,
+		patternPath,
+		themePath,
+		themeJsonPath,
+		baseContext,
+		screenshotBase64,
+	});
 
-	onEvent({kind: 'step', message: 'Invoking configured agent provider…'});
+	onEvent({
+		kind: 'step',
+		message: 'Invoking agent (writes pattern PHP via Haydi-aware tools)…',
+	});
 
-	const responseText = await agentRunner(
+	const finalText = await agentRunner(
 		userContent,
-		{cwd: loaded.dir, pluginPath: PLUGIN_PATH, signal},
+		{
+			cwd: loaded.dir,
+			pluginPath: PLUGIN_PATH,
+			signal,
+			mcpServers: haydiMcpServers(haydi),
+			allowedTools: [
+				'Read',
+				'Edit',
+				'Write',
+				'Glob',
+				'Grep',
+				...HAYDI_TOOL_ALLOWLIST,
+			],
+			maxTurns: 30,
+		},
 		onEvent,
 	);
 
-	const envelope = parsePatternEnvelope(responseText);
-	const slug = kebabFromPascalCase(src.name);
-	if (!slug) {
+	// Post-flight: stat + read the pattern PHP back, verify the
+	// docblock header is what WP needs. If the agent claimed success
+	// but didn't write, fail loud here.
+	let written: string;
+	try {
+		written = await readFile(patternPath, 'utf8');
+	} catch (err) {
 		throw new Error(
-			`Cannot derive a kebab-case slug from pattern name "${src.name}".`,
+			`Agent finished but no pattern file at ${patternPath}: ${err instanceof Error ? err.message : String(err)}\n\nAgent's final message (first 500 chars): ${finalText.slice(0, 500)}`,
 		);
 	}
-	const php = serializePatternPhp({themeSlug, slug, envelope});
-
-	// Write the PHP, the theme.json patch, and the block-style
-	// variations together so a failure in any of them doesn't leave a
-	// half-built pattern on disk (PHP without theme.json registrations
-	// would cache stale styles in WP). Mirrors the sequencing in
-	// runBuild / runBuildContent.
-	const session = await openStudioSession({signal});
-	let path: string;
-	let cacheNeedsFlush = false;
-	try {
-		path = await writePatternFile(themePath, slug, php);
-		if (envelope.theme_json_patch) {
-			const patchResult = await applyThemeJsonPatch(
-				themeJsonPath,
-				envelope.theme_json_patch,
-			);
-			if (patchResult.wrote) {
-				onEvent({
-					kind: 'success',
-					message: `Patched theme.json (${patchResult.touched.join(', ')})`,
-				});
-				cacheNeedsFlush = true;
-			}
-		}
-		if (envelope.block_style_variations) {
-			const writeResult = await applyBlockStyleVariations(
-				themePath,
-				envelope.block_style_variations,
-			);
-			if (writeResult.written.length > 0) {
-				onEvent({
-					kind: 'success',
-					message: `Registered ${writeResult.written.length} block style variation${writeResult.written.length === 1 ? '' : 's'}`,
-				});
-				cacheNeedsFlush = true;
-			}
-		}
-		if (cacheNeedsFlush) {
-			await flushThemeJsonCache(session, wpRoot);
-		}
-	} finally {
-		session.close();
+	if (!written.startsWith('<?php')) {
+		throw new Error(
+			`Agent wrote ${patternPath} but it does not begin with <?php. WP can't register this pattern.\n\nFirst 200 chars: ${written.slice(0, 200)}`,
+		);
+	}
+	if (!/^\s*\*\s*Title:/m.test(written)) {
+		throw new Error(
+			`Agent wrote ${patternPath} but the docblock has no "Title:" header. WP requires it for registration.\n\nFirst 500 chars: ${written.slice(0, 500)}`,
+		);
+	}
+	if (!/^\s*\*\s*Slug:\s*\S+\/\S+/m.test(written)) {
+		throw new Error(
+			`Agent wrote ${patternPath} but the docblock has no "Slug: <theme>/<pattern>" header. WP requires it for registration.\n\nFirst 500 chars: ${written.slice(0, 500)}`,
+		);
 	}
 
 	onEvent({
 		kind: 'success',
-		message: `Wrote ${php.length} bytes to ${path}`,
+		message: `Wrote ${written.length} bytes to ${patternPath}`,
 	});
 
-	return {slug, path, size: php.length};
+	return {slug, path: patternPath, size: written.length};
 }
 
 type UserContent = Array<TextBlock | ImageBlock>;
 
-// We rely on the tsx-to-pattern skill to know HOW to convert. The
-// lead sentence keeps the trigger words from the skill's description
-// so the SDK auto-invokes it; the skill body owns the conversion
-// rules. The per-call dynamic context is the pattern's source name —
-// the agent uses it as the canonical title fallback when the TSX
-// doesn't suggest something better.
-function buildUserContent(
-	name: string,
-	baseContext: string,
-	screenshotBase64: string | null,
-): UserContent {
-	const content: UserContent = [
-		{
-			type: 'text',
-			text:
-				`Convert this Figma-extracted React + Tailwind pattern function (named "${name}") into a WordPress block pattern. ` +
-				`Use the tsx-to-pattern skill. Treat the supplied TSX as a reusable fragment — patterns are not full pages. ` +
-				`Return the JSON envelope described in the skill. Neptune wraps the markup in the PHP file header itself; ` +
-				`do NOT emit any \`<?php\` tags or call any tools yourself.`,
-		},
-	];
+function buildUserContent(args: {
+	name: string;
+	slug: string;
+	themeSlug: string;
+	patternPath: string;
+	themePath: string;
+	themeJsonPath: string;
+	baseContext: string;
+	screenshotBase64: string | null;
+}): UserContent {
+	const content: UserContent = [];
 
-	if (screenshotBase64) {
+	const instructions =
+		`Convert this Figma-extracted React + Tailwind pattern function (named "${args.name}") into a WordPress block pattern, AND persist it yourself. Use the tsx-to-pattern skill for the conversion rules and the pull-writer skill for the persistence recipes. Patterns are reusable fragments, not full pages.\n\n` +
+		`Target:\n` +
+		`  Pattern function name = ${args.name}\n` +
+		`  Pattern slug          = ${args.slug}\n` +
+		`  Theme slug            = ${args.themeSlug}\n` +
+		`  Pattern PHP file      = ${args.patternPath}\n\n` +
+		`Theme paths (for theme.json or variation edits if needed):\n` +
+		`  theme.json     = ${args.themeJsonPath}\n` +
+		`  variations dir = ${join(args.themePath, 'styles', 'blocks')}\n\n` +
+		`Persistence order:\n` +
+		`  1. Write the pattern PHP file via the Write tool. The file MUST begin with <?php and contain a docblock that includes at minimum "Title: <title>" and "Slug: ${args.themeSlug}/${args.slug}" — followed by ?> and then the block markup body. See the skill's "Persistence flow" section for the exact format.\n` +
+		`  2. If a structured-property registration is genuinely needed, apply Recipe 6 (theme.json Read + Write) to extend styles.blocks or settings.custom.\n` +
+		`  3. If a new block style variation is needed, apply Recipe 7 (Write one styles/blocks/<slug>.json file). Reuse existing variations from the inventory first.\n` +
+		`  4. If you touched theme.json or any variation file, call Recipe 5 (wp_cache_flush) ONCE at the end via mcp__haydi__haydi_run_php.\n\n` +
+		`Final response: one terse plaintext summary line per artifact written. Example:\n` +
+		`  wrote ${args.patternPath} (1234 bytes)\n` +
+		`  edited ${args.themeJsonPath} (extended styles.blocks.core/heading)\n` +
+		`  wrote ${join(args.themePath, 'styles', 'blocks')}/neptune-callout.json\n` +
+		`  flushed theme.json cache\n` +
+		`No JSON envelope. No markdown fences. No narration.`;
+
+	content.push({type: 'text', text: instructions});
+
+	if (args.screenshotBase64) {
 		content.push({
 			type: 'text',
 			text: '=== screenshot.png — visual reference for the intended design output ===',
@@ -298,17 +322,12 @@ function buildUserContent(
 			source: {
 				type: 'base64',
 				media_type: 'image/png',
-				data: screenshotBase64,
+				data: args.screenshotBase64,
 			},
 		});
 	}
 
-	content.push({type: 'text', text: baseContext});
-
-	content.push({
-		type: 'text',
-		text: 'Respond with the JSON envelope ONLY. Begin your reply with `{` and end with `}`. No preamble, no analysis, no commentary, no markdown fences, no trailing summary.',
-	});
+	content.push({type: 'text', text: args.baseContext});
 
 	return content;
 }

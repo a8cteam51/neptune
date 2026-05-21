@@ -3,16 +3,17 @@
 // variables/all-variables.json, any existing block style variations,
 // dev annotations from code.tsx, the registered-patterns inventory,
 // and the per-pull media library mappings — uploaded constName→{id,
-// url} plus discarded-SVG constName→description) to the configured
-// agent provider with the tsx-to-blocks skill, then writes the
-// resulting Gutenberg block markup to the pull's wp_template /
-// wp_template_part post in the WordPress database via Studio's
-// wp-cli. The envelope's theme_json_patch deep-merges into theme.json
-// and block_style_variations[] write to <theme>/styles/blocks/*.json.
+// url} plus discarded-SVG constName→description) to the agent with the
+// tsx-to-blocks + pull-writer skills loaded and a Haydi MCP server
+// attached. The agent converts the markup AND persists every artifact
+// itself: the wp_template / wp_template_part body via Haydi run_php,
+// any theme.json edits via local Edit/Write on the project checkout,
+// any block style variation files via local Write, and a cache flush
+// via Haydi at the end. The host post-flight-verifies the template
+// post and reports the size.
 //
 // The UI shell lives in build-templates.tsx — it picks the pulls and
-// calls runBuild for each. This module owns no React; it's pure I/O
-// + agent invocation.
+// calls runBuild for each. This module owns no React.
 import {readFile} from 'node:fs/promises';
 import {dirname, join, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -27,13 +28,9 @@ import {
 	formatDevAnnotationsSection,
 } from '../lib/dev-annotations.js';
 import {
-	applyBlockStyleVariations,
-	applyThemeJsonPatch,
-	flushThemeJsonCache,
 	formatBlockStyleVariationsContext,
 	readBlockStyleVariations,
 } from '../lib/theme-json-patch.js';
-import {parseBuildEnvelope} from '../lib/build-envelope.js';
 import {formatAssetMappingsContext} from '../lib/asset-mappings.js';
 import {
 	formatRegisteredPatternsContext,
@@ -41,12 +38,9 @@ import {
 } from '../lib/patterns.js';
 import type {LogEvent} from '../lib/event-list.js';
 import {templateRole, type TemplateRole} from '../lib/template-scaffold.js';
-import {
-	targetLabel,
-	templateTargetFor,
-	writeTemplate,
-} from '../lib/wp-templates.js';
-import {openStudioSession} from '../integrations/studio/mcp.js';
+import {targetLabel, templateTargetFor} from '../lib/wp-templates.js';
+import {HAYDI_TOOL_ALLOWLIST, haydiMcpServers} from '../lib/haydi-mcp.js';
+import {preflight, readTemplateViaHaydi} from '../integrations/haydi/client.js';
 import type {Loaded} from './setup-project/types.js';
 import type {PullMeta} from '../lib/types.js';
 
@@ -67,7 +61,21 @@ export async function runBuild(
 	deps: BuildDeps = {},
 ): Promise<{path: string; size: number}> {
 	const agentRunner = deps.runAgent ?? runAgent;
-	const themeSlug = loaded.config.themeSlug!;
+	const themeSlug = loaded.config.themeSlug;
+	if (!themeSlug) {
+		throw new Error(
+			'themeSlug missing from neptune-config.json — finish theme setup first.',
+		);
+	}
+	const haydi = loaded.config.haydi;
+	if (!haydi) {
+		throw new Error(
+			'haydi config missing from neptune-config.json. Build template persists the template post + theme.json edits + cache flush via Haydi MCP; add { "haydi": { "url": "...", "token": "..." } } to the project config.',
+		);
+	}
+	onEvent({kind: 'step', message: `Pinging Haydi at ${haydi.url}…`});
+	await preflight(haydi, signal);
+	onEvent({kind: 'step', message: 'Haydi extensions verified'});
 
 	const codePath = join(loaded.dir, 'design', pull.slug, 'code.tsx');
 	const code = await readFile(codePath, 'utf8');
@@ -210,96 +218,116 @@ export async function runBuild(
 		? screenshotBuf.toString('base64')
 		: null;
 
-	const userContent = buildUserContent(
-		pull.templateFile,
+	const target = templateTargetFor(pull.templateFile, pull.pageName);
+	const userContent = buildUserContent({
+		templateFile: pull.templateFile,
+		target,
+		themeSlug,
+		themePath,
+		themeJsonPath,
 		baseContext,
 		screenshotBase64,
-		pull.usesPostContent === true,
-	);
+		usesPostContent: pull.usesPostContent === true,
+	});
 
-	onEvent({kind: 'step', message: 'Invoking configured agent provider…'});
+	onEvent({
+		kind: 'step',
+		message: 'Invoking agent (persists to site via Haydi)…',
+	});
 
-	const responseText = await agentRunner(
+	const finalText = await agentRunner(
 		userContent,
-		{cwd: loaded.dir, pluginPath: PLUGIN_PATH, signal},
+		{
+			cwd: loaded.dir,
+			pluginPath: PLUGIN_PATH,
+			signal,
+			mcpServers: haydiMcpServers(haydi),
+			allowedTools: [
+				'Read',
+				'Edit',
+				'Write',
+				'Glob',
+				'Grep',
+				...HAYDI_TOOL_ALLOWLIST,
+			],
+			// Template + theme.json edit + variation files + cache flush
+			// is 4–6 tool calls in the steady state; widen the cap to
+			// absorb extra reads or a retry without aborting mid-run.
+			maxTurns: 30,
+		},
 		onEvent,
 	);
 
-	const envelope = parseBuildEnvelope(responseText, 'build-template');
-	const target = templateTargetFor(pull.templateFile, pull.pageName);
-	const out = envelope.template_html.endsWith('\n')
-		? envelope.template_html
-		: envelope.template_html + '\n';
-
-	const session = await openStudioSession({signal});
-	let cacheNeedsFlush = false;
-	try {
-		await writeTemplate(session, wpRoot, target, out);
-		if (envelope.theme_json_patch) {
-			const patchResult = await applyThemeJsonPatch(
-				themeJsonPath,
-				envelope.theme_json_patch,
-			);
-			if (patchResult.wrote) {
-				onEvent({
-					kind: 'success',
-					message: `Patched theme.json (${patchResult.touched.join(', ')})`,
-				});
-				cacheNeedsFlush = true;
-			}
-		}
-		if (envelope.block_style_variations) {
-			const writeResult = await applyBlockStyleVariations(
-				themePath,
-				envelope.block_style_variations,
-			);
-			if (writeResult.written.length > 0) {
-				onEvent({
-					kind: 'success',
-					message: `Registered ${writeResult.written.length} block style variation${writeResult.written.length === 1 ? '' : 's'}`,
-				});
-				cacheNeedsFlush = true;
-			}
-		}
-		if (cacheNeedsFlush) {
-			await flushThemeJsonCache(session, wpRoot);
-		}
-	} finally {
-		session.close();
+	// Post-flight verification — the agent claims it persisted; read
+	// the wp_template post back via Haydi and confirm there's actual
+	// markup there. If the agent finished but the post is empty or
+	// missing, fail loud now instead of letting the UI lie.
+	const persisted = await readTemplateViaHaydi(
+		haydi,
+		{type: target.type, slug: target.slug},
+		signal,
+	);
+	const label = targetLabel(target);
+	if (persisted === null) {
+		throw new Error(
+			`Agent finished but no ${label} post was found via Haydi. The build likely failed silently — inspect the Haydi audit log on the site.\n\nAgent's final message (first 500 chars): ${finalText.slice(0, 500)}`,
+		);
+	}
+	const size = persisted.length;
+	if (size === 0) {
+		throw new Error(
+			`Agent finished but ${label} has empty post_content. Treat as failed; rerun.\n\nAgent's final message (first 500 chars): ${finalText.slice(0, 500)}`,
+		);
 	}
 
-	const label = targetLabel(target);
-	onEvent({
-		kind: 'success',
-		message: `Wrote ${out.length} bytes to ${label}`,
-	});
-
-	return {path: label, size: out.length};
+	onEvent({kind: 'success', message: `Wrote ${size} bytes to ${label}`});
+	return {path: label, size};
 }
 
 type UserContent = Array<TextBlock | ImageBlock>;
 
-// We rely on the tsx-to-blocks skill to know HOW to convert. The lead
-// sentence dispatches via a SCOPE token whose rules the skill owns
-// verbatim — see the skill's "Scope vocabulary" + "Per-scope rules"
-// sections. The .ts side only emits the dynamic per-call context
-// (template name, scope token).
-function buildUserContent(
-	templateFile: string,
-	baseContext: string,
-	screenshotBase64: string | null,
-	usesPostContent: boolean,
-): UserContent {
-	const role = templateRole(templateFile);
-	const scope = scopeForTemplate(role, usesPostContent);
+// We rely on the tsx-to-blocks skill to know HOW to convert, and the
+// pull-writer skill for the persistence recipes. The lead text emits
+// the dynamic per-call context (template target, theme paths) the
+// recipes plug into.
+function buildUserContent(args: {
+	templateFile: string;
+	target: ReturnType<typeof templateTargetFor>;
+	themeSlug: string;
+	themePath: string;
+	themeJsonPath: string;
+	baseContext: string;
+	screenshotBase64: string | null;
+	usesPostContent: boolean;
+}): UserContent {
+	const role = templateRole(args.templateFile);
+	const scope = scopeForTemplate(role, args.usesPostContent);
 	const content: UserContent = [];
 
-	content.push({
-		type: 'text',
-		text: `Use the tsx-to-blocks skill. SCOPE: ${scope}. Template file: ${templateFile}. Apply the rules from the skill's "Scope: ${scope}" section verbatim.`,
-	});
+	const instructions =
+		`Use the tsx-to-blocks skill (SCOPE: ${scope}) to convert the code.tsx below into Gutenberg block markup, AND use the pull-writer skill to persist every artifact yourself. Do not return a JSON envelope.\n\n` +
+		`Target wp_template:\n` +
+		`  type  = ${args.target.type}\n` +
+		`  slug  = ${args.target.slug}\n` +
+		`  title = ${JSON.stringify(args.target.title)}\n\n` +
+		`Theme paths:\n` +
+		`  theme.json     = ${args.themeJsonPath}\n` +
+		`  variations dir = ${join(args.themePath, 'styles', 'blocks')}\n\n` +
+		`Required persistence order (from pull-writer):\n` +
+		`  1. Write the block markup via Recipe 2 (Template write). Use $content for the markup, kses_remove_filters(), wp_set_object_terms with get_stylesheet().\n` +
+		`  2. If theme.json needs new structured properties (styles.blocks or settings.custom), use Recipe 6 (Read + Write theme.json freeform). Deep-merge into the two allowed subtrees ONLY; preserve everything else byte-for-byte.\n` +
+		`  3. If new block style variations are needed, use Recipe 7 (Write one styles/blocks/<slug>.json per variation). Reuse existing variations from the context section first; only register new ones when no existing entry fits. Slug MUST be neptune-prefixed.\n` +
+		`  4. If you touched theme.json or any styles/blocks/*.json file, call Recipe 5 (wp_cache_flush) once at the end.\n\n` +
+		`Final response: one terse plaintext summary line per artifact written. Examples:\n` +
+		`  wrote ${args.target.type}:${args.target.slug} (id <N>, <bytes> bytes)\n` +
+		`  edited ${args.themeJsonPath} (extended styles.blocks.core/heading)\n` +
+		`  wrote ${join(args.themePath, 'styles', 'blocks')}/<slug>.json\n` +
+		`  flushed theme.json cache\n` +
+		`No JSON envelope. No markdown fences. No narration.`;
 
-	if (screenshotBase64) {
+	content.push({type: 'text', text: instructions});
+
+	if (args.screenshotBase64) {
 		content.push({
 			type: 'text',
 			text: '=== screenshot.png — visual reference for the intended design output ===',
@@ -309,17 +337,12 @@ function buildUserContent(
 			source: {
 				type: 'base64',
 				media_type: 'image/png',
-				data: screenshotBase64,
+				data: args.screenshotBase64,
 			},
 		});
 	}
 
-	content.push({type: 'text', text: baseContext});
-
-	content.push({
-		type: 'text',
-		text: 'Respond with the JSON envelope ONLY. Begin your reply with `{` and end with `}`. No preamble, no analysis, no commentary, no markdown fences, no trailing summary.',
-	});
+	content.push({type: 'text', text: args.baseContext});
 
 	return content;
 }

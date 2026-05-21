@@ -1,6 +1,6 @@
 # Neptune
 
-Neptune is an interactive CLI that turns Figma designs into working WordPress block themes. It pulls a page from Figma (Tailwind TSX + variables + screenshot), runs a local WordPress site under [Studio](https://developer.wordpress.com/studio/), and uses the configured agent provider to convert each pull into Gutenberg block markup, a `theme.json`, and any block style variations the design needs. Refinements happen by capturing the live render, diffing it against the design, and applying only the differences.
+Neptune is an interactive CLI that turns Figma designs into working WordPress block themes. It pulls a page from Figma (Tailwind TSX + variables + screenshot), runs a local WordPress site under [Studio](https://developer.wordpress.com/studio/), and uses the Claude Agent SDK to convert each pull into Gutenberg block markup, a `theme.json`, and any block style variations the design needs. Refinements happen by capturing the live render, diffing it against the design, and applying only the differences.
 
 The intent is to keep the human at the menu — Neptune drives Figma, the file system, the Studio site, and the agents. Failures stop early and surface in the UI, so a paid agent call only fires when its inputs are good.
 
@@ -18,7 +18,8 @@ You'll also need:
 
 - Studio for Mac/Windows running, with at least one site created (for local WP).
 - Figma's MCP server enabled (the plugin pulls TSX, assets, dev notes via MCP).
-- An Anthropic API key for the default Claude provider, or Codex authentication / API key if `neptune-config.json` sets `"provider": "codex"`.
+- An Anthropic API key for the Claude Agent SDK.
+- [Haydi](https://github.com/Automattic/haydi) installed on the Studio site, with `haydi-full-extensions.zip` enabled. The setup wizard captures the site URL automatically; you paste the Bearer token from WP Admin → Haydi → Remote Access. Every build / refine / pattern command persists through Haydi MCP, so the token is required before any agent-driven write.
 
 ## What it does
 
@@ -65,15 +66,16 @@ The arrows are forward-only because each step is gated on the previous step's ar
 
 ## Architecture
 
-Neptune is a small Ink (React-in-the-terminal) app that orchestrates four kinds of side effects: Figma MCP calls, file system writes, Studio's `wp-cli` MCP, and the configured agent SDK. Each command is a self-contained `runX(...)` async function — the React component is a thin shell around it.
+Neptune is a small Ink (React-in-the-terminal) app that orchestrates five kinds of side effects: Figma MCP calls, file system writes, Studio's `wp-cli` MCP (asset upload only), Haydi MCP (database writes — wired into the agent SDK so the model persists its own work), and direct host-side Haydi REST (preflight + post-flight verification). Each command is a self-contained `runX(...)` async function — the React component is a thin shell around it.
 
 ```
 source/
   app.tsx                       Top-level menu, project-state machine
   cli.tsx                       Entry point, argv parsing
   commands/
-    setup-project/              Multi-step config wizard
-    pull-template/              Figma node → design/<slug>/
+    setup-project/              Multi-step config wizard (project name → git repo → theme → WP install → wp-content clone → Studio site → Haydi token)
+    pull-template.tsx           Pull template UI shell
+    pull-template/              Pull template internals — picker-view (Figma node), configure-view (canonical mapping + title cards), gate-view, canonical-targets.ts (template-file ↔ slug/title/postType table), index.tsx (orchestration: Figma fetch → assets-fetch → svg-triage → media import → ensure wp_post via Haydi)
     pull-pattern.tsx            Figma node → patterns/<Name>/
     build-theme-json.tsx        variables → theme.json
     build-template.ts           Headless runBuild helper (used by build-templates.tsx)
@@ -94,26 +96,28 @@ source/
     view-template-diff.tsx      Capture + odiff with no agent call
     capture-screens.tsx         Headless JPEG capture of every non-special pull's live URL (share-ready snapshots, no agent calls)
   lib/
-    agent-stream.ts             Agent SDK driver — Claude by default, Codex when configured; emits a structured `usage` LogEvent per call
+    agent-stream.ts             Claude Agent SDK driver; emits a structured `usage` LogEvent per call
     event-list.tsx              Streaming event list renderer
     sectioned-menu.tsx          Top-level menu with non-selectable section headers
     multi-select.tsx            Checkbox list (used by every "toggle off what you don't want" picker)
     menu.tsx                    Single-pick menu
-    build-envelope.ts           Validates JSON envelopes from agents
-    theme-json-patch.ts         Reads/writes theme.json + block style variations
-    patterns.ts                 Pattern slug + PHP file serialiser + envelope parser; `listPatternSources` reads patterns/&lt;Name&gt;/code.tsx
+    build-envelope.ts           Lenient JSON parser used by the visual-diff diagnose phase (the only remaining envelope-shaped agent response — the host needs structured diffs for the user-approval UI)
+    theme-json-patch.ts         Read helpers + types for theme.json + block style variations (writes are agent-driven, on disk, via pull-writer Recipes 6 and 7)
+    patterns.ts                 Pattern slug + on-disk discovery; `listPatternSources` reads patterns/&lt;Name&gt;/code.tsx, `listRegisteredPatterns` surfaces patterns the agent can `wp:pattern`-reference
+    haydi-mcp.ts                Haydi MCP server descriptor for the agent SDK + the tool allowlist build/refine/pattern subagents are scoped to
     browser-capture.ts          Playwright headless capture (PNG for diffing, JPEG for share-ready snapshots)
     svg-rasterize.ts            Chromium-based SVG → PNG rasterizer used by SVG triage
     odiff-runner.ts             Pixel diff
     png-pad.ts                  PNG canvas-pad helper used by template-diff
     template-diff.ts            Pad + diff orchestration
     asset-mappings.ts           Formats the `=== media library mappings ===` prompt section (mapped + discarded) for build / refine agents
-    wp-templates.ts, wp-pages.ts, wp-cli.ts, neptune-cli.ts   Studio MCP wrappers
+    wp-templates.ts, wp-pages.ts   Pure target builders (TemplateTarget / PageTarget) — runtime read/write goes through Haydi
+    wp-cli.ts                      Thin Studio MCP wp-cli wrapper (asset upload only; build/refine writes use Haydi)
+    validators.ts               Slug / URL / token validation helpers used by setup-project and Haydi callers
     design-walk.ts              Pull discovery / metadata
     build-variables.ts          variables/* merge
     dev-annotations.ts          Designer notes extraction
     atomic-write.ts             tmp-file-then-rename writes
-    agent-provider.ts           Selects Claude vs. Codex SDK per neptune-config.json
   integrations/
     figma/
       mcp.ts                    Figma MCP session, get_code / get_screenshot / get_metadata / get_variable_defs
@@ -126,6 +130,8 @@ source/
       site.ts                   Studio site detection / URL resolution
       media-import.ts           Single-file `wp media import` via Studio wp-cli
       pull-asset-upload.ts      Uploads pulled rasters (and rasterized SVGs) to the WP media library, returns the `PulledAsset[]` mapping persisted in meta.json
+    haydi/
+      client.ts                 Direct JSON-RPC HTTP client for host-side Haydi calls (preflight extension check, post-flight read-back, idempotent ensure/read/write of templates + pages, theme.json cache flush). Bypasses the SDK — the agent talks to Haydi via MCP, the host talks to Haydi via this client.
     wordpress/                  WordPress install, wp-content clone
   plugins/neptune-tools/
     skills/
@@ -140,12 +146,12 @@ Key invariants the codebase enforces:
 
 - **Project state lives on disk, not in memory.** `neptune-config.json` is the source of truth for "what's been set up," and `design/<slug>/meta.json` is the source of truth for "what's been pulled." The menu reads these on every refresh; nothing is cached across runs.
 - **Atomic writes everywhere.** Every file write goes through `lib/atomic-write.ts` (`writeFileAtomic`), which writes to a tmp file in the same directory and renames into place. A killed process never leaves a half-written `theme.json`.
-- **One agent call per envelope.** Build and refine agents return a single JSON envelope with `template_html`, an optional `theme_json_patch`, and an optional `block_style_variations[]`. Neptune persists all three; the agent never calls `Write`/`Edit` itself.
+- **Agents persist their own work via Haydi MCP + Edit / Write.** Every build / refine / pattern command attaches a [Haydi](https://github.com/Automattic/haydi) MCP server (`source/lib/haydi-mcp.ts`) and tells the agent which pull-writer recipe to follow. The agent writes the wp_template / wp_template_part / page / post post via `haydi_run_php`, edits `theme.json` freeform via `Read` + `Write`, registers block style variation files via `Write`, and flushes the cache via `haydi_run_php`. The host post-flight-verifies via direct Haydi REST and reports the size.
 - **Existing block style variations are inventoried and reused.** Before each build/refine, Neptune reads `<theme>/styles/blocks/*.json` and feeds the inventory to the agent. If a header and footer need the same alternate button style, they share one `is-style-neptune-<slug>` instead of registering it twice.
-- **Studio is the only WP runtime.** Database writes go through Studio's `wp-cli` MCP (`lib/wp-cli.ts`); we never edit `wp_posts` rows directly. The cache is flushed after every `theme.json` mutation so changes show up on the next pageload.
+- **Visual-diff diagnose still emits JSON** — the host needs structured per-diff entries for the user-approval UI (checkbox table during refine). Apply-diff is the agent-driven path: the user approves a subset, then `apply-diff` runs and persists via the same pull-writer recipes the build commands use, reporting `APPLIED <id>: …` / `SKIPPED <id>: …` summary lines.
 - **Every paid path has a confirm-overwrite gate.** Build / refine commands check the database for an existing row first and prompt before overwriting, so a misclick can't burn an agent call you didn't mean to make.
 - **Image refs are resolved at pull time, not build time.** Asset download, SVG triage (a vision-based classify-agent call), rasterization, and `wp media import` all happen inside `Pull template`. Build / refine agents never see Figma's `localhost:3845` URLs — they receive a finished `=== media library mappings ===` section listing both mapped uploads (`constName → id, url`) and discarded SVGs with a 1-sentence description of what each was, so structural replacements for decoration (border / `wp:separator` / background / drop / `wp:html`) don't require re-deriving intent from `code.tsx` alone.
-- **Two annotation namespaces, separate purposes.** `data-development-annotations` carries non-binding designer notes (see `lib/dev-annotations.ts`) surfaced to the agent as `=== dev annotations ===`. `data-neptune-annotations` carries semantic build directives consumed by the build skill — three categories: block-mapping (`post-title`, `post-date`, `post-author`, `post-excerpt`, `post-featured-image`, `post-navigation`, `comments-list`), container-mapping (`query-loop` → `wp:query` + `wp:post-template`), and region-scope (`header`, `footer`, `post-content`).
+- **Two annotation namespaces, separate purposes.** `data-development-annotations` carries non-binding designer notes (see `lib/dev-annotations.ts`) surfaced to the agent as `=== dev annotations ===`. `data-neptune-annotations` carries the semantic build directives the build skill consumes — see [Annotation vocabulary](#annotation-vocabulary) for the full table.
 
 ## Data flow: Figma → blocks
 
@@ -204,30 +210,30 @@ flowchart LR
     D3 --> TT
     TJ --> TT
     BS -->|"existing variations<br/>inventory (reuse)"| TT
-    TT -->|"template_html"| WT
-    TT -->|"theme_json_patch<br/>(deep-merged)"| TJ
-    TT -->|"block_style_variations[]"| BS
+    TT -->|"haydi_run_php<br/>(template post)"| WT
+    TT -->|"Read + Write<br/>(styles.blocks +<br/>settings.custom)"| TJ
+    TT -->|"Write<br/>(one file per variation)"| BS
 
-    TT -.->|"when usesPostContent:<br/>post-content subtree"| WP
+    TT -.->|"when usesPostContent:<br/>post-content subtree<br/>→ page/post via run_php"| WP
 
     D1 -.->|"extract-patterns scans for<br/>non-default top-level<br/>function names → config.patterns"| Cfg["neptune-config.json<br/>config.patterns: string[]"]
     Cfg -->|"pull-pattern: one Figma pull<br/>per selected name"| PT
     PT --> TP
     TJ --> TP
     BS --> TP
-    TP -->|"template_html<br/>+ pattern metadata"| PP
-    TP -->|"theme_json_patch"| TJ
-    TP -->|"block_style_variations[]"| BS
+    TP -->|"Write<br/>(pattern PHP + docblock)"| PP
+    TP -->|"Read + Write<br/>(styles.blocks)"| TJ
+    TP -->|"Write<br/>(variation files)"| BS
 
     WT -->|"Playwright capture"| LIVE["live.png"]
     LIVE --> ODIFF["odiff"]
     D2 --> ODIFF
     ODIFF -->|"diff.png"| VD
-    VD -->|"diff report JSON"| Review["User review<br/>(MultiSelect)"]
+    VD -->|"diff report JSON<br/>(visual-diff keeps the<br/>envelope for the UI)"| Review["User review<br/>(MultiSelect)"]
     Review -->|"approved diffs"| AD
-    AD -->|"template_html"| WT
-    AD -->|"theme_json_patch"| TJ
-    AD -->|"block_style_variations[]"| BS
+    AD -->|"haydi_run_php<br/>(template / page post)"| WT
+    AD -->|"Read + Write"| TJ
+    AD -->|"Write"| BS
 
     classDef agent fill:#4f46e5,stroke:#818cf8,color:#fff
     classDef tool fill:#065f46,stroke:#10b981,color:#fff
@@ -243,23 +249,68 @@ Read it as six loops:
 
 3. **Theme bootstrap** — every pull's `variables.json` merges into a single `variables/all-variables.json` (first-write-wins, conflicts logged), which feeds the `theme-json` skill. The output is a fully-formed block-theme `theme.json` with presets for color, typography, spacing, and layout. This happens once per project; subsequent pulls add new tokens by re-running.
 
-4. **Pattern loop** — `extract-patterns` walks every pulled `code.tsx`, dedupes non-default top-level function names across pulls, and writes the user's selection to `config.patterns` in `neptune-config.json`. `pull-pattern` then runs one Figma pull per selected name, writing `patterns/<Name>/{code.tsx, screenshot.png, variables.json, metadata.xml, meta.json}`. `build-patterns` runs `tsx-to-pattern` against each `patterns/<Name>/code.tsx` (with the screenshot, current `theme.json`, variables, and existing variations inventory as context) and writes `<theme>/patterns/<kebab-slug>.php`. The PHP file's header comment is the registration metadata WordPress core auto-discovers at boot — `Title:`, `Slug:`, `Categories:`, `Block Types:`, `Viewport Width:`, `Inserter:`, `Description:`, `Keywords:`. The agent never emits PHP; Neptune wraps the block markup in the docblock header itself. Patterns share the same `theme.json` and block-style-variations inventory as the template build, so a button variation declared by a template is reused by a pattern instead of being duplicated.
+4. **Pattern loop** — `extract-patterns` walks every pulled `code.tsx`, dedupes non-default top-level function names across pulls, and writes the user's selection to `config.patterns` in `neptune-config.json`. `pull-pattern` then runs one Figma pull per selected name, writing `patterns/<Name>/{code.tsx, screenshot.png, variables.json, metadata.xml, meta.json}`. `build-patterns` runs the `tsx-to-pattern` skill against each `patterns/<Name>/code.tsx` (with the screenshot, current `theme.json`, variables, and existing variations inventory as context); the agent computes the metadata + block markup, assembles the PHP file (docblock + body), and writes it itself via the `Write` tool to `<theme>/patterns/<kebab-slug>.php`. WordPress core auto-discovers the registration metadata at boot — `Title:`, `Slug:`, `Categories:`, `Block Types:`, `Viewport Width:`, `Inserter:`, `Description:`, `Keywords:`. Patterns share the same `theme.json` and block-style-variations inventory as the template build, so a button variation declared by a template is reused by a pattern instead of being duplicated.
 
-5. **Content + template build loop** — Build content runs first because `usesPostContent` pulls embed `wp:post-content` in their wrapper, and templates are the wrappers. Each pull runs `tsx-to-blocks` against its `code.tsx` plus the current `theme.json`, the variables index, dev notes, the screenshot, the existing variations inventory, and the `=== media library mappings ===` section (mapped uploads + discarded SVG descriptions from the asset loop). The envelope it returns updates three things atomically: the database row for the template (or page post), `theme.json` (deep-merged into `styles.blocks` and `settings.custom` only), and `<theme>/styles/blocks/*.json` for new variations.
+5. **Content + template build loop** — Build content runs first because `usesPostContent` pulls embed `wp:post-content` in their wrapper, and templates are the wrappers. Each pull runs `tsx-to-blocks` + `pull-writer` against its `code.tsx` plus the current `theme.json`, the variables index, dev notes, the screenshot, the existing variations inventory, and the `=== media library mappings ===` section (mapped uploads + discarded SVG descriptions from the asset loop). The agent persists all three artifacts itself: the database row for the template (or page post) via Haydi `run_php`, `theme.json` (Read + Write on disk, deep-merged into `styles.blocks` and `settings.custom` only), and `<theme>/styles/blocks/*.json` for new variations. A `wp_cache_flush()` runs once at the end via Haydi if any styles changed.
 
-6. **Refine loop** — same envelope shape, different prompt: capture the live render in headless Chromium, diff against `screenshot.png` with odiff, run the `visual-diff` skill on the resulting image triple, then `apply-diff` to fold the approved diffs back into the existing markup / theme.json / variations. Refine content first, then refine templates. The end-to-end orchestrator auto-approves every diff the visual-diff agent reports.
+6. **Refine loop** — capture the live render in headless Chromium, diff against `screenshot.png` with odiff, run the `visual-diff` skill on the resulting image triple (which DOES return JSON — the host pipes the per-diff entries to a user-approval checkbox UI), then `apply-diff` to fold the approved diffs back through the same pull-writer recipes the build path uses. The agent reports `APPLIED <id>: …` / `SKIPPED <id>: …` summary lines for every approved diff; the host enforces coverage. Refine content first, then refine templates. The end-to-end orchestrator auto-approves every diff the visual-diff agent reports.
 
 ## Styling priority
 
 Both build and refine agents follow the same cardinal rule, codified in `tsx-to-blocks/SKILL.md` and `apply-diff/SKILL.md`:
 
 1. A `theme.json` preset slug, when one already matches.
-2. A pre-exposed structured property under `theme_json_patch.blocks["core/<x>"]` — color/typography/spacing/border/elements. Project-wide.
+2. A pre-exposed structured property under `theme.json`'s `styles.blocks["core/<x>"]` — color/typography/spacing/border/elements. Project-wide; persisted via pull-writer Recipe 6.
 3. **Reuse** an existing block style variation by applying its `is-style-<slug>` class.
-4. A new block style variation in `block_style_variations[]`, again using structured properties.
+4. A new block style variation as a file at `<theme>/styles/blocks/<slug>.json`; persisted via pull-writer Recipe 7. Slugs MUST be `neptune-` prefixed.
 5. CSS, last resort — only when the rule cannot be expressed as a structured property (pseudo-selectors, descendant selectors, animations).
 
 The agents see the existing variations inventory in their prompt, so option 3 actually fires — you don't get a duplicate `neptune-cta-fill` registered once for header.html and again for footer.html.
+
+## Annotation vocabulary
+
+Two namespaces, both attached to JSX nodes in Figma's generated `code.tsx`. Both inform the build but are stripped from the emitted markup.
+
+### `data-neptune-annotations` — semantic build directives
+
+Controlled vocabulary. Every value is defined in `plugins/neptune-tools/skills/tsx-to-blocks/SKILL.md` and referenced by Neptune's prompt code — renaming a value breaks the build.
+
+**Block-mapping** — substitute the marked node 1:1 with a dynamic WP block; the inner content of the annotated node is dropped (WordPress fills it at render time).
+
+| Annotation            | Emits                                                 |
+| --------------------- | ----------------------------------------------------- |
+| `post-title`          | `<!-- wp:post-title /-->`                             |
+| `post-date`           | `<!-- wp:post-date /-->`                              |
+| `post-author`         | `<!-- wp:post-author-name /-->`                       |
+| `post-excerpt`        | `<!-- wp:post-excerpt /-->`                           |
+| `post-featured-image` | `<!-- wp:post-featured-image /-->`                    |
+| `post-navigation`     | `<!-- wp:post-navigation-link /-->` (next + previous) |
+| `post-comments`       | `<!-- wp:comments /-->`                               |
+| `site-logo`           | `<!-- wp:site-logo /-->`                              |
+
+**Container-mapping** — substitute the marked node with a wrapper block; the children are themselves converted and placed inside.
+
+| Annotation   | Emits                                                                                                               |
+| ------------ | ------------------------------------------------------------------------------------------------------------------- |
+| `query-loop` | `<!-- wp:query -->` wrapping `<!-- wp:post-template -->` whose contents are the node's children, converted normally |
+
+**Region-scope** — mark a structural region routed to its own template artifact by a separate Neptune pull; never converted in place. The active build scope (`HEADER` / `FOOTER` / `PAGE` / `WRAPPER` / `POST-CONTENT-BODY`) decides whether each region becomes a `wp:template-part` reference, a `wp:post-content` placeholder, gets sliced out, or IS the only region the build emits.
+
+| Annotation     | Built into                                                                                        |
+| -------------- | ------------------------------------------------------------------------------------------------- |
+| `header`       | `parts/header.html` (separate pull)                                                               |
+| `footer`       | `parts/footer.html` (separate pull)                                                               |
+| `post-content` | the page's `post_content` (separate pull, when the surrounding template embeds `wp:post-content`) |
+
+Three of the annotations carry a database side-effect on top of the emitted block, persisted by the build agent through `pull-writer`:
+
+- **`post-featured-image`** — after writing the post body, the build agent resolves the `imgFoo` constant that lived inside the annotated subtree to a WP attachment id (via the per-pull media library mappings) and sets `_thumbnail_id` on the just-written post (pull-writer Recipe 9). Without this the dynamic block renders empty during preview and the visual diff fails for the wrong reason.
+- **`site-logo`** — after persisting any template that contains `wp:site-logo`, the build agent resolves the annotated subtree's `imgFoo` to an attachment id and sets both the site-wide `site_logo` option and the `custom_logo` theme mod (pull-writer Recipe 10). Idempotent — re-runs from a second template that also renders the logo are no-ops.
+- **`query-loop`** — when the emitted markup contains a `wp:query` with `inherit:false` and `postType:"post"`, the build agent clones post id 1 enough times to fill the loop's `perPage` (pull-writer Recipe 8). Clones copy content, excerpt, taxonomy terms, featured image, and non-internal meta. Idempotent across re-runs. Skipped for CPT loops — those need authored content.
+
+### `data-development-annotations` — designer notes
+
+Free-form text, no controlled vocabulary. Parsed by `source/lib/dev-annotations.ts`, surfaced to the build / refine agents under `=== dev annotations ===` as non-binding context ("why does this region look the way it does"). The agents treat them as intent, not instructions.
 
 ## Tests
 
@@ -267,14 +318,14 @@ The agents see the existing variations inventory in their prompt, so option 3 ac
 npm test
 ```
 
-Unit tests live under `test/unit/`. They cover the parsing and envelope-validation layers (`build-envelope`, `refine-template-parser`), the file-mutation primitives (`theme-json-patch`, `atomic-write`), the diff orchestration (`design-walk`, `template-scaffold`, `template-diff` helpers), the WP wrappers' command shape (`wp-templates`, `wp-pages`, `wp-cli`), the asset pipeline (`asset-mappings`, `svg-triage`, `svg-rasterize`), and the Figma / Studio helper shapes (`figma-mcp-helpers`, `figma-parsers`, `studio-site`). They deliberately don't try to spin up Studio or Figma — those are integration concerns and would be flaky in CI. The agent code paths are tested by mocking `runAgent` and feeding the parsers known envelope shapes.
+Unit tests live under `test/unit/`. They cover the parsing helpers that still matter (`build-envelope` for the visual-diff JSON recovery, `refine-template-parser` for the diagnose-report parser + the new `APPLIED`/`SKIPPED` line parser), the disk-read primitives that survived the migration (`theme-json-patch`, `atomic-write`), the diff orchestration (`design-walk`, `template-scaffold`, `template-diff` helpers), the asset pipeline (`asset-mappings`, `svg-triage`, `svg-rasterize`), and the Figma / Studio / Haydi helper shapes (`figma-mcp-helpers`, `figma-parsers`, `studio-site`, `haydi-mcp`). They deliberately don't spin up Studio, Figma, or Haydi — those are integration concerns and would be flaky in CI. Smoke runners under `scripts/smoke-*.ts` exercise individual commands end-to-end against a real running site and are run manually.
 
 ## Configuration
 
 Per-project state lives in `<project>/neptune-config.json`. The shape is in `source/commands/setup-project/types.ts`; the bits that matter to other commands are:
 
 - `themeSlug` — the WP theme directory name. Required before build/refine.
-- `provider` — agent SDK provider. Defaults to `claude`; set to `codex` to run agent tasks through the OpenAI Codex SDK. Codex receives the same `plugins/neptune-tools/skills/<name>/SKILL.md` instructions inline because its SDK does not accept Claude-style local plugin paths.
+- `haydi` — `{ url, token }` for the running site's Haydi MCP endpoint. Required for every command that writes to WordPress: `build-content`, `build-template`, `build-pattern`, `build-theme-json` (cache flush), `refine-content`, `refine-template`, and the `end-to-end` orchestrator. `url` is auto-filled when the Studio site is created; `token` comes from WP Admin → Haydi → Remote Access. Treat the token as a secret; do NOT commit `neptune-config.json` with this field populated.
 - `steps` — boolean map of which setup steps have completed. The wizard resumes from the first `false`.
 - `design.pagesDir` — the Figma file URL used as the source of pulls.
 - `patterns` — array of PascalCase pattern names the user selected in Extract patterns. Pull pattern lists these; End-to-end build refuses to start if any selected name lacks a pulled `patterns/<Name>/code.tsx`.

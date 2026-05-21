@@ -1,6 +1,6 @@
 ---
 name: theme-json
-description: Use when building or generating a WordPress theme.json file from a flat JSON object of design tokens. Outputs a valid theme.json (block theme, schema version 3) mapping all tokens into the appropriate settings groups.
+description: Use when building or generating a WordPress theme.json file from a flat JSON object of design tokens. Maps the tokens into a valid theme.json (block theme, schema version 3), writes the file to the active theme directory, and flushes WP's resolved-theme.json cache.
 ---
 
 # Important Reading
@@ -12,7 +12,17 @@ Convert design tokens into a valid WordPress theme.json file for block themes (F
 
 ## Operating mode
 
-This skill is a single-shot prompt → JSON transform. Do NOT call any tools — no Agent / Task subagent dispatch, no Read / Write / Edit / Bash, no MCP. Neptune validates and persists the resulting theme.json itself. The only valid output is the raw JSON object described under "Output format".
+You compute the theme.json content from the supplied design tokens AND persist it yourself. The host loads the **pull-writer** skill alongside this one; pull-writer's Recipe 5 is the cache flush you call at the end.
+
+Available tools:
+
+- `Write` — for writing the theme.json to disk at the path the host names in the task brief.
+- `mcp__haydi__haydi_run_php` — for the cache flush (Recipe 5).
+- NO `Task`, NO `Bash`, NO `Edit` (theme.json is created/overwritten in one shot — Edit's string-replacement semantics don't apply here).
+
+Final response: a terse plaintext summary, one line per artifact written. NO JSON, NO markdown fences, NO narration.
+
+If the host's task brief says Haydi is not configured for this run, skip the cache flush — write the file and emit only the "wrote ..." summary line.
 
 ## Default starter shape
 
@@ -71,13 +81,24 @@ The input is a flat JSON object of design tokens, map them to the appropriate se
 
 ## Output format
 
-Return ONLY the raw JSON for theme.json. Do not include markdown code fences. Do not include preamble, commentary, or explanation. Start with `{` and end with `}`.
+1. Compute the full theme.json content from the supplied design tokens, using the starter shape above as a foundation.
+2. Write the file with the `Write` tool to the absolute path the host names in the task brief. Indent with two spaces, end with a single trailing newline. The full content goes in one Write call — do not split.
+3. If the host's brief indicates Haydi is configured, run pull-writer Recipe 5 (`wp_cache_flush();`) via `mcp__haydi__haydi_run_php`. One flush, after the write.
+4. Emit a terse plaintext summary, e.g.:
+
+```
+wrote /Users/.../wp-content/themes/<themeSlug>/theme.json (12834 bytes)
+flushed theme.json cache
+```
+
+NO JSON in your final response. NO markdown fences. NO commentary.
 
 ## Self-check before responding
 
-1. No tools were called. Output is exactly one JSON object, valid, no fences, no prose.
+1. theme.json was Written via the Write tool at the brief's path (not echoed in the response).
 2. `$schema` is `https://schemas.wp.org/trunk/theme.json` and `version` is `3`.
 3. Every slug is kebab-case lowercase alphanumeric + hyphens.
 4. CSS variables of the form `var(--wp--preset--<group>--<slug>)` carry a single dash between letters and numbers (`--h-1`, never `--h1`).
 5. Desktop / mobile pairs are collapsed into a single `clamp(min, fluid, max)` value where appropriate, not split into separate slugs.
 6. No top-level keys other than `$schema`, `version`, `settings`, and `styles`.
+7. Cache flush ran ONCE iff Haydi was configured for this run.

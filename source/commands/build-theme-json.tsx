@@ -1,7 +1,10 @@
 // First merges design/*/variables.json into variables/all-variables.json,
-// then feeds that to the configured agent provider with the theme-json skill
-// (which exposes a theme-json skill) and writes the result to
-// wp-content/themes/<theme>/theme.json. Streams progress events throughout.
+// then feeds that to the agent with the theme-json + pull-writer skills
+// loaded. The agent computes the theme.json content AND writes it
+// itself via the Write tool, then calls Haydi's wp_cache_flush via
+// Recipe 5 if haydi is configured. The host post-flight reads the
+// written file back, validates the shape, and surfaces a warning if
+// settings.layout widths came out empty.
 //
 // If theme.json already exists, gates the run behind a confirmation prompt
 // so the user doesn't accidentally pay for the Claude call to overwrite a
@@ -9,19 +12,16 @@
 import React, {useEffect, useRef, useState} from 'react';
 import {Box, Text, useInput} from 'ink';
 import Menu from '../lib/menu.js';
-import {access, readFile, mkdir} from 'node:fs/promises';
+import {access, mkdir, readFile} from 'node:fs/promises';
 import {dirname, join, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {writeFileAtomic} from '../lib/atomic-write.js';
 import {AgentAbortedError, runAgent} from '../lib/agent-stream.js';
 import {buildVariables} from '../lib/build-variables.js';
 import EventList, {type LogEvent} from '../lib/event-list.js';
 import {markVariablesBuilt} from './setup-project/config.js';
-import {openStudioSession} from '../integrations/studio/mcp.js';
-import {
-	flushThemeJsonCache,
-	inspectLayoutWidths,
-} from '../lib/theme-json-patch.js';
+import {HAYDI_TOOL_ALLOWLIST, haydiMcpServers} from '../lib/haydi-mcp.js';
+import {preflight} from '../integrations/haydi/client.js';
+import {inspectLayoutWidths} from '../lib/theme-json-patch.js';
 import type {Loaded} from './setup-project/types.js';
 
 type Props = {
@@ -281,45 +281,94 @@ export async function buildThemeJson(
 		message: `Loaded variables/all-variables.json (${variablesText.length} bytes)`,
 	});
 
-	onEvent({kind: 'step', message: 'Invoking configured agent provider…'});
+	const target = themeJsonPath(loaded.dir, themeSlug);
+	await mkdir(dirname(target), {recursive: true});
 
-	// Lead sentence carries the trigger words from the theme-json skill's
-	// description so the SDK auto-invokes it; the skill body owns the
-	// mapping rules.
+	// Haydi attachment is optional for this command — the cache flush
+	// at the end is the only Haydi call, and theme.json builds are
+	// useful pre-Studio too (e.g. previewing variables before standing
+	// up a site). When haydi is configured we attach + preflight; the
+	// agent sees the tool and runs Recipe 5. When not, the agent skips
+	// the flush per the skill's "if Haydi is configured" clause.
+	const haydi = loaded.config.haydi;
+	let haydiConfigured = false;
+	if (haydi?.token) {
+		try {
+			onEvent({kind: 'step', message: `Pinging Haydi at ${haydi.url}…`});
+			await preflight(haydi, signal);
+			onEvent({kind: 'step', message: 'Haydi extensions verified'});
+			haydiConfigured = true;
+		} catch (err) {
+			// Don't block the build on a pre-flight failure; just skip
+			// the flush instructions and let the next request clear the
+			// cache organically.
+			onEvent({
+				kind: 'warn',
+				message: `Haydi pre-flight failed (${err instanceof Error ? err.message : String(err)}). Skipping cache flush — the next request will clear it.`,
+			});
+		}
+	} else {
+		onEvent({
+			kind: 'warn',
+			message:
+				'haydi config absent — skipping cache flush. theme.json will still write to disk.',
+		});
+	}
+
 	const prompt =
-		`Build a WordPress theme.json (block theme, schema version 3) from this flat JSON object of design tokens. Use the theme-json skill.\n\n` +
-		variablesText;
+		`Build a WordPress theme.json (block theme, schema version 3) from the flat JSON object of design tokens below. Use the theme-json skill.\n\n` +
+		`Persistence:\n` +
+		`  - Write the theme.json to: ${target}\n` +
+		`  - ${haydiConfigured ? 'Haydi IS configured for this run — call pull-writer Recipe 5 (wp_cache_flush via mcp__haydi__haydi_run_php) ONCE after the write.' : 'Haydi is NOT configured for this run — skip the cache flush. Just write the file.'}\n\n` +
+		`Final response: one terse "wrote ..." summary line${haydiConfigured ? ' plus one "flushed theme.json cache" line' : ''}. No JSON, no fences, no commentary.\n\n` +
+		`=== variables.json ===\n${variablesText}`;
 
-	const cleaned = await agentRunner(
+	onEvent({kind: 'step', message: 'Invoking agent (writes theme.json)…'});
+
+	const finalText = await agentRunner(
 		prompt,
-		{cwd: loaded.dir, pluginPath: PLUGIN_PATH, signal},
+		{
+			cwd: loaded.dir,
+			pluginPath: PLUGIN_PATH,
+			signal,
+			...(haydiConfigured
+				? {
+						mcpServers: haydiMcpServers(haydi!),
+						allowedTools: ['Read', 'Write', 'Glob', ...HAYDI_TOOL_ALLOWLIST],
+					}
+				: {allowedTools: ['Read', 'Write', 'Glob']}),
+			maxTurns: 15,
+		},
 		onEvent,
 	);
 
-	let parsed: unknown;
+	// Post-flight: read the file back, validate the shape. Agent
+	// claimed it wrote; verify.
+	let writtenText: string;
 	try {
-		parsed = JSON.parse(cleaned);
+		writtenText = await readFile(target, 'utf8');
 	} catch (err) {
 		throw new Error(
-			`Response was not valid JSON: ${
-				err instanceof Error ? err.message : String(err)
-			}\n\nFirst 500 chars: ${cleaned.slice(0, 500)}`,
+			`Agent finished but ${target} doesn't exist or isn't readable: ${err instanceof Error ? err.message : String(err)}\n\nAgent's final message (first 500 chars): ${finalText.slice(0, 500)}`,
+		);
+	}
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(writtenText);
+	} catch (err) {
+		throw new Error(
+			`Agent wrote ${target} but it isn't valid JSON: ${err instanceof Error ? err.message : String(err)}\n\nFirst 500 chars: ${writtenText.slice(0, 500)}`,
 		);
 	}
 	if (!isValidThemeJson(parsed)) {
 		throw new Error(
-			'Response did not contain a valid theme.json (need version 3 + settings).',
+			`Agent wrote ${target} but the JSON is not a valid theme.json (need version 3 + settings).\n\nFirst 500 chars: ${writtenText.slice(0, 500)}`,
 		);
 	}
 
-	const target = themeJsonPath(loaded.dir, themeSlug);
-	await mkdir(dirname(target), {recursive: true});
-	const formatted = JSON.stringify(parsed, null, 2) + '\n';
-	await writeFileAtomic(target, formatted);
-
 	onEvent({
 		kind: 'step',
-		message: `Wrote ${formatted.length} bytes to theme.json`,
+		message: `Verified theme.json at ${target} (${writtenText.length} bytes)`,
 	});
 
 	// Surface unset content/wide widths immediately so the user can fill
@@ -341,18 +390,7 @@ export async function buildThemeJson(
 		});
 	}
 
-	// Flush WP's cached resolved theme.json so the live site picks up
-	// the new presets on the next request. Mirrors the flush every other
-	// theme.json writer (build-template/build-content/refine) does.
-	const wpRoot = resolve(loaded.dir, 'wordpress');
-	const session = await openStudioSession({signal});
-	try {
-		await flushThemeJsonCache(session, wpRoot);
-	} finally {
-		session.close();
-	}
-
-	return {path: target, size: formatted.length};
+	return {path: target, size: writtenText.length};
 }
 
 function isValidThemeJson(parsed: unknown): boolean {

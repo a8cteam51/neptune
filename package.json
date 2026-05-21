@@ -14,8 +14,8 @@
 		"dev": "tsc --watch",
 		"lint": "npm run lint:types && npm run lint:format",
 		"lint:types": "tsc --noEmit",
-		"lint:format": "prettier --check \"source/**/*.{ts,tsx}\" \"test/**/*.{ts,tsx}\" \"scripts/**/*.ts\" package.json package-lock.json README.md plugins/neptune-tools/.claude-plugin/plugin.json plugins/neptune-tools/.codex-plugin/plugin.json",
-		"lint:fix": "prettier --write \"source/**/*.{ts,tsx}\" \"test/**/*.{ts,tsx}\" \"scripts/**/*.ts\" package.json package-lock.json README.md plugins/neptune-tools/.claude-plugin/plugin.json plugins/neptune-tools/.codex-plugin/plugin.json",
+		"lint:format": "prettier --check \"source/**/*.{ts,tsx}\" \"test/**/*.{ts,tsx}\" \"scripts/**/*.ts\" package.json package-lock.json README.md plugins/neptune-tools/.claude-plugin/plugin.json",
+		"lint:fix": "prettier --write \"source/**/*.{ts,tsx}\" \"test/**/*.{ts,tsx}\" \"scripts/**/*.ts\" package.json package-lock.json README.md plugins/neptune-tools/.claude-plugin/plugin.json",
 		"test": "tsc && ava",
 		"postinstall": "playwright install chromium"
 	},
@@ -25,7 +25,6 @@
 	"dependencies": {
 		"@anthropic-ai/claude-agent-sdk": "^0.2.126",
 		"@modelcontextprotocol/sdk": "^1.29.0",
-		"@openai/codex-sdk": "^0.129.0",
 		"ink": "^5.2.1",
 		"ink-select-input": "^6.2.0",
 		"ink-spinner": "^5.0.0",

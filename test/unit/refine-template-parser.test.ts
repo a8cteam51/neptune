@@ -1,8 +1,8 @@
 import test from 'ava';
 import {
-	parseApplyEnvelope,
+	parseApplyOutcomes,
 	parseDiffReport,
-	validateApplyCoverage,
+	validateOutcomeCoverage,
 } from '../../source/commands/refine-template.js';
 
 test('parses a valid report', t => {
@@ -186,177 +186,85 @@ test('treats missing diffs array as empty', t => {
 	t.is(r.diffs.length, 0);
 });
 
-test('parseApplyEnvelope: accepts envelope with template + theme_json_patch', t => {
-	const e = parseApplyEnvelope(
-		JSON.stringify({
-			template_html: '<!-- wp:group -->x<!-- /wp:group -->',
-			theme_json_patch: {
-				blocks: {
-					'core/button': {color: {text: '#000'}, css: '.x{}'},
-				},
-			},
-		}),
-	);
-	t.is(e.template_html, '<!-- wp:group -->x<!-- /wp:group -->');
-	t.truthy(e.theme_json_patch);
-	t.deepEqual(e.theme_json_patch?.blocks, {
-		'core/button': {color: {text: '#000'}, css: '.x{}'},
-	});
+test('parseApplyOutcomes: picks APPLIED + SKIPPED lines out of a mixed transcript', t => {
+	const text = [
+		'wrote wp_template:single (id 42, 1289 bytes)',
+		'edited theme.json (extended styles.blocks.core/heading)',
+		'APPLIED hero-heading-level: changed wp:paragraph to wp:heading level=1',
+		'APPLIED footer-spacing: switched padding to var:preset|spacing|lg',
+		'SKIPPED card-hover: description did not reference a specific block',
+		'flushed theme.json cache',
+	].join('\n');
+	const {applied, skipped} = parseApplyOutcomes(text);
+	t.is(applied.length, 2);
+	t.is(applied[0]!.id, 'hero-heading-level');
+	t.is(applied[0]!.summary, 'changed wp:paragraph to wp:heading level=1');
+	t.is(applied[1]!.id, 'footer-spacing');
+	t.is(skipped.length, 1);
+	t.is(skipped[0]!.id, 'card-hover');
+	t.is(skipped[0]!.reason, 'description did not reference a specific block');
 });
 
-test('parseApplyEnvelope: rejects variations under theme_json_patch.blocks', t => {
-	t.throws(
-		() =>
-			parseApplyEnvelope(
-				JSON.stringify({
-					template_html: '<!-- wp:p --><!-- /wp:p -->',
-					theme_json_patch: {
-						blocks: {
-							'core/button': {variations: {'neptune-x': {}}},
-						},
-					},
-				}),
-			),
-		{message: /variations is not supported.*block_style_variations/},
-	);
+test('parseApplyOutcomes: tolerates blank lines and leading whitespace', t => {
+	const text = `
+
+\t\tAPPLIED a: alpha
+\tSKIPPED b: bravo
+
+APPLIED c: charlie
+`;
+	const {applied, skipped} = parseApplyOutcomes(text);
+	t.is(applied.length, 2);
+	t.is(applied[0]!.id, 'a');
+	t.is(applied[1]!.id, 'c');
+	t.is(skipped.length, 1);
+	t.is(skipped[0]!.id, 'b');
 });
 
-test('parseApplyEnvelope: omitted theme_json_patch is undefined', t => {
-	const e = parseApplyEnvelope(
-		JSON.stringify({template_html: '<!-- wp:p --><!-- /wp:p -->'}),
-	);
-	t.is(e.theme_json_patch, undefined);
+test('parseApplyOutcomes: ignores APPLIED/SKIPPED-shaped fragments inside other text', t => {
+	const text =
+		'Some narration: APPLIED inside a sentence is not a summary line.\nAPPLIED real-id: ok';
+	const {applied} = parseApplyOutcomes(text);
+	t.is(applied.length, 1);
+	t.is(applied[0]!.id, 'real-id');
 });
 
-test('parseApplyEnvelope: rejects extra top-level keys in patch', t => {
-	t.throws(
-		() =>
-			parseApplyEnvelope(
-				JSON.stringify({
-					template_html: '<!-- wp:p --><!-- /wp:p -->',
-					theme_json_patch: {blocks: {}, settings: {color: {}}},
-				}),
-			),
-		{message: /may only contain keys: blocks, custom/},
-	);
+test('parseApplyOutcomes: empty input returns empty arrays', t => {
+	const {applied, skipped} = parseApplyOutcomes('');
+	t.deepEqual(applied, []);
+	t.deepEqual(skipped, []);
 });
 
-test('parseApplyEnvelope: missing template_html surfaces as null (caller falls back to current markup)', t => {
-	const e = parseApplyEnvelope(
-		JSON.stringify({theme_json_patch: {blocks: {}}}),
-	);
-	t.is(e.template_html, null);
-});
-
-test('parseApplyEnvelope: empty/whitespace template_html surfaces as null', t => {
-	const e1 = parseApplyEnvelope(JSON.stringify({template_html: ''}));
-	t.is(e1.template_html, null);
-	const e2 = parseApplyEnvelope(JSON.stringify({template_html: '   \n\t'}));
-	t.is(e2.template_html, null);
-});
-
-test('parseApplyEnvelope: throws on non-JSON', t => {
-	t.throws(() => parseApplyEnvelope('not json'), {
-		message: /not valid JSON/i,
-	});
-});
-
-test('parseApplyEnvelope: throws on top-level non-object', t => {
-	t.throws(() => parseApplyEnvelope('[]'), {
-		message: /not a JSON object/i,
-	});
-});
-
-test('parseApplyEnvelope: applied + skipped arrays parse', t => {
-	const e = parseApplyEnvelope(
-		JSON.stringify({
-			template_html: '<!-- wp:p --><!-- /wp:p -->',
-			applied: [
-				{id: 'a', summary: 'changed paragraph to heading'},
-				{id: 'b', summary: 'set padding preset lg'},
-			],
-			skipped: [{id: 'c', reason: 'description was ambiguous'}],
-		}),
-	);
-	t.is(e.applied.length, 2);
-	t.is(e.applied[0]!.id, 'a');
-	t.is(e.applied[0]!.summary, 'changed paragraph to heading');
-	t.is(e.skipped.length, 1);
-	t.is(e.skipped[0]!.reason, 'description was ambiguous');
-});
-
-test('parseApplyEnvelope: missing applied/skipped default to empty arrays', t => {
-	const e = parseApplyEnvelope(
-		JSON.stringify({template_html: '<!-- wp:p --><!-- /wp:p -->'}),
-	);
-	t.deepEqual(e.applied, []);
-	t.deepEqual(e.skipped, []);
-});
-
-test('parseApplyEnvelope: drops malformed entries from applied/skipped', t => {
-	const e = parseApplyEnvelope(
-		JSON.stringify({
-			template_html: '<!-- wp:p --><!-- /wp:p -->',
-			applied: [
-				{id: 'good', summary: 'ok'},
-				{id: 'no-summary'},
-				'string',
-				null,
-			],
-			skipped: [{id: 'good2', reason: 'because'}, {summary: 'wrong field'}],
-		}),
-	);
-	t.is(e.applied.length, 1);
-	t.is(e.applied[0]!.id, 'good');
-	t.is(e.skipped.length, 1);
-	t.is(e.skipped[0]!.id, 'good2');
-});
-
-test('validateApplyCoverage: passes when every approved id is accounted for', t => {
+test('validateOutcomeCoverage: passes when every approved id is accounted for', t => {
 	t.notThrows(() =>
-		validateApplyCoverage(
-			{
-				template_html: 'x',
-				applied: [{id: 'a', summary: 'x'}],
-				skipped: [{id: 'b', reason: 'y'}],
-			},
+		validateOutcomeCoverage(
+			[{id: 'a', summary: 'x'}],
+			[{id: 'b', reason: 'y'}],
 			['a', 'b'],
 		),
 	);
 });
 
-test('validateApplyCoverage: throws when any id is missing', t => {
+test('validateOutcomeCoverage: throws when any id is missing', t => {
 	t.throws(
 		() =>
-			validateApplyCoverage(
-				{
-					template_html: 'x',
-					applied: [{id: 'a', summary: 'x'}],
-					skipped: [],
-				},
-				['a', 'b', 'c'],
-			),
+			validateOutcomeCoverage([{id: 'a', summary: 'x'}], [], ['a', 'b', 'c']),
 		{message: /b, c/},
 	);
 });
 
-test('validateApplyCoverage: empty approved + empty applied/skipped passes', t => {
-	t.notThrows(() =>
-		validateApplyCoverage({template_html: 'x', applied: [], skipped: []}, []),
-	);
+test('validateOutcomeCoverage: empty approved + empty applied/skipped passes', t => {
+	t.notThrows(() => validateOutcomeCoverage([], [], []));
 });
 
-test('validateApplyCoverage: extra ids in applied that are not approved are fine', t => {
+test('validateOutcomeCoverage: extra ids in applied that are not approved are fine', t => {
 	t.notThrows(() =>
-		validateApplyCoverage(
-			{
-				template_html: 'x',
-				applied: [
-					{id: 'a', summary: 'x'},
-					{id: 'extra', summary: 'unrequested'},
-				],
-				skipped: [],
-			},
+		validateOutcomeCoverage(
+			[
+				{id: 'a', summary: 'x'},
+				{id: 'extra', summary: 'unrequested'},
+			],
+			[],
 			['a'],
 		),
 	);
