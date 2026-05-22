@@ -58,7 +58,15 @@ The input is a flat JSON object of design tokens, map them to the appropriate se
 - Values who include `Font(` are part of typography settings. Extract `font-family` into `typography.fontFamilies` and `font-size` into `typography.fontSizes`. If the key includes an HTML element, e.g. `h1-font`, also capture that in `styles.elements` as a CSS selector (`h1`). `Normal` keys relate to body typography, `Heading` keys relate to heading typography.
 - Values that look like colors (e.g. hex codes) go into `color.palette`.
 - Values that look like spacing (e.g. `20px`, `1.5rem`) go into `spacing.spacingSizes`.
-- `Normal` and `Wide` values go into `layout.contentSize` and `layout.wideSize` respectively.
+
+### Reserved Neptune keys (authoritative — do NOT skip or rename)
+
+Two keys, when present, override every other layout heuristic. They carry values the user typed into Neptune's build-theme-json widths prompt and represent the canonical project widths:
+
+- `__neptune__layout_content_size` → write its value verbatim into `settings.layout.contentSize`.
+- `__neptune__layout_wide_size` → write its value verbatim into `settings.layout.wideSize`.
+
+These keys override any Figma "Normal" / "Wide" tokens that might otherwise be inferred as layout widths. Treat the user's input as the source of truth for project widths; do not invent your own values, do not omit them, do not place them anywhere other than `settings.layout`. If a key's value is an empty string, write an empty string to the corresponding setting (the downstream build pipeline will surface that as an unset width). Do not emit either key as a token under `color`, `typography`, or `spacing` — they are not design tokens.
 
 ## Rules
 
@@ -81,3 +89,4 @@ Return ONLY the raw JSON for theme.json. Do not include markdown code fences. Do
 4. CSS variables of the form `var(--wp--preset--<group>--<slug>)` carry a single dash between letters and numbers (`--h-1`, never `--h1`).
 5. Desktop / mobile pairs are collapsed into a single `clamp(min, fluid, max)` value where appropriate, not split into separate slugs.
 6. No top-level keys other than `$schema`, `version`, `settings`, and `styles`.
+7. If the input contained `__neptune__layout_content_size` or `__neptune__layout_wide_size`, their values are written verbatim into `settings.layout.contentSize` / `wideSize` and appear nowhere else in the output.

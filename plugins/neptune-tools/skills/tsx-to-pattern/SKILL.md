@@ -78,7 +78,13 @@ Return ONLY a single JSON object. No markdown fences. No preamble. No commentary
 
 ## Where to put style information
 
-The default channel for styling is `theme_json_patch.blocks["core/<x>"]` (project-wide) or a `block_style_variations[]` entry the block claims via `is-style-<slug>` (per-instance). Raw inline `style="..."` HTML attributes on the rendered HTML inside block markup are FORBIDDEN — they break Gutenberg's block validation (the parser re-runs `save()` and rejects markup whose inline styles don't match what `save()` would emit). Promote every value to a theme.json patch or a registered variation.
+Three channels carry the styling. Pick the one that matches the scope:
+
+- **Project-wide** — `theme_json_patch.blocks["core/<x>"]`. Use this when every instance of the block type should look this way once the host theme picks up the patch.
+- **One-off per-instance** — a structured `"style":{...}` JSON attribute in the block comment (e.g. `<!-- wp:group {"style":{"spacing":{"padding":{"top":"var:preset|spacing|7","bottom":"var:preset|spacing|8"}}}} -->`). This is the canonical Gutenberg channel for a single block whose values aren't shared with siblings — the block parser reads it and `save()` emits the matching HTML automatically.
+- **Recurring shape that needs a name** — a `block_style_variations[]` entry the block claims via `is-style-<slug>`. Use this only when the same constellation will appear on multiple blocks of the same type with a coherent visual identity worth naming.
+
+What IS forbidden: a raw HTML `style="..."` attribute (including empty `style=""`) HAND-WRITTEN on the rendered HTML inside the block markup. The parser re-runs `save()` and compares; a hand-written attribute won't match the reconstructed form and the editor reports "this block contains unexpected or invalid content". The fix is to set `"style":{...}` in the block comment's JSON, never to hand-write the resulting HTML.
 
 The single biggest failure mode in this conversion is "I'll just add a `className` and key a CSS rule off it." That bypasses every structured surface WordPress exposes and produces output the editor can't introspect. Before reaching for a custom `className` + CSS combo, work the cheat sheet and the `layout` attribute below — most of what feels like "I need raw CSS" is really an unused structured property or the wrong block attribute.
 
@@ -112,14 +118,17 @@ When the source TSX has `<div class="grid grid-cols-3 gap-8">`, the right output
 
 ### Priority order
 
-For every visual styling decision, choose the FIRST option that fits. The cardinal rule: prefer pre-exposed structured properties over CSS, and prefer reusing an existing variation over declaring a new one.
+For every visual styling decision, choose the FIRST option that fits.
 
-1. **A theme.json preset slug** — `{"backgroundColor":"<slug>"}`, `{"textColor":"<slug>"}`, `{"fontSize":"<slug>"}`, `style.spacing` with `var:preset|spacing|<slug>`.
-2. **A structured property under `theme_json_patch.blocks["core/<x>"]`** — pre-exposed block properties (color/typography/spacing/dimensions/border/shadow/outline/elements). Walk the cheat sheet above before deciding a value isn't structured.
-3. **An existing block style variation** — apply the matching `is-style-<slug>` class from the inventory; do NOT redeclare it.
-4. **A new block style variation** in `block_style_variations[]`, again using structured properties first inside `styles`; only fall through to `styles.css` when the rule isn't structured.
-5. **The `layout` attribute on the block instance** — for flex / grid / constrained containers, set `wp:group`'s `layout:{...}` (see "Layout attribute" above). Do NOT emulate these by writing CSS keyed off a custom `className`.
-6. **CSS — last resort.** Only when no structured property can express the rule AND it isn't a `layout` choice. Prefer `&{...}` and block-internal child selectors (`& img`, `& .wp-block-button__link`); avoid `&.<custom-class>{...}` selectors that depend on a className you invented.
+1. **A theme.json preset slug** — `{"backgroundColor":"<slug>"}`, `{"textColor":"<slug>"}`, `{"fontSize":"<slug>"}`, `style.spacing` with `var:preset|spacing|<slug>`. Patterns rely on the host theme's presets — never inline raw values when a slug exists.
+2. **A structured property under `theme_json_patch.blocks["core/<x>"]`** — pre-exposed block properties (color/typography/spacing/dimensions/border/shadow/outline/elements). Use when the value should apply to every instance of the block type project-wide. Walk the cheat sheet above before deciding a value isn't structured.
+3. **A structured `"style":{...}` JSON attribute on the block instance** — for one-off per-instance values that aren't shared with siblings inside the pattern. Padding for the pattern's outer group, a single block's background, a one-off border radius, a one-off `dimensions.minHeight`. The block parser reads these and `save()` renders the matching HTML, so validation always holds. Use whenever the value lives on exactly one block in the pattern and there's no reusable identity worth naming.
+4. **An existing block style variation** — apply the matching `is-style-<slug>` class from the inventory; do NOT redeclare it.
+5. **A new block style variation** in `block_style_variations[]` — register one only when BOTH (a) the same constellation of styles appears on multiple blocks of the same type inside the pattern (or is reused across patterns via the existing-variations inventory), AND (b) the shape has a coherent visual identity worth naming as an editor option. A single block's chrome is NOT a variation — that's option 3. Use structured properties inside `styles` first; only fall through to `styles.css` when the rule isn't structured.
+6. **The `layout` attribute on the block instance** — for flex / grid / constrained containers, set `wp:group`'s `layout:{...}` (see "Layout attribute" above). Do NOT emulate these by writing CSS keyed off a custom `className`.
+7. **CSS — last resort.** Only when no structured property can express the rule AND it isn't a `layout` choice. Prefer `&{...}` and block-internal child selectors (`& img`, `& .wp-block-button__link`); avoid `&.<custom-class>{...}` selectors that depend on a className you invented.
+
+Raw HTML `style="..."` attributes on rendered HTML inside the markup are FORBIDDEN — they fail block validation. Per-instance values go in the block comment's `"style":{...}` JSON (option 3); never hand-write the resulting HTML attribute.
 
 NEVER write to `styles.css` or any other top-level theme.json key.
 
@@ -142,7 +151,8 @@ For every layout `<div>`, set the `layout` block ATTRIBUTE on `wp:group`: `{"typ
 
 - Every opening block comment must have a matching closing comment.
 - JSON in block comment attributes must be valid: no trailing commas, no comments, double-quoted keys.
-- NEVER emit a raw HTML `style="..."` attribute (including `style=""`) on the rendered HTML elements inside block markup. The block parser re-runs the block's `save()` function and rejects markup whose inline style attributes don't match what `save()` would emit. All styling MUST go through `theme_json_patch.blocks["core/<x>"]` or a `block_style_variations[]` entry. Do NOT set instance-level `"style":{...}` JSON block attributes either, except for the canonical `"style":{"spacing":{"blockGap":"var:preset|spacing|<slug>"}}` on `wp:group` / `wp:columns` / `wp:cover` paired with a `layout:{...}` attribute.
+- NEVER emit a raw HTML `style="..."` attribute (including `style=""`) on the rendered HTML elements inside block markup. The block parser re-runs the block's `save()` function and rejects markup whose inline style attributes don't match what `save()` would emit. Per-instance styling goes in the block comment's `"style":{...}` JSON (option 3 in the priority order); `save()` then emits the matching HTML automatically.
+- Instance-level `"style":{...}` JSON in the block comment IS allowed (and is the canonical channel for per-block one-off values within a pattern). Use it for one-off `spacing`, `color`, `border`, `dimensions`, `typography` values that don't recur across blocks of the same type inside the pattern. Do NOT use it to redeclare values that should live in `theme_json_patch.blocks["core/<x>"]` (project-wide) or in a registered variation (recurring + named identity).
 - Strip Figma's `data-node-id`, `data-name`, `data-neptune-annotations`, and `data-development-annotations` attributes from the output.
 - Slugs are kebab-case, lowercase, alphanumeric + hyphens.
 - Variation slugs in `block_style_variations[]` MUST be prefixed `neptune-`.
@@ -156,7 +166,7 @@ For every layout `<div>`, set the `layout` block ATTRIBUTE on `wp:group`: `{"typ
 3. If `theme_json_patch` is present, it has only `blocks` and/or `custom` at the top level — no `variations` anywhere inside.
 4. If `block_style_variations` is present, every entry's slug starts with `neptune-` AND its `is-style-<slug>` class appears on at least one block in `template_html`. Every `is-style-neptune-<slug>` class on a block is backed EITHER by an existing-variations inventory entry OR a new `block_style_variations[]` entry — never both, never neither.
 5. CSS only used when no pre-exposed structured property could express the rule. Specifically, before writing any of `aspect-ratio`, `min-height`, `gap`, `padding`, `margin`, `border-*`, `box-shadow`, `outline-*`, `font-*`, `letter-spacing`, `line-height`, `text-transform`, `background`, or `color` into a `css` field, verify the structured equivalent (`dimensions.aspectRatio`, `dimensions.minHeight`, `spacing.blockGap`, `spacing.padding`, `spacing.margin`, `border.*`, `shadow`, `outline.*`, `typography.*`, `color.*`) cannot be used.
-6. `template_html` contains zero raw HTML `style="..."` attributes (including empty `style=""`) and zero instance-level `"style":{...}` JSON block attributes — except the canonical `"style":{"spacing":{"blockGap":"var:preset|spacing|<slug>"}}` on layout containers. Every styling decision is realized via `theme_json_patch.blocks`, `block_style_variations[]`, or that one canonical instance-level shape.
+6. `template_html` contains zero raw HTML `style="..."` attributes (including empty `style=""`). Instance-level `"style":{...}` JSON in block comments IS allowed — verify each occurrence is a one-off value within the pattern that doesn't belong in `theme_json_patch.blocks["core/<x>"]` (project-wide) or a `block_style_variations[]` entry (recurring + named).
 7. Every flex / grid / constrained container uses the `layout` block attribute (`layout:{"type":"flex"|"grid"|"constrained",...}`) — NOT emulated via a custom `className` plus a CSS rule. Inter-child gap goes in `style.spacing.blockGap`, not a `gap:...` declaration in `css`.
 8. No block in the pattern declares its own `contentSize`/`wideSize` under `layout`. Width is `align:"wide"` / `align:"full"` / no align, driven by the host theme's `theme.json.settings.layout`. Narrower content uses `style.spacing.padding.left/right`. Pinning widths inside a pattern breaks portability across themes.
 9. Every `className` on a block is one of: `is-style-<slug>` (variation), a wp-core class (`alignwide`, `alignfull`, etc.), or a class explicitly required by the source TSX. NO ad-hoc BEM-style handles whose sole job is to back `&.<name>{...}` rules. For every `&.<custom-class>{...}` selector that does appear in a `css` field, confirm `<custom-class>` is `is-style-<registered-slug>` — NOT a className you invented.

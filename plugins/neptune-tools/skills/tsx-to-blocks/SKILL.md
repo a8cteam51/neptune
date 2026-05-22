@@ -51,9 +51,46 @@ Some TSX nodes carry a `data-neptune-annotations="<role>"` attribute. They fall 
 
 All three kinds of annotations are stripped from the emitted markup; only their effect on the conversion remains.
 
+### Resolving annotation values
+
+The values in the tables below are CANONICAL — the exact strings a precise designer would type — but Figma annotations are typed by humans, so values drift. Resolve every annotation by intent, not by literal string equality. Walk this order and stop at the first step that yields a match:
+
+1. **Exact match** — the literal value appears in the canonical table for one of the three categories. Apply that mapping verbatim.
+2. **Near-match (normalize, then re-check)** — apply these transforms to the value and re-test against the canonical tables:
+   - lowercase
+   - replace `_`, ` `, `:`, and camelCase boundaries with `-`
+   - strip a leading `wp-`, `wp:`, or `core/` prefix
+   - strip a leading or trailing `block`
+   - try with and without a leading `post-` (so `featured-image`, `featuredImage`, `featured_image`, `wp:post-featured-image`, and `post-featured-image` all collapse to the canonical `post-featured-image`)
+   
+   If the normalized value is in a canonical table, apply that mapping.
+3. **Semantic match for block-mapping (off-list dynamic blocks)** — when the value isn't in the canonical table even after normalization, but the design intent clearly maps to a WordPress core dynamic block, emit that block. Use this non-exhaustive guide for the common ones designers reach for:
+   
+   | Designer says (any near-variant)                 | Emit                                    |
+   | ------------------------------------------------ | --------------------------------------- |
+   | `site-logo`, `logo`, `brand`                     | `<!-- wp:site-logo /-->`                |
+   | `site-title` (brand, not a post heading)         | `<!-- wp:site-title /-->`               |
+   | `site-tagline`, `tagline`                        | `<!-- wp:site-tagline /-->`             |
+   | `post-content`, `content-body` (as block-mapping, not region-scope — see below) | `<!-- wp:post-content /-->` |
+   | `post-comments-count`, `comments-count`          | `<!-- wp:comments-count /-->`           |
+   | `post-comments-form`, `comments-form`            | `<!-- wp:post-comments-form /-->`       |
+   | `post-comments-link`, `comments-link`            | `<!-- wp:post-comments-link /-->`       |
+   | `query-pagination`, `pagination`                 | `<!-- wp:query-pagination /-->` (with default children) |
+   | `post-terms`, `categories`, `tags`               | `<!-- wp:post-terms {"term":"category"} /-->` (use `post_tag` for tags) |
+   | `search`, `search-form`                          | `<!-- wp:search /-->`                   |
+   | `loginout`, `login-out`, `login-link`            | `<!-- wp:loginout /-->`                 |
+   | `archive-title`, `query-title`                   | `<!-- wp:query-title {"type":"archive"} /-->` |
+   | `read-more`, `more-link`                         | `<!-- wp:read-more /-->`                |
+   | `nav`, `navigation`, `menu`, `main-menu`         | `<!-- wp:navigation /-->`               |
+   
+   Pick the closest match by role. If you're 70%+ confident the designer meant a specific dynamic block, emit it; if you're guessing, fall through to step 4.
+4. **Fallback** — if nothing canonical or semantic fits, treat the annotation as a designer's documentation label rather than a dispatch directive. Convert the JSX node by the standard rules (no dynamic-block substitution, no skipped subtree). Do not emit a comment or warning — the annotation is informational only at that point.
+
 ### Block-mapping annotations
 
 Substitute the marked node with the matching WordPress block instead of converting the visual literally. Drop the inner content of the annotated node — WordPress fills it at render time.
+
+Canonical values:
 
 | Annotation value      | Emit                                                  |
 | --------------------- | ----------------------------------------------------- |
@@ -65,13 +102,19 @@ Substitute the marked node with the matching WordPress block instead of converti
 | `post-navigation`     | `<!-- wp:post-navigation-link /-->` (next + previous) |
 | `comments-list`       | `<!-- wp:comments /-->` with default child blocks     |
 
+These are the canonical values; resolve near-matches and semantic equivalents per "Resolving annotation values" above. So a designer who writes `title`, `Post Title`, `post_title`, or `wp:post-title` on a heading element resolves to `wp:post-title` here; a designer who writes `featured-image` resolves to `wp:post-featured-image`.
+
 Do NOT also emit a `wp:heading` (or other literal block) next to `wp:post-title` for the same node — the dynamic block replaces the literal entirely.
 
 ### Container-mapping annotations
 
+Canonical values:
+
 | Annotation value | Emit                                                                            |
 | ---------------- | ------------------------------------------------------------------------------- |
 | `query-loop`     | `wp:query` wrapping a `wp:post-template` whose contents are the node's children |
+
+Resolve near-matches per "Resolving annotation values" above — `queryLoop`, `query_loop`, `posts-loop`, `loop`, `query` all collapse to `query-loop`. There is currently only one container-mapping annotation; if a designer writes something that clearly means "this is a list of repeating posts pulled from the database" but doesn't match any canonical name (e.g. `posts-grid`, `latest-posts`, `cpt-list`), treat it as `query-loop`. If the intent is unclear (e.g. `card-grid` could be static cards OR a query), fall through to literal conversion — patterns of static repetition belong in the markup, not in `wp:query`.
 
 #### `query-loop` → `wp:query` + `wp:post-template`
 
@@ -120,11 +163,17 @@ If the annotated subtree contains a heading or intro paragraph that visibly belo
 
 These three values mark structural regions that live in their own template artifact. Each is built by a separate Neptune pull; the current build's scope determines how this build treats them.
 
+Canonical values:
+
 | Annotation value | The marked subtree is built into                                                                  |
 | ---------------- | ------------------------------------------------------------------------------------------------- |
 | `header`         | `parts/header.html` (separate pull)                                                               |
 | `footer`         | `parts/footer.html` (separate pull)                                                               |
 | `post-content`   | the page's `post_content` (separate pull, when the surrounding template embeds `wp:post-content`) |
+
+Resolve near-matches per "Resolving annotation values" above. Concretely: `Header`, `site-header`, `page-header`, `top-bar`, `masthead` all collapse to the canonical `header`. `Footer`, `site-footer`, `page-footer`, `colophon` all collapse to `footer`. `post-content`, `content-body`, `entry-content`, `main-content`, `post-body` all collapse to `post-content`.
+
+Hold region-scope to a stricter bar than block-mapping. These annotations drive PIPELINE behaviour — which markup ends up in which template artifact — so an ambiguous match here produces silently wrong output (e.g. the page body getting routed into `parts/header.html`). If a value isn't a clear near-match for one of the three canonical regions, do NOT semantically promote it; treat the annotation as informational and let the standard rules handle the subtree. Specifically, generic labels like `main`, `body`, `content`, `wrapper`, `container` do NOT match `post-content` unless surrounding context (Figma layer name, dev annotations, scope instruction) makes the intent unmistakable.
 
 Per-scope rules:
 
@@ -236,7 +285,13 @@ Return ONLY a single JSON object. No markdown fences. No preamble. No commentary
 
 ## Where to put style information
 
-The default channel for styling a block is `theme_json_patch.blocks["core/<x>"]` — extending what's already in `theme.json.styles.blocks`. Per-instance styling lives in a `block_style_variations[]` entry the block claims via `is-style-<slug>`. Raw inline `style="..."` HTML attributes on the rendered HTML inside a block are FORBIDDEN — they break Gutenberg's block validation (the parser re-runs `save()` and rejects markup whose attributes don't match what `save()` would emit). Promote every value to a theme.json patch or a registered variation.
+Three channels carry the styling. Pick the one that matches the scope:
+
+- **Project-wide** — `theme_json_patch.blocks["core/<x>"]`. Deep-merged into `theme.json.styles.blocks`. Use this when every instance of the block type in the project should look this way (e.g. all images rounded, all author bios in the secondary colour).
+- **One-off per-instance** — a structured `"style":{...}` JSON attribute in the block comment (e.g. `<!-- wp:group {"style":{"spacing":{"padding":{"top":"var:preset|spacing|7","bottom":"var:preset|spacing|7"}}}} -->`). This is the canonical Gutenberg channel for a single block whose values aren't shared with siblings — section padding, a one-off background, a one-off border radius. `save()` reads `attrs.style.*` and emits the matching HTML automatically; block validation always holds because both sides derive from the same JSON.
+- **Recurring shape that needs a name** — a `block_style_variations[]` entry the block claims via `is-style-<slug>`. Use this only when the SAME constellation of styles will appear on multiple blocks of the same type with a coherent visual identity worth naming ("Filled Card", "Outline Tag", "Inverse Site Title").
+
+What IS forbidden, without exception: a raw HTML `style="..."` attribute (including empty `style=""`) HAND-WRITTEN on the rendered HTML inside the block markup. The parser re-runs `save()` and compares; a hand-written attribute almost never matches the reconstructed form, and the editor reports "this block contains unexpected or invalid content". The fix is never "promote everything to a variation" — it's to set `"style":{...}` in the block comment's JSON attributes and let `save()` render the matching HTML.
 
 The single biggest failure mode in this conversion is "I'll just add a `className` and key a CSS rule off it." That move bypasses every structured surface WordPress exposes and produces output the editor can't introspect. Before you reach for a custom `className` + CSS combo, work the cheat sheet and the `layout` attribute below — most of what feels like "I need raw CSS" is really an unused structured property or the wrong block attribute.
 
@@ -293,13 +348,14 @@ Tailwind translation cheat:
 For every styling decision, work top-down and stop at the first option that fits.
 
 1. **A theme.json preset slug** already in `theme.json` — `{"backgroundColor":"<slug>"}`, `{"textColor":"<slug>"}`, `{"fontSize":"<slug>"}`, `style.spacing` with `var:preset|spacing|<slug>`. Always prefer this when a preset matches.
-2. **A structured property under `theme_json_patch.blocks["core/<x>"]`** — pre-exposed block properties (color/typography/spacing/dimensions/border/shadow/outline/elements). DEFAULT channel for any value that isn't a preset slug. Read what's already at `theme.json.styles.blocks["core/<x>"]` first; your patch extends that subtree. Walk the cheat sheet above before deciding a value isn't structured.
-3. **An existing block style variation** — if `=== existing block style variations ===` contains an entry whose `styles` already matches what you need, apply its `is-style-<slug>` class. Do NOT redeclare in `block_style_variations[]`.
-4. **A new block style variation** in `block_style_variations[]` — register one whenever the same constellation of styles will (or already does) appear on multiple instances of the same block type with a coherent visual identity. Use structured properties inside `styles` first; only fall through to `styles.css` when the rule isn't structured (display/flex-direction, child-element selectors, media queries). Forcing question: "would I otherwise inline these same styles on a sibling block of the same type?" If yes, register the variation.
-5. **The `layout` attribute on the block instance** — for flex / grid / constrained containers, set `wp:group`'s `layout:{...}` (see "Layout attribute" above). This is the right channel for `display:flex`, `justify-content`, `flex-wrap`, `grid-template-columns:repeat(N,1fr)`. Do NOT emulate these by writing CSS keyed off a custom `className`.
-6. **CSS** in a `.css` field — only when the rule cannot be expressed as a structured property AND is not a `layout` choice (pseudo-selectors, child-element selectors, animations, complex states, media-query refinements). Use `theme_json_patch.blocks["core/<x>"].css` for project-wide rules or a variation's `styles.css` for scoped ones. Inside the `css` value, prefer `&{...}` (the block itself) and block-internal descendant selectors (`& img`, `& .wp-block-button__link`); a variation's own `&.is-style-<slug>{...}` selector is also fine. Avoid `&.<custom-class>{...}` selectors that depend on a `className` you invented for the purpose — those are the className-as-CSS-hook anti-pattern (see Hard rules).
+2. **A structured property under `theme_json_patch.blocks["core/<x>"]`** — pre-exposed block properties (color/typography/spacing/dimensions/border/shadow/outline/elements). Use this when the value applies to EVERY instance of the block type in the project (e.g. all images get `border.radius:4px`, all author bios use the secondary colour). Read what's already at `theme.json.styles.blocks["core/<x>"]` first; your patch extends that subtree. Walk the cheat sheet above before deciding a value isn't structured.
+3. **A structured `"style":{...}` JSON attribute on the block instance** — for one-off per-instance values that aren't shared with siblings. Section padding, a single block's background, a one-off border radius, a one-off `dimensions.minHeight`. The block parser reads these and `save()` renders the matching HTML, so validation always holds. Use whenever the value lives on exactly one block (or a small number of clearly-distinct blocks) and there's no reusable identity worth naming. Walk the cheat sheet above to confirm the property is structured.
+4. **An existing block style variation** — if `=== existing block style variations ===` contains an entry whose `styles` already matches what you need, apply its `is-style-<slug>` class. Do NOT redeclare in `block_style_variations[]`.
+5. **A new block style variation** in `block_style_variations[]` — register one only when BOTH (a) the same constellation of styles will (or already does) appear on multiple instances of the same block type, AND (b) the shape has a coherent visual identity worth naming as an editor option ("Filled Card", "Outline Tag", "Inverse Site Title"). Forcing question: "if a future editor user looks at the style switcher, will this name read as a meaningful style choice?" If the answer is "no, it's just the padding this one section needed" — that's option 3, not a variation. Use structured properties inside `styles` first; only fall through to `styles.css` when the rule isn't structured.
+6. **The `layout` attribute on the block instance** — for flex / grid / constrained containers, set `wp:group`'s `layout:{...}` (see "Layout attribute" above). This is the right channel for `display:flex`, `justify-content`, `flex-wrap`, `grid-template-columns:repeat(N,1fr)`. Do NOT emulate these by writing CSS keyed off a custom `className`.
+7. **CSS** in a `.css` field — only when the rule cannot be expressed as a structured property AND is not a `layout` choice (pseudo-selectors, child-element selectors, animations, complex states, media-query refinements). Use `theme_json_patch.blocks["core/<x>"].css` for project-wide rules or a variation's `styles.css` for scoped ones. Inside the `css` value, prefer `&{...}` (the block itself) and block-internal descendant selectors (`& img`, `& .wp-block-button__link`); a variation's own `&.is-style-<slug>{...}` selector is also fine. Avoid `&.<custom-class>{...}` selectors that depend on a `className` you invented for the purpose — those are the className-as-CSS-hook anti-pattern (see Hard rules).
 
-There is NO step 7. Raw inline `style="..."` HTML attributes on the rendered HTML elements inside block markup are FORBIDDEN without exception — they cause Gutenberg block validation failures ("block contains unexpected or invalid content") because the saved HTML has to match what the block's `save()` function would emit, and `save()` derives styles from the block's structured JSON attributes (the comment), not from hand-written HTML attributes. If a value seems instance-specific enough to want an inline style, it belongs in a `block_style_variations[]` entry; promote it.
+Raw HTML `style="..."` attributes on the rendered HTML elements inside block markup are FORBIDDEN — they fail Gutenberg's block validation. If you want to set a value per-instance, set it in the block comment's `"style":{...}` JSON (option 3); don't hand-write the resulting HTML attribute yourself.
 
 NEVER write to `styles.css` or any other top-level theme.json key. NEVER emit raw CSS outside `theme_json_patch.blocks.<x>.css` or a variation's `styles.css`. The site's `style.css` file is off-limits.
 
@@ -307,12 +363,20 @@ NEVER write to `styles.css` or any other top-level theme.json key. NEVER emit ra
 
 **When to register a variation.** Three callout cards in a row, each rendered as `<a className="bg-zinc-900 text-white p-6 rounded-lg" href="…">…</a>`.
 
-- Wrong: three `wp:button` blocks with inline `style="..."` HTML attrs (or instance-level `style:{...}` JSON) setting background/color/padding/border-radius. Same values, three places — and the inline HTML form fails block validation.
-- Right: register one `neptune-callout` variation covering `color.background`, `color.text`, `spacing.padding`, `border.radius`. Apply `is-style-neptune-callout` on each button. Future siblings reuse the class.
+- Wrong: three `wp:button` blocks with raw `style="..."` HTML attrs setting background/color/padding/border-radius — fails block validation.
+- Wrong: three `wp:button` blocks each carrying the same instance-level `style:{...}` JSON. Same values declared three times, with no shared name — future editors can't tell these are "the callout style".
+- Right: register one `neptune-callout` variation covering `color.background`, `color.text`, `spacing.padding`, `border.radius`. Apply `is-style-neptune-callout` on each button. Future siblings reuse the class. The shape has a name; the name appears in the editor's style switcher.
 
-**When to extend `theme_json_patch.blocks`.** A single `<h2 class="tracking-tight">` (letter-spacing −0.02em), no matching preset, no "callout" identity — just project-wide heading typography.
+**When to set the style on the block instance.** A single hero section needs `48px / 0 / 64px / 0` padding — no other section uses these exact values, and "padding the hero section needs" has no coherent identity to name.
 
-- Wrong: instance-level `{"style":{"typography":{"letterSpacing":"-0.02em"}}}` on this `wp:heading`, or a raw `style="letter-spacing:-0.02em"` HTML attribute. Future headings won't pick it up, and the raw HTML form breaks block validation.
+- Wrong: register a `neptune-section-hero` variation whose only contents are this padding. The variation never recurs and "Hero Section" is a region label, not a style.
+- Wrong: raw `style="padding:48px 0 64px 0"` HTML on the rendered group — fails block validation.
+- Right: `<!-- wp:group {"style":{"spacing":{"padding":{"top":"var:preset|spacing|7","right":"0","bottom":"var:preset|spacing|8","left":"0"}}}} -->`. The block comment carries the structured attribute; `save()` renders the matching HTML.
+
+**When to extend `theme_json_patch.blocks`.** A single `<h2 class="tracking-tight">` (letter-spacing −0.02em), no matching preset, every heading in the project should pick this up.
+
+- Wrong: instance-level `{"style":{"typography":{"letterSpacing":"-0.02em"}}}` on this `wp:heading`. Solves it here, but future headings won't pick it up.
+- Wrong: a raw `style="letter-spacing:-0.02em"` HTML attribute. Breaks block validation.
 - Right: emit `theme_json_patch.blocks["core/heading"].typography.letterSpacing = "-0.02em"`. Every `wp:heading` inherits cleanly; the existing `theme.json.styles.blocks["core/heading"]` subtree gets extended, not overwritten.
 
 **When to use `layout` on the instance.** Three media cards in a 3-column responsive grid: `<div class="grid grid-cols-3 gap-8 max-md:grid-cols-1"><MediaCard/><MediaCard/><MediaCard/></div>`.
@@ -347,6 +411,20 @@ When a value isn't a preset and is reused across multiple blocks (e.g. a recurri
 | Repeating items rendered via `.map(...)`                      | Default: inline the rendered result. Do NOT generate dynamic blocks. Exception: when the `.map` is inside a `data-neptune-annotations="query-loop"` subtree, convert the single map-iteration body into the post-template instead — see "Container-mapping annotations".                                                                                                                                                                                                                                                                                                                                                                            |
 
 If a piece of TSX is purely presentational scaffolding (e.g. an empty wrapper div with only `flex` utilities), collapse it. Don't translate one-for-one if it adds nothing.
+
+### Before styling a `core/paragraph`, check that paragraph is the right block
+
+A common failure mode is reaching for a `core/paragraph` plus a variation when a more specific block already covers the case. Before you emit ANY styling (variation, theme.json patch, or instance-level `style`) on a `wp:paragraph`, run this checklist:
+
+- **Navigation links.** A `<nav>` containing anchor-style links → `wp:navigation` + `wp:navigation-link`, NOT `wp:paragraph` with link styling. The Site Editor expects navigation blocks for the global nav; paragraph variations for "nav link" make the menu uneditable from the editor's navigation panel.
+- **Standalone links / "Read more" / inline link copy.** Theme.json `styles.elements.link` already covers project-wide link colour, decoration, and hover. If the design relies on that styling, emit the link inside a `wp:paragraph` and let `elements.link` do its job — don't register a `link-text` paragraph variation that re-states the link colour.
+- **Pull-quotes / block quotes.** A visually-quoted passage → `wp:quote` (which has its own `theme.json.styles.blocks["core/quote"]` subtree) or `wp:pullquote`. Paragraph + "quote" variation duplicates styling that already lives on the quote block.
+- **Image captions.** A caption underneath an image → the `caption` attribute on the `wp:image` block (rendered as `<figcaption>`), NOT a sibling `wp:paragraph`. Caption styling goes in `theme_json_patch.blocks["core/image"].elements.caption` or the equivalent.
+- **Just a bigger / smaller paragraph.** If the only difference is font size and a matching preset slug exists in `theme.json.settings.typography.fontSizes`, set `{"fontSize":"<slug>"}` on the paragraph instance. A variation whose only contribution is "uses a different preset font size" is wasted overhead.
+- **Eyebrow / tag / badge text patterns.** These ARE legitimate paragraph variations when they recur across the design and have a coherent identity. But split typography (recurring across all eyebrows) from chrome (border + padding for the badge variant): typography lives in a base eyebrow variation; the badge's border and padding go on the specific paragraph instances that need them via instance-level `"style":{...}`, not a second near-duplicate variation.
+- **Author / byline / metadata.** When the source TSX is rendering post metadata, the right blocks are `core/post-author`, `core/post-author-name`, `core/post-author-biography`, `core/post-date`, `core/post-terms`. Style those blocks via `theme_json_patch.blocks["core/post-*"]` rather than paragraph variations.
+
+Before registering or applying any variation on `core/paragraph`, name the design intent ("nav link", "quote", "caption", "eyebrow") and confirm the answer above is "paragraph is still the right block". If the answer is "use a different block", switch the block; don't paper over it with a paragraph variation.
 
 ## Forms
 
@@ -422,7 +500,13 @@ When a Tailwind class corresponds to a preset slug in `theme.json`, prefer the n
 - Font size that matches `settings.typography.fontSizes[i].slug` → `{"fontSize":"<slug>"}`
 - Padding/margin that matches `settings.spacing.spacingSizes[i].slug` → use the `style.spacing` shape with `var:preset|spacing|<slug>` references
 
-When no preset matches, the default channel is `theme_json_patch.blocks["core/<x>"]` — extending the existing `theme.json.styles.blocks["core/<x>"]` subtree. If the value is instance-specific (would only apply on some occurrences of the block type), promote it to a `block_style_variations[]` entry and apply `is-style-<slug>` on the relevant blocks. Raw inline `style="..."` HTML attributes are NOT a fallback — they fail Gutenberg's block validator on parse.
+When no preset matches, pick by scope:
+
+- **Every instance of the block type should look this way** → `theme_json_patch.blocks["core/<x>"]`, extending the existing `theme.json.styles.blocks["core/<x>"]` subtree.
+- **One block (or a small set with no shared identity) needs this value** → set the structured property in the block comment's `"style":{...}` JSON. The block parser reads it and `save()` emits the matching HTML.
+- **The same constellation recurs across multiple blocks of the same type with a coherent named identity** → register a `block_style_variations[]` entry and apply `is-style-<slug>` on each instance.
+
+Raw HTML `style="..."` attributes on the rendered HTML are NOT a fallback — they fail Gutenberg's block validator on parse. The block-comment JSON form (`"style":{...}` in the comment) is the supported per-instance channel.
 
 When a class uses a CSS variable like `var(--eureka/contrast-1,#21201c)`, resolve via `theme.json` if there's a matching preset; otherwise look up the resolved value in `variables.json` and use that hex/length directly.
 
@@ -430,8 +514,8 @@ When a class uses a CSS variable like `var(--eureka/contrast-1,#21201c)`, resolv
 
 - Every opening block comment must have a matching closing comment (`<!-- wp:foo --> ... <!-- /wp:foo -->`).
 - JSON in block comment attributes must be valid: no trailing commas, no comments, double-quoted keys.
-- NEVER emit a raw HTML `style="..."` attribute (including `style=""`) on the rendered HTML elements inside block markup. The block parser re-runs the block's `save()` function and rejects markup whose inline style attributes don't match what `save()` would emit, surfacing as "this block contains unexpected or invalid content" in the editor. Hand-written `style="..."` attributes never match. All styling MUST go through `theme_json_patch.blocks["core/<x>"]` or a `block_style_variations[]` entry the block claims via `is-style-<slug>`.
-- Do NOT set instance-level `"style":{...}` JSON block attributes (e.g. `<!-- wp:group {"style":{"color":{"background":"#fff"}}} -->`). The save function would render a matching inline `style="..."` HTML attribute, and getting that exactly right is brittle. Promote project-wide values to `theme_json_patch.blocks["core/<x>"]` and per-instance values to `block_style_variations[]`. The only `"style":{...}` form that is safe at instance level is `"style":{"spacing":{"blockGap":"var:preset|spacing|<slug>"}}` on `wp:group` / `wp:columns` / `wp:cover` (the canonical pairing with a `layout:{...}` attribute).
+- NEVER emit a raw HTML `style="..."` attribute (including `style=""`) on the rendered HTML elements inside block markup. The block parser re-runs the block's `save()` function and rejects markup whose inline style attributes don't match what `save()` would emit, surfacing as "this block contains unexpected or invalid content" in the editor. Hand-written `style="..."` attributes never match. Per-instance styling goes in the block comment's `"style":{...}` JSON (option 3 in the priority order); `save()` then emits the matching HTML automatically.
+- Instance-level `"style":{...}` JSON in the block comment IS allowed (and is the canonical channel for per-block one-off values) — the block parser reads it and `save()` renders the corresponding HTML. Use it for one-off `spacing`, `color`, `border`, `dimensions`, `typography` values that don't recur across siblings and don't deserve a named variation. Do NOT use it to redeclare values that should live in `theme_json_patch.blocks["core/<x>"]` (project-wide) or in a registered variation (recurring + named identity) — see the priority order.
 - Strip Figma's `data-node-id`, `data-name`, `data-neptune-annotations`, and `data-development-annotations` attributes from the output — they have no value in WordPress. Both annotation kinds still inform the conversion (semantic block selection / designer intent); they just don't appear in the emitted markup.
 - Slugs are kebab-case, lowercase, alphanumeric + hyphens.
 - Variation slugs in `block_style_variations[]` MUST be prefixed `neptune-` so they don't collide with theme defaults.
@@ -447,7 +531,7 @@ When a class uses a CSS variable like `var(--eureka/contrast-1,#21201c)`, resolv
 3. If `theme_json_patch` is present, it has only `blocks` and/or `custom` at the top level — no `variations` anywhere inside.
 4. If `block_style_variations` is present, every entry's slug starts with `neptune-` AND its `is-style-<slug>` class appears on at least one block in `template_html`. Every `is-style-neptune-<slug>` class on a block is backed EITHER by an existing-variations inventory entry OR a new `block_style_variations[]` entry — never both, never neither.
 5. CSS only used when no pre-exposed structured property could express the rule. Specifically, before writing any of `aspect-ratio`, `min-height`, `gap`, `padding`, `margin`, `border-*`, `box-shadow`, `outline-*`, `font-*`, `letter-spacing`, `line-height`, `text-transform`, `background`, or `color` into a `css` field, verify the structured equivalent (`dimensions.aspectRatio`, `dimensions.minHeight`, `spacing.blockGap`, `spacing.padding`, `spacing.margin`, `border.*`, `shadow`, `outline.*`, `typography.*`, `color.*`) cannot be used.
-6. `template_html` contains zero raw HTML `style="..."` attributes (including empty `style=""`) and zero instance-level `"style":{...}` JSON block attributes — except the canonical `"style":{"spacing":{"blockGap":"var:preset|spacing|<slug>"}}` on layout containers. Every styling decision is realized via `theme_json_patch.blocks`, `block_style_variations[]`, or that one canonical instance-level shape.
+6. `template_html` contains zero raw HTML `style="..."` attributes (including empty `style=""`). Instance-level `"style":{...}` JSON in block comments IS allowed — verify each occurrence is a one-off value that doesn't belong in `theme_json_patch.blocks["core/<x>"]` (project-wide) or a `block_style_variations[]` entry (recurring + named). If the same `"style":{...}` shape appears on two-or-more sibling blocks of the same type, promote it (variation if it has a named identity, theme.json patch if it should apply project-wide).
 7. Every flex / grid / constrained container uses the `layout` block attribute (`layout:{"type":"flex"|"grid"|"constrained",...}`) — NOT emulated via a custom `className` plus a CSS rule. Inter-child gap goes in `style.spacing.blockGap`, not a `gap:...` declaration in `css`.
 8. No `wp:group` declares its own `contentSize` or `wideSize` under `layout` unless the section legitimately departs from project-wide widths (rare). Width is `align:"wide"` / `align:"full"` / no align, driven by `theme.json.settings.layout`. Narrower content uses `style.spacing.padding.left/right` (or a registered variation), not a custom `contentSize`.
 9. Every `className` on a block is one of: `is-style-<slug>` (variation), a wp-core class (`alignwide`, `alignfull`, etc.), or a class explicitly required by the source TSX for behavior the agent is not free to drop. NO ad-hoc BEM-style handles whose sole job is to back `&.<name>{...}` rules. For every `&.<custom-class>{...}` selector that does appear in a `css` field, confirm `<custom-class>` is `is-style-<registered-slug>` — NOT a className you invented.

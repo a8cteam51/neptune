@@ -32,8 +32,14 @@ import {Box, Text, useInput} from 'ink';
 import {AgentAbortedError} from '../lib/agent-stream.js';
 import EventList, {type LogEvent} from '../lib/event-list.js';
 import MultiSelect from '../lib/multi-select.js';
+import TextStep from '../lib/text-step.js';
 import {inspectLayoutWidths} from '../lib/theme-json-patch.js';
-import {buildThemeJson} from './build-theme-json.js';
+import {
+	buildThemeJson,
+	readExistingLayoutWidths,
+	validateLayoutLength,
+	type LayoutWidths,
+} from './build-theme-json.js';
 import {runBuild as runBuildTemplate} from './build-template.js';
 import {runBuildContent} from './build-content.js';
 import {runBuildPattern} from './build-pattern.js';
@@ -129,7 +135,20 @@ type StepResult =
 type Phase =
 	| {kind: 'loading'}
 	| {kind: 'gated'; missing: string[]}
-	| {kind: 'confirm'; plan: Plan}
+	| {kind: 'confirm'; plan: Plan; widthDefaults: LayoutWidths}
+	| {
+			kind: 'widthsContent';
+			plan: Plan;
+			selected: ReadonlySet<PhaseKey>;
+			defaults: LayoutWidths;
+	  }
+	| {
+			kind: 'widthsWide';
+			plan: Plan;
+			selected: ReadonlySet<PhaseKey>;
+			contentSize: string;
+			defaults: LayoutWidths;
+	  }
 	| {
 			kind: 'running';
 			plan: Plan;
@@ -202,7 +221,21 @@ export default function E2E({activeProject, onDone}: Props) {
 					setPhase({kind: 'gated', missing: gate.missing});
 					return;
 				}
-				setPhase({kind: 'confirm', plan: gate.plan});
+				const themeSlug = activeProject.config.themeSlug;
+				const widthDefaults = themeSlug
+					? await readExistingLayoutWidths(
+							resolve(
+								activeProject.dir,
+								'wordpress',
+								'wp-content',
+								'themes',
+								themeSlug,
+								'theme.json',
+							),
+						)
+					: {contentSize: '', wideSize: ''};
+				if (controller.signal.aborted) return;
+				setPhase({kind: 'confirm', plan: gate.plan, widthDefaults});
 			} catch (err) {
 				if (controller.signal.aborted) return;
 				setPhase({
@@ -261,7 +294,11 @@ export default function E2E({activeProject, onDone}: Props) {
 		},
 	);
 
-	const beginRun = (plan: Plan, selected: ReadonlySet<PhaseKey>) => {
+	const beginRun = (
+		plan: Plan,
+		selected: ReadonlySet<PhaseKey>,
+		widths: LayoutWidths,
+	) => {
 		const controller = new AbortController();
 		runControllerRef.current?.abort();
 		runControllerRef.current = controller;
@@ -380,6 +417,7 @@ export default function E2E({activeProject, onDone}: Props) {
 						try {
 							await buildThemeJson(
 								activeProject,
+								widths,
 								controller.signal,
 								sink(phaseLabel('theme'), stepIndex),
 							);
@@ -876,6 +914,7 @@ export default function E2E({activeProject, onDone}: Props) {
 			value: key,
 		}));
 		const planRef = phase.plan;
+		const widthDefaults = phase.widthDefaults;
 		return (
 			<Box flexDirection="column" padding={1}>
 				<Text bold color="cyan">
@@ -905,9 +944,96 @@ export default function E2E({activeProject, onDone}: Props) {
 								onDone();
 								return;
 							}
-							beginRun(planRef, new Set(values));
+							const selected = new Set(values);
+							// Only prompt for widths when the theme phase is in
+							// the run AND at least one width isn't already filled
+							// in on the existing theme.json. Skipping theme.json
+							// means no rebuild — keep the existing widths;
+							// pre-filled values likewise pass through silently.
+							if (
+								selected.has('theme') &&
+								(widthDefaults.contentSize === '' ||
+									widthDefaults.wideSize === '')
+							) {
+								setPhase({
+									kind: 'widthsContent',
+									plan: planRef,
+									selected,
+									defaults: widthDefaults,
+								});
+								return;
+							}
+							beginRun(planRef, selected, widthDefaults);
 						}}
 						onCancel={onDone}
+					/>
+				</Box>
+			</Box>
+		);
+	}
+
+	if (phase.kind === 'widthsContent') {
+		return (
+			<Box flexDirection="column" padding={1}>
+				<Text bold color="cyan">
+					End-to-end build
+				</Text>
+				<Box marginTop={1} flexDirection="column">
+					<Text>
+						theme.json needs `settings.layout.contentSize` and `wideSize`. These
+						drive how every block resolves `align:&quot;wide&quot;` and the
+						default content width. Type these in now.
+					</Text>
+				</Box>
+				<Box marginTop={1}>
+					<TextStep
+						title="Content size (default content width)"
+						hint="CSS length, e.g. 780px or 60rem. Submit empty to leave unset."
+						placeholder="780px"
+						initialValue={phase.defaults.contentSize}
+						validate={validateLayoutLength}
+						onSubmit={value =>
+							setPhase({
+								kind: 'widthsWide',
+								plan: phase.plan,
+								selected: phase.selected,
+								contentSize: value,
+								defaults: phase.defaults,
+							})
+						}
+					/>
+				</Box>
+			</Box>
+		);
+	}
+
+	if (phase.kind === 'widthsWide') {
+		const planRef = phase.plan;
+		const selectedRef = phase.selected;
+		const contentSize = phase.contentSize;
+		return (
+			<Box flexDirection="column" padding={1}>
+				<Text bold color="cyan">
+					End-to-end build
+				</Text>
+				<Box marginTop={1} flexDirection="column">
+					<Text dimColor>
+						contentSize = <Text bold>{contentSize || '<empty>'}</Text>
+					</Text>
+				</Box>
+				<Box marginTop={1}>
+					<TextStep
+						title="Wide size (wide-alignment width)"
+						hint={`CSS length used when a block sets align:"wide". Typically larger than contentSize.`}
+						placeholder="1200px"
+						initialValue={phase.defaults.wideSize}
+						validate={validateLayoutLength}
+						onSubmit={value =>
+							beginRun(planRef, selectedRef, {
+								contentSize,
+								wideSize: value,
+							})
+						}
 					/>
 				</Box>
 			</Box>
