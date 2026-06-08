@@ -85,7 +85,32 @@ function normalizeConfig(
 		patterns: Array.isArray(parsed.patterns)
 			? parsed.patterns.filter((n): n is string => typeof n === 'string')
 			: undefined,
+		// Default to 'figma' for any project written before this field
+		// existed, so the menu keeps showing the Figma flow unchanged.
+		source: parsed.source === 'claude-design' ? 'claude-design' : 'figma',
+		claudeDesign:
+			typeof parsed.claudeDesign === 'object' && parsed.claudeDesign !== null
+				? parsed.claudeDesign
+				: undefined,
 	};
+}
+
+// Flips a project onto the Claude Design pipeline and records where the
+// package was imported from. Called by the Import Claude Design command on
+// a successful run so the menu re-shapes to the Claude Design branch.
+export async function markClaudeDesignImported(
+	loaded: Loaded,
+	sourceDir: string,
+	now: Clock = realClock,
+): Promise<Loaded> {
+	return applyUpdate(
+		loaded,
+		{
+			source: 'claude-design',
+			claudeDesign: {importedAt: now(), sourceDir},
+		},
+		now,
+	);
 }
 
 export async function markVariablesBuilt(

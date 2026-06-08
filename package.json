@@ -17,7 +17,7 @@
 		"lint:format": "prettier --check \"source/**/*.{ts,tsx}\" \"test/**/*.{ts,tsx}\" \"scripts/**/*.ts\" package.json package-lock.json README.md plugins/neptune-tools/.claude-plugin/plugin.json",
 		"lint:fix": "prettier --write \"source/**/*.{ts,tsx}\" \"test/**/*.{ts,tsx}\" \"scripts/**/*.ts\" package.json package-lock.json README.md plugins/neptune-tools/.claude-plugin/plugin.json",
 		"test": "tsc && ava",
-		"postinstall": "playwright install chromium"
+		"postinstall": "playwright install chromium chromium-headless-shell"
 	},
 	"files": [
 		"dist"

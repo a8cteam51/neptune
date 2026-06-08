@@ -9,6 +9,7 @@
 // row pointing there. The staged file at the import source path is
 // left behind, so we always remove it ourselves.
 import {copyFile, mkdir, rm} from 'node:fs/promises';
+import {randomUUID} from 'node:crypto';
 import {basename, join, relative} from 'node:path';
 import {shellSingleQuote, wpCli} from '../../lib/wp-cli.js';
 import type {StudioSession} from './mcp.js';
@@ -24,8 +25,15 @@ export async function importMediaFile(
 	sourceAbs: string,
 ): Promise<MediaImportResult> {
 	const uploadsAbs = join(wpRoot, 'wp-content', 'uploads');
-	await mkdir(uploadsAbs, {recursive: true});
-	const stagedAbs = join(uploadsAbs, basename(sourceAbs));
+	// Stage inside a per-call unique subdir rather than uploads/<basename>.
+	// Two sources that share a basename (e.g. each pull's screenshot.png, or
+	// a logo.png shipped by multiple packages) would otherwise collide: the
+	// copyFile would overwrite, and one call's `rm` in finally could delete
+	// a file another call still needs. The subdir keeps the original
+	// basename (so the attachment is named correctly) while isolating it.
+	const stageDir = join(uploadsAbs, `.neptune-stage-${randomUUID()}`);
+	await mkdir(stageDir, {recursive: true});
+	const stagedAbs = join(stageDir, basename(sourceAbs));
 	await copyFile(sourceAbs, stagedAbs);
 	const stagedRel = relative(wpRoot, stagedAbs);
 	try {
@@ -48,10 +56,10 @@ export async function importMediaFile(
 		return {id, url};
 	} finally {
 		try {
-			await rm(stagedAbs, {force: true});
+			await rm(stageDir, {recursive: true, force: true});
 		} catch {
 			// Cleanup failures shouldn't mask the import result; the
-			// staging file is harmless if left behind.
+			// staging dir is harmless if left behind.
 		}
 	}
 }

@@ -171,3 +171,49 @@ export function selectorForRole(role: CaptureRole): string | undefined {
 	if (role === 'footer') return '[data-template-part="footer"]';
 	return undefined;
 }
+
+export class BrowserNotInstalledError extends Error {
+	constructor(detail: string) {
+		super(
+			'Playwright browser is not installed (needed to render design ' +
+				'references and capture live pages). Install it with:\n' +
+				'  npx playwright install chromium chromium-headless-shell\n\n' +
+				detail,
+		);
+		this.name = 'BrowserNotInstalledError';
+	}
+}
+
+// Pre-flight: verify the headless browser captureAtSize launches is
+// actually present, by launching and immediately closing it. Throws a
+// BrowserNotInstalledError (with the install command) when the binary is
+// missing — Playwright updates can leave the chrome-headless-shell binary
+// absent even when full Chromium is installed. Callers run this BEFORE
+// expensive work that will later need a capture, so a missing browser
+// fails fast instead of after a paid agent run. Other launch failures are
+// rethrown unchanged.
+export async function ensureBrowserAvailable(
+	signal?: AbortSignal,
+): Promise<void> {
+	if (signal?.aborted) throw new Error('Browser check aborted');
+	let browser: Browser | undefined;
+	try {
+		browser = await chromium.launch({headless: true});
+	} catch (err) {
+		const msg = err instanceof Error ? err.message : String(err);
+		if (
+			/Executable doesn'?t exist|playwright install|download new browsers/i.test(
+				msg,
+			)
+		) {
+			throw new BrowserNotInstalledError(msg);
+		}
+		throw err;
+	} finally {
+		try {
+			await browser?.close();
+		} catch {
+			/* best effort */
+		}
+	}
+}
