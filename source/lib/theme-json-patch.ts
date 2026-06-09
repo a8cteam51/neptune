@@ -26,14 +26,6 @@ export type ThemeJsonPatch = {
 	// (color/typography/spacing/border), block-scoped CSS via .css,
 	// editor-pickable variations under .variations.<name>.
 	blocks?: Record<string, unknown>;
-	// Merged into theme.json's `styles.elements` subtree — per-element
-	// styling (h1..h6, link, button, …). The Figma build/refine skills
-	// never emit this (their parseThemeJsonPatchField rejects it — the
-	// variables-driven theme-json build owns elements there). The Claude
-	// Design standardize pass DOES: folding a hand-written style.css into
-	// theme.json legitimately produces element-level styles. Additive and
-	// inert for the Figma path, which never populates it.
-	elements?: Record<string, unknown>;
 	// Merged into theme.json's `settings.custom` subtree. Free-form
 	// nested key/value tree; WP exposes leaves as `--wp--custom--<path>`
 	// CSS custom properties.
@@ -88,7 +80,7 @@ export async function applyThemeJsonPatch(
 	patch: ThemeJsonPatch,
 ): Promise<{wrote: boolean; touched: string[]}> {
 	const touched: string[] = [];
-	if (!patch.blocks && !patch.elements && !patch.custom) {
+	if (!patch.blocks && !patch.custom) {
 		return {wrote: false, touched};
 	}
 
@@ -100,13 +92,6 @@ export async function applyThemeJsonPatch(
 		const blocks = ensureObject(styles, 'blocks');
 		deepMergeInto(blocks, patch.blocks);
 		touched.push('styles.blocks');
-	}
-
-	if (patch.elements) {
-		const styles = ensureObject(next, 'styles');
-		const elements = ensureObject(styles, 'elements');
-		deepMergeInto(elements, patch.elements);
-		touched.push('styles.elements');
 	}
 
 	if (patch.custom) {

@@ -29,8 +29,6 @@ import RefineContents from './commands/refine-contents.js';
 import ViewTemplateDiff from './commands/view-template-diff.js';
 import BuildThemeJson from './commands/build-theme-json.js';
 import CaptureScreens from './commands/capture-screens.js';
-import ImportClaudeDesign from './commands/import-claude-design.js';
-import RenderRefineTargets from './commands/render-refine-targets.js';
 import E2E from './commands/e2e.js';
 import SetupProject, {type Loaded} from './commands/setup-project.js';
 import {loadOrInit} from './commands/setup-project/config.js';
@@ -61,9 +59,7 @@ type View =
 	| 'viewTemplateDiff'
 	| 'buildTheme'
 	| 'e2e'
-	| 'captureScreens'
-	| 'importClaudeDesign'
-	| 'renderRefineTargets';
+	| 'captureScreens';
 
 type MenuValue = View | 'quit';
 
@@ -75,7 +71,6 @@ export default function App({name, startCwd}: Props) {
 	const [hasPulls, setHasPulls] = useState(false);
 	const [hasNonSpecialPulls, setHasNonSpecialPulls] = useState(false);
 	const [hasPostContentPulls, setHasPostContentPulls] = useState(false);
-	const [hasClaudeDesignTargets, setHasClaudeDesignTargets] = useState(false);
 	const [hasPatternSources, setHasPatternSources] = useState(false);
 	const [autoLoadError, setAutoLoadError] = useState<string | null>(null);
 	const [autoLoaded, setAutoLoaded] = useState(false);
@@ -103,7 +98,6 @@ export default function App({name, startCwd}: Props) {
 			setHasPulls(false);
 			setHasNonSpecialPulls(false);
 			setHasPostContentPulls(false);
-			setHasClaudeDesignTargets(false);
 			setHasPatternSources(false);
 			return;
 		}
@@ -122,21 +116,12 @@ export default function App({name, startCwd}: Props) {
 							p.pageSlug.length > 0,
 					),
 				);
-				setHasClaudeDesignTargets(
-					pulls.some(
-						p =>
-							p.origin === 'claude-design' &&
-							typeof p.templateFile === 'string' &&
-							p.templateFile.length > 0,
-					),
-				);
 			})
 			.catch(() => {
 				if (!cancelled) {
 					setHasPulls(false);
 					setHasNonSpecialPulls(false);
 					setHasPostContentPulls(false);
-					setHasClaudeDesignTargets(false);
 				}
 			});
 		listPatternSources(activeProject.dir)
@@ -175,14 +160,9 @@ export default function App({name, startCwd}: Props) {
 
 	const items = buildMenuItems({
 		hasActive: Boolean(activeProject),
-		source: activeProject?.config.source ?? 'figma',
 		hasPulls,
 		hasNonSpecialPulls,
 		hasPostContentPulls,
-		hasClaudeDesignTargets,
-		hasClaudeDesignSource: Boolean(
-			activeProject?.config.claudeDesign?.sourceDir,
-		),
 		hasSelectedPatterns,
 		hasPatternSources,
 		hasTheme,
@@ -361,23 +341,17 @@ function SiteStatusLine({status}: {status: 'pending' | SiteStatus | null}) {
 // cursor never lands on an empty group.
 function buildMenuItems({
 	hasActive,
-	source,
 	hasPulls,
 	hasNonSpecialPulls,
 	hasPostContentPulls,
-	hasClaudeDesignTargets,
-	hasClaudeDesignSource,
 	hasSelectedPatterns,
 	hasPatternSources,
 	hasTheme,
 }: {
 	hasActive: boolean;
-	source: 'figma' | 'claude-design';
 	hasPulls: boolean;
 	hasNonSpecialPulls: boolean;
 	hasPostContentPulls: boolean;
-	hasClaudeDesignTargets: boolean;
-	hasClaudeDesignSource: boolean;
 	hasSelectedPatterns: boolean;
 	hasPatternSources: boolean;
 	hasTheme: boolean;
@@ -391,60 +365,6 @@ function buildMenuItems({
 			label: 'Setup / Load Project',
 			value: 'setup',
 		});
-		pushSection(items, 'Quit', [
-			{kind: 'item', key: 'quit', label: 'Sail away', value: 'quit'},
-		]);
-		return items;
-	}
-
-	// Claude Design projects use a shorter pipeline: import → refine.
-	// The Figma sections don't apply (no pulls, no tsx-to-blocks build),
-	// so the menu shows only the Claude Design flow.
-	if (source === 'claude-design') {
-		const cdItems: SectionedItem<MenuValue>[] = [
-			{
-				kind: 'item',
-				key: 'importClaudeDesign',
-				label: 'Import Claude Design',
-				value: 'importClaudeDesign',
-			},
-		];
-		// Cheap, agent-free (re)render of refine targets — available once a
-		// package has been imported. Recovers the targets if the import's
-		// render step failed, without re-running the paid standardize agent.
-		if (hasTheme && hasClaudeDesignSource) {
-			cdItems.push({
-				kind: 'item',
-				key: 'renderRefineTargets',
-				label: hasClaudeDesignTargets
-					? 'Re-render refine targets'
-					: 'Render refine targets',
-				value: 'renderRefineTargets',
-			});
-		}
-		if (hasTheme && hasClaudeDesignTargets) {
-			cdItems.push(
-				{
-					kind: 'item',
-					key: 'refineTemplates',
-					label: 'Refine templates',
-					value: 'refineTemplates',
-				},
-				{
-					kind: 'item',
-					key: 'viewTemplateDiff',
-					label: 'View template diff',
-					value: 'viewTemplateDiff',
-				},
-				{
-					kind: 'item',
-					key: 'captureScreens',
-					label: 'Capture screens',
-					value: 'captureScreens',
-				},
-			);
-		}
-		pushSection(items, 'Claude Design', cdItems);
 		pushSection(items, 'Quit', [
 			{kind: 'item', key: 'quit', label: 'Sail away', value: 'quit'},
 		]);
@@ -559,19 +479,6 @@ function buildMenuItems({
 	pushSection(items, 'Content', contentItems);
 	pushSection(items, 'Templates', templateItems);
 	pushSection(items, 'End-to-end', e2eItems);
-	// Offer the Claude Design path as an alternative on a fresh project
-	// (no Figma pulls yet). Selecting Import flips config.source, after
-	// which the menu re-shapes to the Claude Design branch above.
-	if (!hasPulls) {
-		pushSection(items, 'Claude Design', [
-			{
-				kind: 'item',
-				key: 'importClaudeDesign',
-				label: 'Import Claude Design',
-				value: 'importClaudeDesign',
-			},
-		]);
-	}
 	pushSection(items, 'Quit', [
 		{kind: 'item', key: 'quit', label: 'Sail away', value: 'quit'},
 	]);
@@ -691,20 +598,6 @@ function renderView(
 				<CaptureScreens
 					activeProject={activeProject}
 					onDone={() => onDone(false)}
-				/>
-			);
-		case 'importClaudeDesign':
-			return (
-				<ImportClaudeDesign
-					activeProject={activeProject}
-					onDone={(refresh?: boolean) => onDone(refresh ?? true)}
-				/>
-			);
-		case 'renderRefineTargets':
-			return (
-				<RenderRefineTargets
-					activeProject={activeProject}
-					onDone={(refresh?: boolean) => onDone(refresh ?? true)}
 				/>
 			);
 		default:

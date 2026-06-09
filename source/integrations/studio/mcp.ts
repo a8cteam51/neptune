@@ -198,36 +198,21 @@ export async function openStudioSession(
 			}
 		});
 
-	// If init rejects (request timeout) or the child exits during the
-	// handshake, the spawned `studio mcp` process is still alive and would
-	// leak — the caller never receives a session to .close(). Kill it on
-	// every failure path before rethrowing.
-	let initResp: JsonRpcResponse;
-	try {
-		initResp = await send({
-			jsonrpc: '2.0',
-			id: nextId++,
-			method: 'initialize',
-			params: {
-				protocolVersion: PROTOCOL_VERSION,
-				capabilities: {},
-				clientInfo: {name: 'neptune-studio-validate', version: '0.1'},
-			},
-		});
-	} catch (err) {
-		killChild(child);
-		throw err;
-	}
+	const initResp = await send({
+		jsonrpc: '2.0',
+		id: nextId++,
+		method: 'initialize',
+		params: {
+			protocolVersion: PROTOCOL_VERSION,
+			capabilities: {},
+			clientInfo: {name: 'neptune-studio-validate', version: '0.1'},
+		},
+	});
 	if (initResp.error) {
 		killChild(child);
 		throw new Error(`studio mcp initialize failed: ${initResp.error.message}`);
 	}
-	try {
-		await send({jsonrpc: '2.0', method: 'notifications/initialized'});
-	} catch (err) {
-		killChild(child);
-		throw err;
-	}
+	await send({jsonrpc: '2.0', method: 'notifications/initialized'});
 
 	return {
 		call: (name, args) =>

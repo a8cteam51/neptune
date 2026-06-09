@@ -35,13 +35,6 @@ export type AgentRunOptions = {
 	pluginPath: string;
 	maxTurns?: number;
 	signal?: AbortSignal;
-	// Model id the Agent SDK should run. Defaults to DEFAULT_AGENT_MODEL
-	// (Opus 4.8). Override only when a specific call needs a different tier.
-	model?: string;
-	// Reasoning effort level. Defaults to DEFAULT_AGENT_EFFORT ('high').
-	// Override per-call for cheaper/terser runs ('low'/'medium') or deeper
-	// reasoning ('xhigh'/'max', Opus-tier only).
-	effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 	// Defaults to '*' (allow all tools the plugin declares). Pass an
 	// explicit list to lock the agent down further.
 	allowedTools?: string[];
@@ -52,17 +45,6 @@ export type AgentRunOptions = {
 };
 
 const PARTIAL_EMIT_INTERVAL_MS = 1500;
-// Pin every Neptune agent to Opus 4.8. Without an explicit model the Agent
-// SDK runs whatever the host CLI/env resolves, which can drift between
-// machines and releases; Neptune's skills are tuned for Opus-tier
-// reasoning, so set it explicitly. Override per-call via
-// AgentRunOptions.model. Exact id per the Claude API model catalog.
-const DEFAULT_AGENT_MODEL = 'claude-opus-4-8';
-// Reasoning effort for every Neptune agent. 'high' is the sweet spot for
-// the skills' structured-transform + code-conversion work — enough depth
-// for correctness without the cost of 'xhigh'/'max'. Override per-call via
-// AgentRunOptions.effort.
-const DEFAULT_AGENT_EFFORT = 'high';
 const DEFAULT_ALLOWED_TOOLS: string[] = ['*'];
 // Task is the SDK name for the Agent / subagent-dispatch tool. Skills are
 // single-shot transforms — never delegate to a subagent.
@@ -91,8 +73,6 @@ export async function runAgent(
 	const stream = query({
 		prompt: typeof input === 'string' ? input : asMessageStream(input),
 		options: {
-			model: options.model ?? DEFAULT_AGENT_MODEL,
-			effort: options.effort ?? DEFAULT_AGENT_EFFORT,
 			cwd: options.cwd,
 			plugins: [{type: 'local', path: options.pluginPath}],
 			allowedTools: options.allowedTools ?? DEFAULT_ALLOWED_TOOLS,

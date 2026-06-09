@@ -63,45 +63,36 @@ export default function PullPattern({activeProject, onDone}: Props) {
 		const controller = new AbortController();
 
 		(async () => {
-			try {
-				const names = activeProject.config.patterns ?? [];
-				if (names.length === 0) {
-					setPhase({
-						kind: 'message',
-						title: 'No patterns selected.',
-						subtitle:
-							'Run Extract patterns first to choose which patterns to pull.',
-					});
-					return;
-				}
-
-				const [selResult, alreadyPulledFlags] = await Promise.all([
-					getSelectionMetadata({signal: controller.signal}),
-					Promise.all(
-						names.map(n => hasCodeTsx(join(activeProject.dir, 'patterns', n))),
-					),
-				]);
-				if (controller.signal.aborted) return;
-
-				const entries: PickableEntry[] = names.map((name, i) => ({
-					name,
-					alreadyPulled: alreadyPulledFlags[i] ?? false,
-				}));
-
-				setPhase({
-					kind: 'picking',
-					entries,
-					selection: selResult.ok ? selResult.selection : null,
-					selectionError: selResult.ok ? null : selResult.error,
-				});
-			} catch (err) {
-				if (controller.signal.aborted) return;
+			const names = activeProject.config.patterns ?? [];
+			if (names.length === 0) {
 				setPhase({
 					kind: 'message',
-					title: 'Could not load patterns.',
-					subtitle: err instanceof Error ? err.message : String(err),
+					title: 'No patterns selected.',
+					subtitle:
+						'Run Extract patterns first to choose which patterns to pull.',
 				});
+				return;
 			}
+
+			const [selResult, alreadyPulledFlags] = await Promise.all([
+				getSelectionMetadata({signal: controller.signal}),
+				Promise.all(
+					names.map(n => hasCodeTsx(join(activeProject.dir, 'patterns', n))),
+				),
+			]);
+			if (controller.signal.aborted) return;
+
+			const entries: PickableEntry[] = names.map((name, i) => ({
+				name,
+				alreadyPulled: alreadyPulledFlags[i] ?? false,
+			}));
+
+			setPhase({
+				kind: 'picking',
+				entries,
+				selection: selResult.ok ? selResult.selection : null,
+				selectionError: selResult.ok ? null : selResult.error,
+			});
 		})();
 
 		return () => controller.abort();

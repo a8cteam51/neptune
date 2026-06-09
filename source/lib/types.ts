@@ -103,15 +103,4 @@ export type PullMeta = {
 	// wp:separator / background / drop / wp:html) without having to
 	// re-derive the visual's intent from code.tsx alone.
 	discardedAssets?: DiscardedAsset[];
-	// Where this pull came from. Absent ⇒ 'figma' (back-compat: every
-	// pre-existing meta.json predates the Claude Design branch). Pulls
-	// synthesized by the Claude Design import set 'claude-design'; they
-	// carry no code.tsx, so build-* skip them and only the refine loop
-	// consumes them.
-	origin?: 'figma' | 'claude-design';
-	// For 'claude-design' pulls: absolute path to the top-level static
-	// HTML reference (e.g. the design's index.html) that was rendered to
-	// screenshot.png and serves as the refine diff target. Recorded so a
-	// re-import can re-render the same reference without re-deriving it.
-	staticRef?: string;
 };
